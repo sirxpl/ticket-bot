@@ -26,14 +26,11 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- FILE PATH CONFIGURATION FOR RENDER ---
-# Checks if Render persistent disk exists at /var/data; defaults to current directory if not
+# --- PERSISTENT DATA SYSTEMS ---
 STORAGE_DIR = "/var/data" if os.path.exists("/var/data") else "."
 DATA_FILE = os.path.join(STORAGE_DIR, "tickets.json")
-BLACKLIST_FILE = os.path.join(STORAGE_DIR, "blacklist.json")
 
 def load_data(file_path, default_data):
-    """Loads JSON data safely, creating the file with default data if missing."""
     if not os.path.exists(file_path):
         try:
             with open(file_path, "w") as f:
@@ -51,24 +48,30 @@ def load_data(file_path, default_data):
         return default_data
 
 def save_data(file_path, data):
-    """Saves updated JSON data to disk."""
     try:
         with open(file_path, "w") as f:
             json.dump(data, f, indent=4)
     except Exception as e:
         print(f"Error saving to {file_path}: {e}")
 
-# Load initial data
+# Load initial ticket counter
 ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
-blacklisted_users = load_data(BLACKLIST_FILE, [])
 user_cooldowns = {}
 
-# --- HELPER FUNCTION: GET LOG CHANNEL ---
+# --- HELPER FUNCTIONS ---
 def get_log_channel(guild):
     log_channel_id = os.getenv("LOG_CHANNEL_ID")
     if log_channel_id and log_channel_id.isdigit():
         return guild.get_channel(int(log_channel_id))
     return None
+
+def get_blacklist_role(guild):
+    role_id = os.getenv("BLACKLIST_ROLE_ID")
+    if role_id and role_id.isdigit():
+        role = guild.get_role(int(role_id))
+        if role:
+            return role
+    return discord.utils.get(guild.roles, name="Blacklisted")
 
 # --- CLOSE CONFIRMATION VIEW ---
 class CloseConfirmView(View):
@@ -260,10 +263,11 @@ class CarryDropdown(Select):
     async def callback(self, interaction: discord.Interaction):
         guild = interaction.guild
         user = interaction.user
-
         is_admin = user.guild_permissions.administrator
 
-        if user.id in blacklisted_users and not is_admin:
+        # Blacklist check via Role
+        blacklist_role = get_blacklist_role(guild)
+        if blacklist_role and blacklist_role in user.roles and not is_admin:
             return await interaction.response.send_message("❌ You are blacklisted from opening carry tickets.", ephemeral=True)
 
         if user.id in user_cooldowns and not is_admin:
@@ -383,35 +387,31 @@ async def setup_tickets(interaction: discord.Interaction):
         except Exception as e:
             print(f"Failed to post panel: {e}")
 
-@bot.tree.command(name="blacklist_add", description="Prevent a user from opening carry tickets")
-@app_commands.checks.has_permissions(manage_channels=True)
+@bot.tree.command(name="blacklist_add", description="Gives the Blacklisted role to a user")
+@app_commands.checks.has_permissions(manage_roles=True)
 async def blacklist_add(interaction: discord.Interaction, member: discord.Member):
-    if member.id not in blacklisted_users:
-        blacklisted_users.append(member.id)
-        save_data(BLACKLIST_FILE, blacklisted_users)
-        await interaction.response.send_message(
-            embed=discord.Embed(description=f"🚫 {member.mention} has been blacklisted from tickets.", color=discord.Color.red())
-        )
-    else:
-        await interaction.response.send_message(
-            embed=discord.Embed(description=f"ℹ️ {member.mention} is already blacklisted.", color=discord.Color.blue()),
-            ephemeral=True
-        )
+    role = get_blacklist_role(interaction.guild)
+    if not role:
+        return await interaction.response.send_message("❌ Role `Blacklisted` not found. Please create a role named `Blacklisted` first!", ephemeral=True)
 
-@bot.tree.command(name="blacklist_remove", description="Remove a user from the ticket blacklist")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def blacklist_remove(interaction: discord.Interaction, member: discord.Member):
-    if member.id in blacklisted_users:
-        blacklisted_users.remove(member.id)
-        save_data(BLACKLIST_FILE, blacklisted_users)
-        await interaction.response.send_message(
-            embed=discord.Embed(description=f"✅ {member.mention} removed from blacklist.", color=discord.Color.green())
-        )
+    if role in member.roles:
+        await interaction.response.send_message(f"ℹ️ {member.mention} already has the **{role.name}** role.", ephemeral=True)
     else:
-        await interaction.response.send_message(
-            embed=discord.Embed(description=f"ℹ️ {member.mention} is not blacklisted.", color=discord.Color.blue()),
-            ephemeral=True
-        )
+        await member.add_roles(role)
+        await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} has been given the **{role.name}** role.", color=discord.Color.red()))
+
+@bot.tree.command(name="blacklist_remove", description="Removes the Blacklisted role from a user")
+@app_commands.checks.has_permissions(manage_roles=True)
+async def blacklist_remove(interaction: discord.Interaction, member: discord.Member):
+    role = get_blacklist_role(interaction.guild)
+    if not role:
+        return await interaction.response.send_message("❌ Role `Blacklisted` not found.", ephemeral=True)
+
+    if role not in member.roles:
+        await interaction.response.send_message(f"ℹ️ {member.mention} does not have the **{role.name}** role.", ephemeral=True)
+    else:
+        await member.remove_roles(role)
+        await interaction.response.send_message(embed=discord.Embed(description=f"✅ Removed **{role.name}** role from {member.mention}.", color=discord.Color.green()))
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
