@@ -18,6 +18,9 @@ def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 keep_alive()
 
+# --- CONFIGURATION ---
+BLACKLIST_ROLE_ID = 1530330613029015704
+
 # --- BOT SETUP ---
 intents = discord.Intents.default()
 intents.message_content = True
@@ -66,12 +69,7 @@ def get_log_channel(guild):
     return None
 
 def get_blacklist_role(guild):
-    role_id = os.getenv("BLACKLIST_ROLE_ID")
-    if role_id and role_id.isdigit():
-        role = guild.get_role(int(role_id))
-        if role:
-            return role
-    return discord.utils.get(guild.roles, name="Blacklisted")
+    return guild.get_role(BLACKLIST_ROLE_ID)
 
 # --- CLOSE CONFIRMATION VIEW ---
 class CloseConfirmView(View):
@@ -265,7 +263,7 @@ class CarryDropdown(Select):
         user = interaction.user
         is_admin = user.guild_permissions.administrator
 
-        # Blacklist check via Role
+        # Blacklist check via Role ID
         blacklist_role = get_blacklist_role(guild)
         if blacklist_role and blacklist_role in user.roles and not is_admin:
             return await interaction.response.send_message("❌ You are blacklisted from opening carry tickets.", ephemeral=True)
@@ -392,26 +390,26 @@ async def setup_tickets(interaction: discord.Interaction):
 async def blacklist_add(interaction: discord.Interaction, member: discord.Member):
     role = get_blacklist_role(interaction.guild)
     if not role:
-        return await interaction.response.send_message("❌ Role `Blacklisted` not found. Please create a role named `Blacklisted` first!", ephemeral=True)
+        return await interaction.response.send_message("❌ Blacklist role not found in server.", ephemeral=True)
 
     if role in member.roles:
-        await interaction.response.send_message(f"ℹ️ {member.mention} already has the **{role.name}** role.", ephemeral=True)
+        await interaction.response.send_message(f"ℹ️ {member.mention} already has the {role.mention} role.", ephemeral=True)
     else:
         await member.add_roles(role)
-        await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} has been given the **{role.name}** role.", color=discord.Color.red()))
+        await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} has been given the {role.mention} role.", color=discord.Color.red()))
 
 @bot.tree.command(name="blacklist_remove", description="Removes the Blacklisted role from a user")
 @app_commands.checks.has_permissions(manage_roles=True)
 async def blacklist_remove(interaction: discord.Interaction, member: discord.Member):
     role = get_blacklist_role(interaction.guild)
     if not role:
-        return await interaction.response.send_message("❌ Role `Blacklisted` not found.", ephemeral=True)
+        return await interaction.response.send_message("❌ Blacklist role not found in server.", ephemeral=True)
 
     if role not in member.roles:
-        await interaction.response.send_message(f"ℹ️ {member.mention} does not have the **{role.name}** role.", ephemeral=True)
+        await interaction.response.send_message(f"ℹ️ {member.mention} does not have the {role.mention} role.", ephemeral=True)
     else:
         await member.remove_roles(role)
-        await interaction.response.send_message(embed=discord.Embed(description=f"✅ Removed **{role.name}** role from {member.mention}.", color=discord.Color.green()))
+        await interaction.response.send_message(embed=discord.Embed(description=f"✅ Removed {role.mention} role from {member.mention}.", color=discord.Color.green()))
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
