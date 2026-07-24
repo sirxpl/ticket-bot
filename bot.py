@@ -150,31 +150,72 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
 
         await interaction.response.send_message(f"Ticket created! Check out {ticket_channel.mention}", ephemeral=True)
 
-        welcome_embed = discord.Embed(
-            title="Ticket Created",
-            description=f"Welcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you within a considerable amount of time.",
-            color=discord.Color.blue()
-        )
+        # Components V2 Payload inside open ticket
+        ticket_payload = {
+            "flags": 32768,  # IS_COMPONENTS_V2
+            "content": f"{user.mention}",
+            "components": [
+                {
+                    "type": 17,  # Container Component V2
+                    "accent_color": 3447003,
+                    "components": [
+                        {
+                            "type": 10,  # Section Component
+                            "components": [
+                                {
+                                    "type": 12,  # Text Display
+                                    "content": f"## Ticket Created\nWelcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you shortly."
+                                }
+                            ]
+                        },
+                        {"type": 14},  # Separator
+                        {
+                            "type": 10,
+                            "components": [
+                                {
+                                    "type": 12,
+                                    "content": (
+                                        f"**1. ⏰ Which country and timezone are you from?**\n```{self.q1_timezone.value}```\n\n"
+                                        f"**2. 🎮 What is your roblox display name?**\n```{self.q2_roblox.value}```\n\n"
+                                        f"**3. 🎲 Are you able to join a private server?**\n```{self.q3_private_server.value}```"
+                                    )
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": 1,  # Action Row with Close Button
+                    "components": [
+                        {
+                            "type": 2,
+                            "style": 2,
+                            "label": "🔒 Close",
+                            "custom_id": "close_ticket_btn"
+                        }
+                    ]
+                }
+            ]
+        }
 
-        answers_embed = discord.Embed(color=discord.Color.dark_grey())
-        answers_embed.add_field(
-            name="1. ⏰ Which country and timezone are you from?",
-            value=f"```{self.q1_timezone.value}```",
-            inline=False
-        )
-        answers_embed.add_field(
-            name="2. 🎮 What is your roblox display name?",
-            value=f"```{self.q2_roblox.value}```",
-            inline=False
-        )
-        answers_embed.add_field(
-            name="3. 🎲 Are you able to join a private server?",
-            value=f"```{self.q3_private_server.value}```",
-            inline=False
-        )
-        answers_embed.set_footer(text="Ticket Bot | Carry System")
-
-        await ticket_channel.send(content=user.mention, embeds=[welcome_embed, answers_embed], view=TicketControlView())
+        try:
+            await bot.http.request(
+                discord.http.Route('POST', '/channels/{channel_id}/messages', channel_id=ticket_channel.id),
+                json=ticket_payload
+            )
+        except Exception:
+            # Fallback if V2 API flag isn't active on server
+            welcome_embed = discord.Embed(
+                title="Ticket Created",
+                description=f"Welcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you within a considerable amount of time.",
+                color=discord.Color.blue()
+            )
+            answers_embed = discord.Embed(color=discord.Color.dark_grey())
+            answers_embed.add_field(name="1. ⏰ Which country and timezone are you from?", value=f"```{self.q1_timezone.value}```", inline=False)
+            answers_embed.add_field(name="2. 🎮 What is your roblox display name?", value=f"```{self.q2_roblox.value}```", inline=False)
+            answers_embed.add_field(name="3. 🎲 Are you able to join a private server?", value=f"```{self.q3_private_server.value}```", inline=False)
+            answers_embed.set_footer(text="Ticket Bot | Carry System")
+            await ticket_channel.send(embeds=[welcome_embed, answers_embed], view=TicketControlView())
 
         log_channel = get_log_channel(guild)
         if log_channel:
@@ -252,111 +293,87 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-@bot.event
-async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
-    if isinstance(channel, discord.TextChannel):
-        if any(channel.name.startswith(p) for p in [
-            "ticket-", "fallen-", "hidden-", "frost-", "event-", "pizza-", 
-            "lost-", "badlands-", "quickdraw-", "polluted-", "trials-", "hardcore-", "other-"
-        ]):
-            guild = channel.guild
-            log_channel = get_log_channel(guild)
-            
-            if log_channel:
-                deleter_text = "Unknown / Manual Deletion"
-                try:
-                    async for entry in guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=5):
-                        if entry.target.id == channel.id:
-                            deleter_text = f"{entry.user.mention} (ID: {entry.user.id})"
-                            break
-                except Exception as e:
-                    print(f"Could not fetch audit logs: {e}")
-
-                log_embed = discord.Embed(title="🗑️ Carry Ticket Channel Deleted", color=discord.Color.red())
-                log_embed.add_field(name="Ticket Channel", value=f"`{channel.name}` (ID: {channel.id})", inline=False)
-                log_embed.add_field(name="Deleted By", value=deleter_text, inline=False)
-                await log_channel.send(embed=log_embed)
-
-# --- SLASH COMMANDS ---
+# --- REWRITTEN SETUP COMMAND (COMPONENTS V2 PANEL) ---
 @bot.tree.command(name="setup_tickets", description="Spawns the Requesting Carry ticket panel")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_tickets(interaction: discord.Interaction):
-    # Hidden command acknowledgement to prevent the header line from appearing
     await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
 
-    embed = discord.Embed(
-        title="Requesting Carry",
-        description="Choose what you need help with\n\n"
-                    "### Normal Game Modes 🥶\n"
-                    "You can request a carry service for any normal game mode.\n\n"
-                    "### Special Game Modes 🥺\n"
-                    "You can request carry service for any special game mode, including Quickdraw and Lost Soul.\n\n"
-                    "### Trials 🐹\n"
-                    "You can request carry service for any trials, however requesting quarantine or jailed may result in long wait.\n\n"
-                    "### Hardcore 💎\n"
-                    "You can request carry service for hardcore your first hardcore run, but not for gem grinding.\n\n"
-                    "### Others 🐱\n"
-                    "Other is used for game modes below Fallen and for mission quests.",
-        color=discord.Color.blue()
-    )
-    embed.set_footer(text="Ticket Bot | Carry System")
+    dropdown_dict = {
+        "type": 1,
+        "components": [
+            {
+                "type": 3,
+                "custom_id": "carry_dropdown",
+                "placeholder": "Select a category...",
+                "options": [
+                    {"label": "Fallen Carry", "description": "Request fallen mode carry", "emoji": {"name": "🛡️"}, "value": "fallen-carry"},
+                    {"label": "Hidden Wave Carry", "description": "Request hidden wave carry", "emoji": {"name": "🥷"}, "value": "hidden-wave-carry"},
+                    {"label": "Frost Carry", "description": "Request frost mode carry", "emoji": {"name": "❄️"}, "value": "frost-carry"},
+                    {"label": "Event Carry", "description": "Request current event carry", "emoji": {"name": "🎮"}, "value": "event-carry"},
+                    {"label": "Pizza Party Carry", "description": "Request pizza party carry", "emoji": {"name": "🍕"}, "value": "pizza-party-carry"},
+                    {"label": "Lost Soul Carry", "description": "Request lost soul carry", "emoji": {"name": "👻"}, "value": "lost-soul-carry"},
+                    {"label": "Badlands 2 Carry", "description": "Request badlands 2 carry", "emoji": {"name": "🤠"}, "value": "badlands-2-carry"},
+                    {"label": "Quickdraw Carry", "description": "Request quickdraw carry", "emoji": {"name": "🔫"}, "value": "quickdraw-carry"},
+                    {"label": "Polluted Wasteland 2 Carry", "description": "Request polluted wasteland 2 carry", "emoji": {"name": "☢️"}, "value": "polluted-wasteland-2-carry"},
+                    {"label": "Trials", "description": "Request carry for trials", "emoji": {"name": "👾"}, "value": "trials"},
+                    {"label": "Hardcore Carry", "description": "Request hardcore mode carry", "emoji": {"name": "💎"}, "value": "hardcore-carry"},
+                    {"label": "Other", "description": "Request carry for something that not named above", "emoji": {"name": "❓"}, "value": "other"}
+                ]
+            }
+        ]
+    }
+
+    # Components V2 Raw Payload
+    panel_payload = {
+        "flags": 32768,  # Component V2 Flag
+        "components": [
+            {
+                "type": 17,  # Container Block
+                "accent_color": 3447003,
+                "components": [
+                    {
+                        "type": 10,
+                        "components": [
+                            {
+                                "type": 12,
+                                "content": "## Requesting Carry\nChoose what you need help with"
+                            }
+                        ]
+                    },
+                    {"type": 14},
+                    {
+                        "type": 10,
+                        "components": [
+                            {
+                                "type": 12,
+                                "content": (
+                                    "### Normal Game Modes 🥶\nYou can request a carry service for any normal game mode.\n\n"
+                                    "### Special Game Modes 🥺\nYou can request carry service for any special game mode, including Quickdraw and Lost Soul.\n\n"
+                                    "### Trials 🐹\nYou can request carry service for any trials, however requesting quarantine or jailed may result in long wait.\n\n"
+                                    "### Hardcore 💎\nYou can request carry service for hardcore your first hardcore run, but not for gem grinding.\n\n"
+                                    "### Others 🐱\nOther is used for game modes below Fallen and for mission quests."
+                                )
+                            }
+                        ]
+                    }
+                ]
+            },
+            dropdown_dict
+        ]
+    }
 
     if interaction.channel:
         try:
-            await interaction.channel.send(embed=embed, view=TicketLauncher())
-        except discord.Forbidden:
-            print("Error: Bot lacks 'Send Messages' or 'Embed Links' permissions in this channel.")
+            await bot.http.request(
+                discord.http.Route('POST', '/channels/{channel_id}/messages', channel_id=interaction.channel.id),
+                json=panel_payload
+            )
         except Exception as e:
-            print(f"Error sending panel: {e}")
-
-@bot.tree.command(name="blacklist_add", description="Prevent a user from opening carry tickets")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def blacklist_add(interaction: discord.Interaction, member: discord.Member):
-    if member.id not in blacklisted_users:
-        blacklisted_users.append(member.id)
-        save_data(BLACKLIST_FILE, blacklisted_users)
-        await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} has been blacklisted from tickets.", color=discord.Color.red()))
-    else:
-        await interaction.response.send_message(embed=discord.Embed(description=f"ℹ️ {member.mention} is already blacklisted.", color=discord.Color.blue()), ephemeral=True)
-
-@bot.tree.command(name="blacklist_remove", description="Remove a user from the ticket blacklist")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def blacklist_remove(interaction: discord.Interaction, member: discord.Member):
-    if member.id in blacklisted_users:
-        blacklisted_users.remove(member.id)
-        save_data(BLACKLIST_FILE, blacklisted_users)
-        await interaction.response.send_message(embed=discord.Embed(description=f"✅ {member.mention} removed from blacklist.", color=discord.Color.green()))
-    else:
-        await interaction.response.send_message(embed=discord.Embed(description=f"ℹ️ {member.mention} is not blacklisted.", color=discord.Color.blue()), ephemeral=True)
-
-@bot.tree.command(name="set_ticket_count", description="Manually set or reset the ticket counter number")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_ticket_count(interaction: discord.Interaction, number: int):
-    global ticket_counter
-    ticket_counter = number
-    save_data(DATA_FILE, {"ticket_counter": ticket_counter})
-    await interaction.response.send_message(embed=discord.Embed(description=f"⚙️ Ticket counter updated to **#{ticket_counter:04d}**.", color=discord.Color.green()), ephemeral=True)
-
-@bot.tree.command(name="bypass_cooldown", description="Removes the ticket creation cooldown for a specific user")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def bypass_cooldown(interaction: discord.Interaction, member: discord.Member):
-    if member.id in user_cooldowns:
-        del user_cooldowns[member.id]
-        embed = discord.Embed(description=f"⚡ Cooldown removed for {member.mention}.", color=discord.Color.green())
-    else:
-        embed = discord.Embed(description=f"ℹ️ {member.mention} is not currently on cooldown.", color=discord.Color.blue())
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ You need **Administrator** permissions to run this command.", ephemeral=True)
-    else:
-        print(f"Command Error: {error}")
+            print(f"V2 Payload failed ({e}), falling back to standard view...")
+            embed = discord.Embed(title="Requesting Carry", description="Choose what you need help with...", color=discord.Color.blue())
+            await interaction.channel.send(embed=embed, view=TicketLauncher())
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-
 if TOKEN:
     bot.run(TOKEN)
-else:
-    print("Error: DISCORD_TOKEN environment variable is not set.")
