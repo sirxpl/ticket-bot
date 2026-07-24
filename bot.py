@@ -26,9 +26,11 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- PERSISTENT DATA SYSTEMS (SAFE FOR GITHUB DEPLOYMENTS) ---
-DATA_FILE = "tickets.json"
-BLACKLIST_FILE = "blacklist.json"
+# --- FILE PATH CONFIGURATION FOR RENDER ---
+# Checks if Render persistent disk exists at /var/data; defaults to current directory if not
+STORAGE_DIR = "/var/data" if os.path.exists("/var/data") else "."
+DATA_FILE = os.path.join(STORAGE_DIR, "tickets.json")
+BLACKLIST_FILE = os.path.join(STORAGE_DIR, "blacklist.json")
 
 def load_data(file_path, default_data):
     """Loads JSON data safely, creating the file with default data if missing."""
@@ -56,7 +58,7 @@ def save_data(file_path, data):
     except Exception as e:
         print(f"Error saving to {file_path}: {e}")
 
-# Initialize JSON data on startup
+# Load initial data
 ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
 blacklisted_users = load_data(BLACKLIST_FILE, [])
 user_cooldowns = {}
