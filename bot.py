@@ -1,7 +1,9 @@
 import os
 import asyncio
 import time
+import json
 import discord
+from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View
 from flask import Flask
@@ -33,7 +35,32 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Global trackers
 user_cooldowns = {}      # Format: {user_id: timestamp_when_cooldown_expires}
-ticket_counter = 0        # Incremental ticket tracker
+
+# --- PERSISTENT COUNTER SYSTEM (JSON FILE) ---
+DATA_FILE = "tickets.json"
+
+def load_ticket_counter():
+    """Loads the ticket count from a local JSON file."""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r") as f:
+                data = json.load(f)
+                return data.get("ticket_counter", 0)
+        except Exception as e:
+            print(f"Error loading ticket counter: {e}")
+            return 0
+    return 0
+
+def save_ticket_counter(count):
+    """Saves the current ticket count to a local JSON file."""
+    try:
+        with open(DATA_FILE, "w") as f:
+            json.dump({"ticket_counter": count}, f)
+    except Exception as e:
+        print(f"Error saving ticket counter: {e}")
+
+# Initialize ticket counter from file
+ticket_counter = load_ticket_counter()
 
 # --- HELPER FUNCTION: GET LOG CHANNEL ---
 def get_log_channel(guild):
@@ -104,7 +131,7 @@ class TicketLauncher(View):
         guild = interaction.guild
         user = interaction.user
 
-        # 1. CHECK COOLDOWN (Formatted for Hours & Minutes)
+        # 1. CHECK COOLDOWN
         if user.id in user_cooldowns:
             remaining_time = int(user_cooldowns[user.id] - time.time())
             if remaining_time > 0:
@@ -126,8 +153,10 @@ class TicketLauncher(View):
                         f"You already have an open ticket: {channel.mention}", ephemeral=True
                     )
 
-        # 3. INCREMENT COUNTER & CREATE TICKET
+        # 3. INCREMENT COUNTER & SAVE TO FILE
         ticket_counter += 1
+        save_ticket_counter(ticket_counter)  # Writes new count to tickets.json
+        
         formatted_ticket_name = f"ticket-{ticket_counter:04d}"
 
         overwrites = {
@@ -165,6 +194,7 @@ class TicketLauncher(View):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
+    print(f"Loaded starting ticket count: {ticket_counter}")
     bot.add_view(TicketLauncher())
     bot.add_view(TicketControlView())
     try:
@@ -184,6 +214,21 @@ async def setup_tickets(interaction: discord.Interaction):
     )
     await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=TicketLauncher())
+
+
+@bot.tree.command(name="set_ticket_count", description="Manually set or reset the ticket counter number")
+@commands.has_permissions(administrator=True)
+async def set_ticket_count(interaction: discord.Interaction, number: int):
+    global ticket_counter
+    ticket_counter = number
+    save_ticket_counter(ticket_counter)
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            description=f"⚙️ Ticket counter updated to **#{ticket_counter:04d}**.",
+            color=discord.Color.green()
+        ),
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="bypass_cooldown", description="Removes the ticket creation cooldown for a specific user")
@@ -242,7 +287,6 @@ async def force_close(interaction: discord.Interaction, reason: str):
     
     await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Deleting in 5 seconds...*")
     
-    # 8-hour cooldown applied
     user_cooldowns[interaction.user.id] = time.time() + 28800
 
     log_channel = get_log_channel(interaction.guild)
@@ -257,9 +301,48 @@ async def force_close(interaction: discord.Interaction, reason: str):
     await interaction.channel.delete(reason=reason)
 
 
+# --- EDIT TICKET CHANNEL COMMAND ---
+@bot.tree.command(name="edit_ticket", description="Edit the current ticket (or a targeted ticket) channel name or topic")
+@commands.has_permissions(manage_channels=True)
+async def edit_ticket(
+    interaction: discord.Interaction, 
+    target: discord.TextChannel = None, 
+    new_name: str = None, 
+    new_topic: str = None
+):
+    # Default to the current channel if no target was selected
+    channel_to_edit = target or interaction.channel
+
+    # Ensure target channel is a ticket channel
+    if not channel_to_edit.name.startswith("ticket-"):
+        return await interaction.response.send_message(
+            f"⚠️ {channel_to_edit.mention} is not a valid ticket channel!", 
+            ephemeral=True
+        )
+
+    # Make sure at least one field is provided
+    if not new_name and not new_topic:
+        return await interaction.response.send_message(
+            "Please provide at least a new name or a new topic to update!", 
+            ephemeral=True
+        )
+
+    kwargs = {}
+    if new_name:
+        kwargs['name'] = new_name
+    if new_topic:
+        kwargs['topic'] = new_topic
+
+    await channel_to_edit.edit(**kwargs)
+    await interaction.response.send_message(
+        f"✅ Successfully updated {channel_to_edit.mention}!", 
+        ephemeral=True
+    )
+
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("Error: DISCORD_TOKEN environment variable not set!")
+    print("Error: DISCORD_TOKEN environment variable is not set.")
