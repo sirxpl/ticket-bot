@@ -5,7 +5,7 @@ import json
 import discord
 from discord import app_commands
 from discord.ext import commands
-from discord.ui import Button, View
+from discord.ui import Button, View, Select
 from flask import Flask
 from threading import Thread
 
@@ -36,11 +36,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Global trackers
 user_cooldowns = {}      # Format: {user_id: timestamp_when_cooldown_expires}
 
-# --- PERSISTENT COUNTER SYSTEM (JSON FILE) ---
+# --- PERSISTENT DATA SYSTEMS (JSON FILES) ---
 DATA_FILE = "tickets.json"
+BLACKLIST_FILE = "blacklist.json"
 
 def load_ticket_counter():
-    """Loads the ticket count from a local JSON file."""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
@@ -52,15 +52,32 @@ def load_ticket_counter():
     return 0
 
 def save_ticket_counter(count):
-    """Saves the current ticket count to a local JSON file."""
     try:
         with open(DATA_FILE, "w") as f:
             json.dump({"ticket_counter": count}, f)
     except Exception as e:
         print(f"Error saving ticket counter: {e}")
 
-# Initialize ticket counter from file
+def load_blacklist():
+    if os.path.exists(BLACKLIST_FILE):
+        try:
+            with open(BLACKLIST_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading blacklist: {e}")
+            return []
+    return []
+
+def save_blacklist(blacklist_data):
+    try:
+        with open(BLACKLIST_FILE, "w") as f:
+            json.dump(blacklist_data, f)
+    except Exception as e:
+        print(f"Error saving blacklist: {e}")
+
+# Initialize persistent data
 ticket_counter = load_ticket_counter()
+blacklisted_users = load_blacklist()
 
 # --- HELPER FUNCTION: GET LOG CHANNEL ---
 def get_log_channel(guild):
@@ -82,10 +99,9 @@ class CloseConfirmView(View):
 
         await interaction.response.send_message("🔒 Ticket confirmed for closure. Deleting in 5 seconds...")
 
-        # Set 8-hour cooldown (8 hours * 3600 seconds = 28,800 seconds)
+        # Apply 8-hour cooldown to regular users
         user_cooldowns[interaction.user.id] = time.time() + 28800
 
-        # Log ticket closure
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
@@ -120,19 +136,32 @@ class TicketControlView(View):
         await interaction.response.send_message(embed=embed, view=CloseConfirmView(), ephemeral=False)
 
 
-# --- TICKET LAUNCHER BUTTON (MAIN PANEL) ---
-class TicketLauncher(View):
+# --- SELECT MENU & MAIN TICKET PANEL ---
+class TicketDropdown(Select):
     def __init__(self):
-        super().__init__(timeout=None)
+        options = [
+            discord.SelectOption(label="General Support", description="General questions or help", emoji="💬", value="general"),
+            discord.SelectOption(label="Bug Report", description="Report a bug or issue", emoji="🐛", value="bug"),
+            discord.SelectOption(label="Billing / Store", description="Questions regarding payments or purchases", emoji="💳", value="billing"),
+        ]
+        super().__init__(placeholder="Select the type of support you need...", min_values=1, max_values=1, options=options, custom_id="ticket_dropdown")
 
-    @discord.ui.button(label="📩 Open Ticket", style=discord.ButtonStyle.primary, custom_id="ticket_button")
-    async def create_ticket(self, interaction: discord.Interaction, button: Button):
+    async def callback(self, interaction: discord.Interaction):
         global ticket_counter
         guild = interaction.guild
         user = interaction.user
 
-        # 1. CHECK COOLDOWN USING DISCORD TIMESTAMP
-        if user.id in user_cooldowns:
+        # Check if user has Administrator permission
+        is_admin = user.guild_permissions.administrator
+
+        # 0. CHECK BLACKLIST (Bypassed if Admin)
+        if user.id in blacklisted_users and not is_admin:
+            return await interaction.response.send_message(
+                "❌ You are blacklisted from creating support tickets.", ephemeral=True
+            )
+
+        # 1. CHECK COOLDOWN (Bypassed if Admin)
+        if user.id in user_cooldowns and not is_admin:
             expire_timestamp = int(user_cooldowns[user.id])
             if time.time() < expire_timestamp:
                 return await interaction.response.send_message(
@@ -142,20 +171,22 @@ class TicketLauncher(View):
             else:
                 del user_cooldowns[user.id]
 
-        # 2. CHECK FOR EXISTING TICKET
-        for channel in guild.text_channels:
-            if channel.name.startswith("ticket-"):
-                overwrites = channel.overwrites_for(user)
-                if overwrites.read_messages is True:
-                    return await interaction.response.send_message(
-                        f"You already have an open ticket: {channel.mention}", ephemeral=True
-                    )
+        # 2. CHECK FOR EXISTING TICKET (Bypassed if Admin)
+        if not is_admin:
+            for channel in guild.text_channels:
+                if channel.name.startswith("ticket-"):
+                    overwrites = channel.overwrites_for(user)
+                    if overwrites.read_messages is True:
+                        return await interaction.response.send_message(
+                            f"You already have an open ticket: {channel.mention}", ephemeral=True
+                        )
 
-        # 3. INCREMENT COUNTER & SAVE TO FILE
+        # 3. CREATE TICKET
         ticket_counter += 1
-        save_ticket_counter(ticket_counter)  # Writes new count to tickets.json
-        
-        formatted_ticket_name = f"ticket-{ticket_counter:04d}"
+        save_ticket_counter(ticket_counter)
+
+        ticket_type = self.values[0]
+        formatted_ticket_name = f"ticket-{ticket_counter:04d}-{ticket_type}"
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -170,10 +201,10 @@ class TicketLauncher(View):
         )
 
         await interaction.response.send_message(f"Ticket created! Check out {ticket_channel.mention}", ephemeral=True)
-        
+
         embed = discord.Embed(
             title=f"Welcome {user.name}!",
-            description=f"Ticket **#{ticket_counter:04d}**\n\nSupport will be with you shortly. Please describe your issue in detail.\n\nClick the button below if you wish to close this ticket.",
+            description=f"Ticket **#{ticket_counter:04d}** ({ticket_type.capitalize()})\n\nSupport will be with you shortly. Please describe your issue in detail.\n\nClick the button below if you wish to close this ticket.",
             color=discord.Color.green()
         )
         await ticket_channel.send(content=user.mention, embed=embed, view=TicketControlView())
@@ -183,9 +214,16 @@ class TicketLauncher(View):
         if log_channel:
             log_embed = discord.Embed(title="📝 New Ticket Opened", color=discord.Color.blue())
             log_embed.add_field(name="Ticket Number", value=f"#{ticket_counter:04d}", inline=True)
+            log_embed.add_field(name="Category", value=ticket_type.capitalize(), inline=True)
             log_embed.add_field(name="Opened By", value=f"{user.mention} (ID: {user.id})", inline=True)
             log_embed.add_field(name="Ticket Channel", value=f"{ticket_channel.mention} (ID: {ticket_channel.id})", inline=False)
             await log_channel.send(embed=log_embed)
+
+
+class TicketLauncher(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(TicketDropdown())
 
 
 # --- BOT EVENTS & COMMANDS ---
@@ -202,16 +240,47 @@ async def on_ready():
         print(e)
 
 
-@bot.tree.command(name="setup_tickets", description="Spawns the ticket creation panel")
+@bot.tree.command(name="setup_tickets", description="Spawns the upgraded ticket creation panel")
 @commands.has_permissions(administrator=True)
 async def setup_tickets(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Need Support?",
-        description="Click the button below to open a private support ticket.",
+        title="📬 Support Center",
+        description="Need help? Select the category that best matches your issue from the menu below to open a ticket.",
         color=discord.Color.blue()
     )
+    embed.set_footer(text="Please choose the correct topic to help us serve you faster.")
     await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=TicketLauncher())
+
+
+@bot.tree.command(name="blacklist_add", description="Prevent a user from opening support tickets")
+@commands.has_permissions(manage_channels=True)
+async def blacklist_add(interaction: discord.Interaction, member: discord.Member):
+    if member.id not in blacklisted_users:
+        blacklisted_users.append(member.id)
+        save_blacklist(blacklisted_users)
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"🚫 {member.mention} has been blacklisted from tickets.", color=discord.Color.red())
+        )
+    else:
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"ℹ️ {member.mention} is already blacklisted.", color=discord.Color.blue()), ephemeral=True
+        )
+
+
+@bot.tree.command(name="blacklist_remove", description="Remove a user from the ticket blacklist")
+@commands.has_permissions(manage_channels=True)
+async def blacklist_remove(interaction: discord.Interaction, member: discord.Member):
+    if member.id in blacklisted_users:
+        blacklisted_users.remove(member.id)
+        save_blacklist(blacklisted_users)
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"✅ {member.mention} has been removed from the blacklist.", color=discord.Color.green())
+        )
+    else:
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"ℹ️ {member.mention} is not blacklisted.", color=discord.Color.blue()), ephemeral=True
+        )
 
 
 @bot.tree.command(name="set_ticket_count", description="Manually set or reset the ticket counter number")
@@ -221,10 +290,7 @@ async def set_ticket_count(interaction: discord.Interaction, number: int):
     ticket_counter = number
     save_ticket_counter(ticket_counter)
     await interaction.response.send_message(
-        embed=discord.Embed(
-            description=f"⚙️ Ticket counter updated to **#{ticket_counter:04d}**.",
-            color=discord.Color.green()
-        ),
+        embed=discord.Embed(description=f"⚙️ Ticket counter updated to **#{ticket_counter:04d}**.", color=discord.Color.green()),
         ephemeral=True
     )
 
@@ -234,15 +300,9 @@ async def set_ticket_count(interaction: discord.Interaction, number: int):
 async def bypass_cooldown(interaction: discord.Interaction, member: discord.Member):
     if member.id in user_cooldowns:
         del user_cooldowns[member.id]
-        embed = discord.Embed(
-            description=f"⚡ Cooldown removed for {member.mention}. They can open a new ticket immediately!",
-            color=discord.Color.green()
-        )
+        embed = discord.Embed(description=f"⚡ Cooldown removed for {member.mention}.", color=discord.Color.green())
     else:
-        embed = discord.Embed(
-            description=f"ℹ️ {member.mention} is not currently on a ticket cooldown.",
-            color=discord.Color.blue()
-        )
+        embed = discord.Embed(description=f"ℹ️ {member.mention} is not currently on cooldown.", color=discord.Color.blue())
     await interaction.response.send_message(embed=embed)
 
 
@@ -299,27 +359,22 @@ async def force_close(interaction: discord.Interaction, reason: str):
     await interaction.channel.delete(reason=reason)
 
 
-# --- EDIT TICKET CHANNEL COMMAND ---
 @bot.tree.command(name="edit_ticket", description="Edit a ticket channel's name and number")
 @commands.has_permissions(manage_channels=True)
 async def edit_ticket(
     interaction: discord.Interaction, 
     target: discord.TextChannel, 
-    numbers: int,          # Required ticket number
-    name: str,             # Required name
-    new_topic: str = None  # Optional topic
+    numbers: int,          
+    name: str,             
+    new_topic: str = None  
 ):
-    # Ensure the target channel being edited is a ticket channel
     if not target.name.startswith("ticket-"):
         return await interaction.response.send_message(
             f"⚠️ {target.mention} is not a valid ticket channel!", 
             ephemeral=True
         )
 
-    # Clean up the name input if the user typed "ticket-" themselves
     clean_name = name.removeprefix("ticket-").strip()
-
-    # Format the combined name: ticket-0005-yourname
     formatted_name = f"ticket-{numbers:04d}-{clean_name}"
 
     kwargs = {'name': formatted_name}
