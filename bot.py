@@ -299,14 +299,15 @@ async def force_close(interaction: discord.Interaction, reason: str):
     await interaction.channel.delete(reason=reason)
 
 
-# --- EDIT TICKET CHANNEL COMMAND (OPTION 1) ---
-@bot.tree.command(name="edit_ticket", description="Edit a ticket channel's name or topic")
+# --- EDIT TICKET CHANNEL COMMAND ---
+@bot.tree.command(name="edit_ticket", description="Edit a ticket channel's name and number")
 @commands.has_permissions(manage_channels=True)
 async def edit_ticket(
     interaction: discord.Interaction, 
     target: discord.TextChannel, 
-    new_name: str = None, 
-    new_topic: str = None
+    numbers: int,          # Required ticket number
+    name: str,             # Required name
+    new_topic: str = None  # Optional topic
 ):
     # Ensure the target channel being edited is a ticket channel
     if not target.name.startswith("ticket-"):
@@ -315,26 +316,20 @@ async def edit_ticket(
             ephemeral=True
         )
 
-    if not new_name and not new_topic:
-        return await interaction.response.send_message(
-            "Please provide at least a new name or a new topic to update!", 
-            ephemeral=True
-        )
+    # Clean up the name input if the user typed "ticket-" themselves
+    clean_name = name.removeprefix("ticket-").strip()
 
-    kwargs = {}
-    
-    if new_name:
-        # Automatically prepend 'ticket-' if the user didn't type it
-        if not new_name.startswith("ticket-"):
-            new_name = f"ticket-{new_name}"
-        kwargs['name'] = new_name
+    # Format the combined name: ticket-0005-yourname
+    formatted_name = f"ticket-{numbers:04d}-{clean_name}"
+
+    kwargs = {'name': formatted_name}
 
     if new_topic:
         kwargs['topic'] = new_topic
 
     await target.edit(**kwargs)
     await interaction.response.send_message(
-        f"✅ Successfully updated {target.mention}!", 
+        f"✅ Successfully updated {target.mention} to **{formatted_name}**!", 
         ephemeral=True
     )
 
