@@ -281,6 +281,9 @@ async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
 @bot.tree.command(name="setup_tickets", description="Spawns the Requesting Carry ticket panel")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_tickets(interaction: discord.Interaction):
+    # Sends a hidden message to hide the "used /setup_tickets" command header
+    await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
+
     embed = discord.Embed(
         title="Requesting Carry",
         description="Choose what you need help with\n\n"
@@ -297,7 +300,15 @@ async def setup_tickets(interaction: discord.Interaction):
         color=discord.Color.blue()
     )
     embed.set_footer(text="Ticket Bot | Carry System")
-    await interaction.response.send_message(embed=embed, view=TicketLauncher())
+
+    # Direct channel send creates a clean, header-less message in the channel
+    if interaction.channel:
+        try:
+            await interaction.channel.send(embed=embed, view=TicketLauncher())
+        except discord.Forbidden:
+            print("Error: Bot lacks 'Send Messages' or 'Embed Links' permissions in this channel.")
+        except Exception as e:
+            print(f"Error sending panel: {e}")
 
 @bot.tree.command(name="blacklist_add", description="Prevent a user from opening carry tickets")
 @app_commands.checks.has_permissions(manage_channels=True)
