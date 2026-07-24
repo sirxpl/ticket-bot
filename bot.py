@@ -131,14 +131,12 @@ class TicketLauncher(View):
         guild = interaction.guild
         user = interaction.user
 
-        # 1. CHECK COOLDOWN
+        # 1. CHECK COOLDOWN USING DISCORD TIMESTAMP
         if user.id in user_cooldowns:
-            remaining_time = int(user_cooldowns[user.id] - time.time())
-            if remaining_time > 0:
-                hours = remaining_time // 3600
-                minutes = (remaining_time % 3600) // 60
+            expire_timestamp = int(user_cooldowns[user.id])
+            if time.time() < expire_timestamp:
                 return await interaction.response.send_message(
-                    f"⏳ You are on cooldown! Please wait **{hours}h {minutes}m** before opening another ticket.",
+                    f"⏳ You are on cooldown! Please wait until <t:{expire_timestamp}:R> before opening another ticket.",
                     ephemeral=True
                 )
             else:
@@ -301,26 +299,22 @@ async def force_close(interaction: discord.Interaction, reason: str):
     await interaction.channel.delete(reason=reason)
 
 
-# --- EDIT TICKET CHANNEL COMMAND ---
-@bot.tree.command(name="edit_ticket", description="Edit the current ticket (or a targeted ticket) channel name or topic")
+# --- EDIT TICKET CHANNEL COMMAND (OPTION 1) ---
+@bot.tree.command(name="edit_ticket", description="Edit a ticket channel's name or topic")
 @commands.has_permissions(manage_channels=True)
 async def edit_ticket(
     interaction: discord.Interaction, 
-    target: discord.TextChannel = None, 
+    target: discord.TextChannel, 
     new_name: str = None, 
     new_topic: str = None
 ):
-    # Default to the current channel if no target was selected
-    channel_to_edit = target or interaction.channel
-
-    # Ensure target channel is a ticket channel
-    if not channel_to_edit.name.startswith("ticket-"):
+    # Ensure the target channel being edited is a ticket channel
+    if not target.name.startswith("ticket-"):
         return await interaction.response.send_message(
-            f"⚠️ {channel_to_edit.mention} is not a valid ticket channel!", 
+            f"⚠️ {target.mention} is not a valid ticket channel!", 
             ephemeral=True
         )
 
-    # Make sure at least one field is provided
     if not new_name and not new_topic:
         return await interaction.response.send_message(
             "Please provide at least a new name or a new topic to update!", 
@@ -328,14 +322,19 @@ async def edit_ticket(
         )
 
     kwargs = {}
+    
     if new_name:
+        # Automatically prepend 'ticket-' if the user didn't type it
+        if not new_name.startswith("ticket-"):
+            new_name = f"ticket-{new_name}"
         kwargs['name'] = new_name
+
     if new_topic:
         kwargs['topic'] = new_topic
 
-    await channel_to_edit.edit(**kwargs)
+    await target.edit(**kwargs)
     await interaction.response.send_message(
-        f"✅ Successfully updated {channel_to_edit.mention}!", 
+        f"✅ Successfully updated {target.mention}!", 
         ephemeral=True
     )
 
