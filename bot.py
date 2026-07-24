@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 import discord
 from discord.ext import commands
 from discord.ui import Button, View
@@ -30,6 +31,9 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Global trackers
+user_cooldowns = {}      # Format: {user_id: timestamp_when_cooldown_expires}
+ticket_counter = 0        # Incremental ticket tracker
 
 # --- HELPER FUNCTION: GET LOG CHANNEL ---
 def get_log_channel(guild):
@@ -42,7 +46,7 @@ def get_log_channel(guild):
 # --- CONFIRMATION BUTTONS VIEW ---
 class CloseConfirmView(View):
     def __init__(self):
-        super().__init__(timeout=60) # Times out after 60 seconds if unused
+        super().__init__(timeout=60)
 
     @discord.ui.button(label="✅ Yes, Close", style=discord.ButtonStyle.danger, custom_id="confirm_close_btn")
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
@@ -50,6 +54,9 @@ class CloseConfirmView(View):
             return await interaction.response.send_message("This action can only be used inside a ticket channel!", ephemeral=True)
 
         await interaction.response.send_message("🔒 Ticket confirmed for closure. Deleting in 5 seconds...")
+
+        # Set 15-minute cooldown (15 mins * 60 secs = 900 seconds)
+        user_cooldowns[interaction.user.id] = time.time() + 900
 
         # Log ticket closure
         log_channel = get_log_channel(interaction.guild)
@@ -64,12 +71,11 @@ class CloseConfirmView(View):
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, custom_id="cancel_close_btn")
     async def cancel_close(self, interaction: discord.Interaction, button: Button):
-        # Delete the confirmation prompt message when canceled
         await interaction.message.delete()
         await interaction.response.send_message("Ticket closure canceled.", ephemeral=True)
 
 
-# --- BUTTON INSIDE THE OPENED TICKET (TRIGGERS CONFIRMATION) ---
+# --- BUTTON INSIDE THE OPENED TICKET ---
 class TicketControlView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -79,7 +85,6 @@ class TicketControlView(View):
         if not interaction.channel.name.startswith("ticket-"):
             return await interaction.response.send_message("This action can only be used inside a ticket channel!", ephemeral=True)
 
-        # Send confirmation prompt
         embed = discord.Embed(
             title="Are you sure?",
             description="Are you sure you want to close this ticket? This action cannot be undone.",
@@ -95,13 +100,38 @@ class TicketLauncher(View):
 
     @discord.ui.button(label="📩 Open Ticket", style=discord.ButtonStyle.primary, custom_id="ticket_button")
     async def create_ticket(self, interaction: discord.Interaction, button: Button):
+        global ticket_counter
         guild = interaction.guild
         user = interaction.user
 
-        existing_channel = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
-        if existing_channel:
-            await interaction.response.send_message(f"You already have an open ticket: {existing_channel.mention}", ephemeral=True)
-            return
+        # 1. CHECK COOLDOWN
+        if user.id in user_cooldowns:
+            remaining_time = int(user_cooldowns[user.id] - time.time())
+            if remaining_time > 0:
+                minutes = remaining_time // 60
+                seconds = remaining_time % 60
+                return await interaction.response.send_message(
+                    f"⏳ You are on cooldown! Please wait **{minutes}m {seconds}s** before opening another ticket.",
+                    ephemeral=True
+                )
+            else:
+                # Cooldown expired, remove from dictionary
+                del user_cooldowns[user.id]
+
+        # 2. CHECK FOR EXISTING TICKET
+        # Prevent open duplicate tickets if user already has one
+        for channel in guild.text_channels:
+            if channel.name.startswith("ticket-"):
+                # Check if user has permission to read that ticket channel
+                overwrites = channel.overwrites_for(user)
+                if overwrites.read_messages is True:
+                    return await interaction.response.send_message(
+                        f"You already have an open ticket: {channel.mention}", ephemeral=True
+                    )
+
+        # 3. INCREMENT COUNTER & CREATE TICKET
+        ticket_counter += 1
+        formatted_ticket_name = f"ticket-{ticket_counter:04d}" # Generates ticket-0001, ticket-0002, etc.
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -110,24 +140,26 @@ class TicketLauncher(View):
         }
 
         ticket_channel = await guild.create_text_channel(
-            name=f"ticket-{user.name}",
+            name=formatted_ticket_name,
             overwrites=overwrites,
-            reason=f"Ticket opened by {user.name}"
+            reason=f"Ticket #{ticket_counter} opened by {user.name}"
         )
 
         await interaction.response.send_message(f"Ticket created! Check out {ticket_channel.mention}", ephemeral=True)
         
         embed = discord.Embed(
             title=f"Welcome {user.name}!",
-            description="Support will be with you shortly. Please describe your issue in detail.\n\nClick the button below if you wish to close this ticket.",
+            description=f"Ticket **#{ticket_counter:04d}**\n\nSupport will be with you shortly. Please describe your issue in detail.\n\nClick the button below if you wish to close this ticket.",
             color=discord.Color.green()
         )
         await ticket_channel.send(content=user.mention, embed=embed, view=TicketControlView())
 
+        # LOGGING
         log_channel = get_log_channel(guild)
         if log_channel:
             log_embed = discord.Embed(title="📝 New Ticket Opened", color=discord.Color.blue())
-            log_embed.add_field(name="Opened By", value=f"{user.mention} (ID: {user.id})", inline=False)
+            log_embed.add_field(name="Ticket Number", value=f"#{ticket_counter:04d}", inline=True)
+            log_embed.add_field(name="Opened By", value=f"{user.mention} (ID: {user.id})", inline=True)
             log_embed.add_field(name="Ticket Channel", value=f"{ticket_channel.mention} (ID: {ticket_channel.id})", inline=False)
             await log_channel.send(embed=log_embed)
 
@@ -196,6 +228,10 @@ async def force_close(interaction: discord.Interaction, reason: str):
     
     await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Deleting in 5 seconds...*")
     
+    # Apply cooldown to the ticket channel user if possible
+    # We set cooldown for the command issuer or target if wanted, here setting on the closer:
+    user_cooldowns[interaction.user.id] = time.time() + 900
+
     log_channel = get_log_channel(interaction.guild)
     if log_channel:
         log_embed = discord.Embed(title="⚠️ Ticket Force Closed", color=discord.Color.red())
