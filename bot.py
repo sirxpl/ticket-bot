@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from discord.ext import commands
 from discord.ui import Button, View
@@ -19,15 +20,22 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-keep_alive()  # Starts the web server in the background
+keep_alive()
 # ------------------------------------------------------
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
+intents.members = True # Good to have enabled since you flipped the switch in the portal!
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# --- HELPER FUNCTION: GET LOG CHANNEL ---
+def get_log_channel(guild):
+    log_channel_id = os.getenv("LOG_CHANNEL_ID")
+    if log_channel_id and log_channel_id.isdigit():
+        return guild.get_channel(int(log_channel_id))
+    return None
 
 # --- TICKET BUTTON INTERACTION ---
 class TicketLauncher(View):
@@ -39,6 +47,7 @@ class TicketLauncher(View):
         guild = interaction.guild
         user = interaction.user
 
+        # Prevent duplicates
         existing_channel = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
         if existing_channel:
             await interaction.response.send_message(f"You already have an open ticket: {existing_channel.mention}", ephemeral=True)
@@ -50,6 +59,7 @@ class TicketLauncher(View):
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
+        # Create Channel
         ticket_channel = await guild.create_text_channel(
             name=f"ticket-{user.name}",
             overwrites=overwrites,
@@ -58,6 +68,7 @@ class TicketLauncher(View):
 
         await interaction.response.send_message(f"Ticket created! Check out {ticket_channel.mention}", ephemeral=True)
         
+        # Welcome message inside the ticket
         embed = discord.Embed(
             title=f"Welcome {user.name}!",
             description="Support will be with you shortly. Please describe your issue in detail.",
@@ -65,6 +76,13 @@ class TicketLauncher(View):
         )
         await ticket_channel.send(content=user.mention, embed=embed)
 
+        # --- NEW: SEND LOG TO LOGGING CHANNEL ---
+        log_channel = get_log_channel(guild)
+        if log_channel:
+            log_embed = discord.Embed(title="📝 New Ticket Opened", color=discord.Color.blue())
+            log_embed.add_field(name="Opened By", value=f"{user.mention} (ID: {user.id})", inline=False)
+            log_embed.add_field(name="Ticket Channel", value=f"{ticket_channel.mention} (ID: {ticket_channel.id})", inline=False)
+            await log_channel.send(embed=log_embed)
 
 # --- BOT EVENTS & COMMANDS ---
 @bot.event
@@ -77,7 +95,6 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-
 @bot.tree.command(name="setup_tickets", description="Spawns the ticket creation panel")
 @commands.has_permissions(administrator=True)
 async def setup_tickets(interaction: discord.Interaction):
@@ -89,38 +106,61 @@ async def setup_tickets(interaction: discord.Interaction):
     await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
     await interaction.channel.send(embed=embed, view=TicketLauncher())
 
-
 @bot.tree.command(name="remove_user", description="Remove a user's permission to view this ticket channel")
 @commands.has_permissions(manage_channels=True)
 async def remove_user(interaction: discord.Interaction, member: discord.Member):
     if not interaction.channel.name.startswith("ticket-"):
-        await interaction.response.send_message("This command can only be used inside a ticket channel!", ephemeral=True)
-        return
-
+        return await interaction.response.send_message("This command can only be used inside a ticket channel!", ephemeral=True)
     await interaction.channel.set_permissions(member, overwrite=None)
-    
-    embed = discord.Embed(
-        description=f"🚫 {member.mention} has been removed from this ticket.",
-        color=discord.Color.red()
-    )
-    await interaction.response.send_message(embed=embed)
-
+    await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} removed.", color=discord.Color.red()))
 
 @bot.tree.command(name="add_user", description="Grant a user permission to view this ticket channel")
 @commands.has_permissions(manage_channels=True)
 async def add_user(interaction: discord.Interaction, member: discord.Member):
     if not interaction.channel.name.startswith("ticket-"):
-        await interaction.response.send_message("This command can only be used inside a ticket channel!", ephemeral=True)
-        return
-
+        return await interaction.response.send_message("This command can only be used inside a ticket channel!", ephemeral=True)
     await interaction.channel.set_permissions(member, read_messages=True, send_messages=True)
-    
-    embed = discord.Embed(
-        description=f"✅ {member.mention} has been added to this ticket.",
-        color=discord.Color.green()
-    )
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=discord.Embed(description=f"✅ {member.mention} added.", color=discord.Color.green()))
 
+# --- NEW: NORMAL CLOSE COMMAND ---
+@bot.tree.command(name="close", description="Close this ticket channel")
+async def close_ticket(interaction: discord.Interaction):
+    if not interaction.channel.name.startswith("ticket-"):
+        return await interaction.response.send_message("This command can only be used inside a ticket channel!", ephemeral=True)
+    
+    await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+    
+    # Log the closure
+    log_channel = get_log_channel(interaction.guild)
+    if log_channel:
+        log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
+        log_embed.add_field(name="Closed By", value=interaction.user.mention, inline=False)
+        log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
+        await log_channel.send(embed=log_embed)
+
+    await asyncio.sleep(5)
+    await interaction.channel.delete()
+
+# --- NEW: FORCE CLOSE COMMAND (STAFF ONLY) ---
+@bot.tree.command(name="force_close", description="Force close a ticket with a reason")
+@commands.has_permissions(manage_channels=True)
+async def force_close(interaction: discord.Interaction, reason: str):
+    if not interaction.channel.name.startswith("ticket-"):
+        return await interaction.response.send_message("This command can only be used inside a ticket channel!", ephemeral=True)
+    
+    await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Deleting in 5 seconds...*")
+    
+    # Log the forced closure
+    log_channel = get_log_channel(interaction.guild)
+    if log_channel:
+        log_embed = discord.Embed(title="⚠️ Ticket Force Closed", color=discord.Color.red())
+        log_embed.add_field(name="Closed By", value=interaction.user.mention, inline=False)
+        log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
+        log_embed.add_field(name="Reason", value=reason, inline=False)
+        await log_channel.send(embed=log_embed)
+
+    await asyncio.sleep(5)
+    await interaction.channel.delete(reason=reason)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
