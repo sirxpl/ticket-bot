@@ -55,8 +55,8 @@ class CloseConfirmView(View):
 
         await interaction.response.send_message("🔒 Ticket confirmed for closure. Deleting in 5 seconds...")
 
-        # Set 15-minute cooldown (15 mins * 60 secs = 900 seconds)
-        user_cooldowns[interaction.user.id] = time.time() + 900
+        # Set 8-hour cooldown (8 hours * 3600 seconds = 28,800 seconds)
+        user_cooldowns[interaction.user.id] = time.time() + 28800
 
         # Log ticket closure
         log_channel = get_log_channel(interaction.guild)
@@ -104,25 +104,22 @@ class TicketLauncher(View):
         guild = interaction.guild
         user = interaction.user
 
-        # 1. CHECK COOLDOWN
+        # 1. CHECK COOLDOWN (Formatted for Hours & Minutes)
         if user.id in user_cooldowns:
             remaining_time = int(user_cooldowns[user.id] - time.time())
             if remaining_time > 0:
-                minutes = remaining_time // 60
-                seconds = remaining_time % 60
+                hours = remaining_time // 3600
+                minutes = (remaining_time % 3600) // 60
                 return await interaction.response.send_message(
-                    f"⏳ You are on cooldown! Please wait **{minutes}m {seconds}s** before opening another ticket.",
+                    f"⏳ You are on cooldown! Please wait **{hours}h {minutes}m** before opening another ticket.",
                     ephemeral=True
                 )
             else:
-                # Cooldown expired, remove from dictionary
                 del user_cooldowns[user.id]
 
         # 2. CHECK FOR EXISTING TICKET
-        # Prevent open duplicate tickets if user already has one
         for channel in guild.text_channels:
             if channel.name.startswith("ticket-"):
-                # Check if user has permission to read that ticket channel
                 overwrites = channel.overwrites_for(user)
                 if overwrites.read_messages is True:
                     return await interaction.response.send_message(
@@ -131,7 +128,7 @@ class TicketLauncher(View):
 
         # 3. INCREMENT COUNTER & CREATE TICKET
         ticket_counter += 1
-        formatted_ticket_name = f"ticket-{ticket_counter:04d}" # Generates ticket-0001, ticket-0002, etc.
+        formatted_ticket_name = f"ticket-{ticket_counter:04d}"
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -189,6 +186,23 @@ async def setup_tickets(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=TicketLauncher())
 
 
+@bot.tree.command(name="bypass_cooldown", description="Removes the ticket creation cooldown for a specific user")
+@commands.has_permissions(manage_channels=True)
+async def bypass_cooldown(interaction: discord.Interaction, member: discord.Member):
+    if member.id in user_cooldowns:
+        del user_cooldowns[member.id]
+        embed = discord.Embed(
+            description=f"⚡ Cooldown removed for {member.mention}. They can open a new ticket immediately!",
+            color=discord.Color.green()
+        )
+    else:
+        embed = discord.Embed(
+            description=f"ℹ️ {member.mention} is not currently on a ticket cooldown.",
+            color=discord.Color.blue()
+        )
+    await interaction.response.send_message(embed=embed)
+
+
 @bot.tree.command(name="remove_user", description="Remove a user's permission to view this ticket channel")
 @commands.has_permissions(manage_channels=True)
 async def remove_user(interaction: discord.Interaction, member: discord.Member):
@@ -228,9 +242,8 @@ async def force_close(interaction: discord.Interaction, reason: str):
     
     await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Deleting in 5 seconds...*")
     
-    # Apply cooldown to the ticket channel user if possible
-    # We set cooldown for the command issuer or target if wanted, here setting on the closer:
-    user_cooldowns[interaction.user.id] = time.time() + 900
+    # 8-hour cooldown applied
+    user_cooldowns[interaction.user.id] = time.time() + 28800
 
     log_channel = get_log_channel(interaction.guild)
     if log_channel:
