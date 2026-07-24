@@ -26,26 +26,38 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- PERSISTENT DATA SYSTEMS ---
+# --- PERSISTENT DATA SYSTEMS (SAFE FOR GITHUB DEPLOYMENTS) ---
 DATA_FILE = "tickets.json"
 BLACKLIST_FILE = "blacklist.json"
 
-def load_data(file, default):
-    if os.path.exists(file):
+def load_data(file_path, default_data):
+    """Loads JSON data safely, creating the file with default data if missing."""
+    if not os.path.exists(file_path):
         try:
-            with open(file, "r") as f: return json.load(f)
+            with open(file_path, "w") as f:
+                json.dump(default_data, f, indent=4)
+            return default_data
         except Exception as e:
-            print(f"Error loading {file}: {e}")
-            return default
-    return default
+            print(f"Error creating missing file {file_path}: {e}")
+            return default_data
 
-def save_data(file, data):
     try:
-        with open(file, "w") as f: json.dump(data, f)
+        with open(file_path, "r") as f:
+            return json.load(f)
     except Exception as e:
-        print(f"Error saving {file}: {e}")
+        print(f"Error loading {file_path}: {e}")
+        return default_data
 
-ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0})["ticket_counter"]
+def save_data(file_path, data):
+    """Saves updated JSON data to disk."""
+    try:
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving to {file_path}: {e}")
+
+# Initialize JSON data on startup
+ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
 blacklisted_users = load_data(BLACKLIST_FILE, [])
 user_cooldowns = {}
 
@@ -150,25 +162,24 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
 
         await interaction.response.send_message(f"Ticket created! Check out {ticket_channel.mention}", ephemeral=True)
 
-        # Components V2 Payload inside open ticket
         ticket_payload = {
-            "flags": 32768,  # IS_COMPONENTS_V2
+            "flags": 32768,
             "content": f"{user.mention}",
             "components": [
                 {
-                    "type": 17,  # Container Component V2
+                    "type": 17,
                     "accent_color": 3447003,
                     "components": [
                         {
-                            "type": 10,  # Section Component
+                            "type": 10,
                             "components": [
                                 {
-                                    "type": 12,  # Text Display
+                                    "type": 12,
                                     "content": f"## Ticket Created\nWelcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you shortly."
                                 }
                             ]
                         },
-                        {"type": 14},  # Separator
+                        {"type": 14},
                         {
                             "type": 10,
                             "components": [
@@ -185,7 +196,7 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
                     ]
                 },
                 {
-                    "type": 1,  # Action Row with Close Button
+                    "type": 1,
                     "components": [
                         {
                             "type": 2,
@@ -204,10 +215,9 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
                 json=ticket_payload
             )
         except Exception:
-            # Fallback if V2 API flag isn't active on server
             welcome_embed = discord.Embed(
                 title="Ticket Created",
-                description=f"Welcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you within a considerable amount of time.",
+                description=f"Welcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you shortly.",
                 color=discord.Color.blue()
             )
             answers_embed = discord.Embed(color=discord.Color.dark_grey())
@@ -293,7 +303,7 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-# --- REWRITTEN SETUP COMMAND (COMPONENTS V2 PANEL) ---
+# --- SLASH COMMANDS ---
 @bot.tree.command(name="setup_tickets", description="Spawns the Requesting Carry ticket panel")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_tickets(interaction: discord.Interaction):
@@ -324,12 +334,11 @@ async def setup_tickets(interaction: discord.Interaction):
         ]
     }
 
-    # Components V2 Raw Payload
     panel_payload = {
-        "flags": 32768,  # Component V2 Flag
+        "flags": 32768,
         "components": [
             {
-                "type": 17,  # Container Block
+                "type": 17,
                 "accent_color": 3447003,
                 "components": [
                     {
@@ -370,9 +379,37 @@ async def setup_tickets(interaction: discord.Interaction):
                 json=panel_payload
             )
         except Exception as e:
-            print(f"V2 Payload failed ({e}), falling back to standard view...")
-            embed = discord.Embed(title="Requesting Carry", description="Choose what you need help with...", color=discord.Color.blue())
-            await interaction.channel.send(embed=embed, view=TicketLauncher())
+            print(f"Failed to post panel: {e}")
+
+@bot.tree.command(name="blacklist_add", description="Prevent a user from opening carry tickets")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def blacklist_add(interaction: discord.Interaction, member: discord.Member):
+    if member.id not in blacklisted_users:
+        blacklisted_users.append(member.id)
+        save_data(BLACKLIST_FILE, blacklisted_users)
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"🚫 {member.mention} has been blacklisted from tickets.", color=discord.Color.red())
+        )
+    else:
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"ℹ️ {member.mention} is already blacklisted.", color=discord.Color.blue()),
+            ephemeral=True
+        )
+
+@bot.tree.command(name="blacklist_remove", description="Remove a user from the ticket blacklist")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def blacklist_remove(interaction: discord.Interaction, member: discord.Member):
+    if member.id in blacklisted_users:
+        blacklisted_users.remove(member.id)
+        save_data(BLACKLIST_FILE, blacklisted_users)
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"✅ {member.mention} removed from blacklist.", color=discord.Color.green())
+        )
+    else:
+        await interaction.response.send_message(
+            embed=discord.Embed(description=f"ℹ️ {member.mention} is not blacklisted.", color=discord.Color.blue()),
+            ephemeral=True
+        )
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
