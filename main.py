@@ -27,10 +27,13 @@ ALLOWED_ROLE_IDS = [
     1530330612567904276               # Staff/Admin Role ID
 ]
 
+# Base URL for Web Dashboard Links
+DOMAIN_URL = os.getenv("DOMAIN_URL", "https://ticket-bot-f184.onrender.com")
+
 # Discord OAuth2 Config
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = "https://ticket-bot-f184.onrender.com/callback"
+REDIRECT_URI = f"{DOMAIN_URL}/callback"
 DISCORD_API_URL = "https://discord.com/api/v10"
 
 # --- BOT SETUP ---
@@ -108,7 +111,7 @@ LOGIN_HTML = """
 <body>
     <div class="login-card">
         <h1>🎫 Carry Bot Dashboard</h1>
-        <p>Please authorize with Discord to access the control panel.</p>
+        <p>Please authorize with Discord to access transcripts and controls.</p>
         <a href="/login" class="btn">🔑 Login with Discord</a>
     </div>
 </body>
@@ -349,18 +352,15 @@ def index():
 
 @app.route('/transcript/<channel_name>')
 def view_transcript(channel_name):
+    # Store requested target URL in session if not logged in
     if 'user_id' not in session:
+        session['redirect_after_login'] = f"/transcript/{channel_name}"
         return redirect('/login')
 
-    filename = f"transcript-{channel_name}.html"
-    filepath = os.path.join(TRANSCRIPT_DIR, filename)
+    filepath = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel_name}.html")
 
     if not os.path.exists(filepath):
-        # Fallback check for old plain text format
-        txt_filepath = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel_name}.txt")
-        if os.path.exists(txt_filepath):
-            return send_file(txt_filepath, mimetype='text/plain')
-        return "<h2 style='color:red; font-family:sans-serif; text-align:center;'>Transcript file not found.</h2>", 404
+        return "<h2 style='color:#ef4444; font-family:sans-serif; text-align:center; margin-top:50px;'>Transcript file not found.</h2>", 404
 
     return send_file(filepath)
 
@@ -403,11 +403,13 @@ def callback():
     user_data = user_response.json()
     user_id = int(user_data['id'])
 
+    target_redirect = session.pop('redirect_after_login', '/')
+
     if user_id in ALLOWED_USER_IDS:
         session['user_id'] = user_data['id']
         session['username'] = user_data['username']
         session['avatar'] = user_data.get('avatar')
-        return redirect('/')
+        return redirect(target_redirect)
 
     member_response = requests.get(
         f"{DISCORD_API_URL}/users/@me/guilds/{GUILD_ID}/member", 
@@ -422,13 +424,13 @@ def callback():
             session['user_id'] = user_data['id']
             session['username'] = user_data['username']
             session['avatar'] = user_data.get('avatar')
-            return redirect('/')
+            return redirect(target_redirect)
 
     return """
     <div style="font-family: sans-serif; background: #0f172a; color: #ef4444; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;">
         <div>
             <h1>🚫 Access Denied</h1>
-            <p style="color: #94a3b8;">You do not have permission to access this dashboard.</p>
+            <p style="color: #94a3b8;">You do not have permission or proper roles to view this transcript.</p>
             <a href="/logout" style="color: #38bdf8;">Return to Login</a>
         </div>
     </div>
@@ -478,10 +480,9 @@ def get_transcripts():
     saved_transcripts = []
     if os.path.exists(TRANSCRIPT_DIR):
         for f in sorted(os.listdir(TRANSCRIPT_DIR), reverse=True):
-            if f.startswith("transcript-") and (f.endswith(".html") or f.endswith(".txt")):
-                channel_name = f.replace("transcript-", "").replace(".html", "").replace(".txt", "")
-                if not any(t["channel_name"] == channel_name for t in saved_transcripts):
-                    saved_transcripts.append({"channel_name": channel_name, "filename": f})
+            if f.startswith("transcript-") and f.endswith(".html"):
+                channel_name = f.replace("transcript-", "").replace(".html", "")
+                saved_transcripts.append({"channel_name": channel_name, "filename": f})
     return jsonify(saved_transcripts)
 
 @app.route('/api/cooldowns')
@@ -569,7 +570,7 @@ def get_blacklist_role(guild):
     return guild.get_role(BLACKLIST_ROLE_ID)
 
 # --- DISCORD-STYLED HTML TRANSCRIPT GENERATOR ---
-async def generate_transcript(channel: discord.TextChannel) -> discord.File:
+async def save_html_transcript(channel: discord.TextChannel) -> str:
     messages_html = ""
     
     async for msg in channel.history(limit=None, oldest_first=True):
@@ -666,9 +667,7 @@ async def generate_transcript(channel: discord.TextChannel) -> discord.File:
     </html>
     """
 
-    # Save HTML transcript locally
     html_filepath = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel.name}.html")
-    txt_filepath = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel.name}.txt")
 
     try:
         with open(html_filepath, "w", encoding="utf-8") as f:
@@ -676,16 +675,7 @@ async def generate_transcript(channel: discord.TextChannel) -> discord.File:
     except Exception as e:
         print(f"Error saving HTML transcript: {e}")
 
-    # Plain text format for Discord file attachment
-    txt_content = f"Transcript for #{channel.name}\n"
-    async for msg in channel.history(limit=None, oldest_first=True):
-        txt_content += f"[{msg.created_at.strftime('%Y-%m-%d %H:%M:%S')}] {msg.author}: {msg.clean_content}\n"
-    
-    with open(txt_filepath, "w", encoding="utf-8") as f:
-        f.write(txt_content)
-
-    buffer = io.BytesIO(full_html.encode('utf-8'))
-    return discord.File(fp=buffer, filename=f"transcript-{channel.name}.html")
+    return f"{DOMAIN_URL}/transcript/{channel.name}"
 
 # --- CLOSE CONFIRMATION VIEW ---
 class CloseConfirmView(View):
@@ -704,14 +694,15 @@ class CloseConfirmView(View):
 
         user_cooldowns[interaction.user.id] = time.time() + 28800
 
-        transcript_file = await generate_transcript(interaction.channel)
+        transcript_url = await save_html_transcript(interaction.channel)
 
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
             log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
             log_embed.add_field(name="Ticket Channel", value=interaction.channel.name, inline=False)
-            await log_channel.send(embed=log_embed, file=transcript_file)
+            log_embed.add_field(name="🌐 Interactive Transcript", value=f"[View Saved Transcript]({transcript_url})", inline=False)
+            await log_channel.send(embed=log_embed)
 
         await asyncio.sleep(5)
         await interaction.channel.delete()
@@ -976,7 +967,7 @@ async def force_close(interaction: discord.Interaction, reason: str):
     
     user_cooldowns[interaction.user.id] = time.time() + 28800
 
-    transcript_file = await generate_transcript(interaction.channel)
+    transcript_url = await save_html_transcript(interaction.channel)
 
     log_channel = get_log_channel(interaction.guild)
     if log_channel:
@@ -984,7 +975,8 @@ async def force_close(interaction: discord.Interaction, reason: str):
         log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
         log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
         log_embed.add_field(name="Reason", value=reason, inline=False)
-        await log_channel.send(embed=log_embed, file=transcript_file)
+        log_embed.add_field(name="🌐 Interactive Transcript", value=f"[View Saved Transcript]({transcript_url})", inline=False)
+        await log_channel.send(embed=log_embed)
 
     await asyncio.sleep(5)
     await interaction.channel.delete(reason=reason)
