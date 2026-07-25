@@ -3,12 +3,13 @@ import io
 import asyncio
 import time
 import json
+import html
 import requests
 import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View, Select, Modal, TextInput
-from flask import Flask, render_template_string, jsonify, request, redirect, session
+from flask import Flask, render_template_string, jsonify, request, redirect, session, send_file
 from threading import Thread
 
 # Allowed Individual Users (Bot Owners, Developers, etc.)
@@ -75,6 +76,17 @@ def save_data(file_path, data):
 
 # Load initial ticket counter from file
 ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
+
+# --- PERMISSION HELPER FUNCTION ---
+def can_user_close_ticket(user: discord.Member, channel: discord.TextChannel) -> bool:
+    """Checks if a user is either the Ticket Owner or a Staff/Admin member."""
+    if user.guild_permissions.administrator or any(role.id in ALLOWED_ROLE_IDS for role in user.roles):
+        return True
+
+    if channel.topic and f"OwnerID:{user.id}" in channel.topic:
+        return True
+
+    return False
 
 # --- FLASK DASHBOARD & OAUTH2 SERVER ---
 app = Flask('')
@@ -257,7 +269,6 @@ DASHBOARD_HTML = """
 
         async function loadAdvancedData() {
             try {
-                // Fetch active ticket channels
                 const ticketsRes = await fetch('/api/active_tickets');
                 const ticketsData = await ticketsRes.json();
                 const ticketsList = document.getElementById('active-tickets-list');
@@ -272,7 +283,6 @@ DASHBOARD_HTML = """
                         </li>`;
                 });
 
-                // Fetch transcript history
                 const transRes = await fetch('/api/transcripts');
                 const transData = await transRes.json();
                 const transList = document.getElementById('transcript-list');
@@ -286,7 +296,6 @@ DASHBOARD_HTML = """
                         </li>`;
                 });
 
-                // Fetch active cooldowns
                 const cdRes = await fetch('/api/cooldowns');
                 const cdData = await cdRes.json();
                 const cdList = document.getElementById('cooldown-list');
@@ -299,7 +308,6 @@ DASHBOARD_HTML = """
                         </li>`;
                 });
 
-                // Fetch blacklisted members
                 const blRes = await fetch('/api/blacklisted');
                 const blData = await blRes.json();
                 const blList = document.getElementById('blacklist-list');
@@ -317,30 +325,6 @@ DASHBOARD_HTML = """
         }
         window.onload = loadAdvancedData;
     </script>
-</body>
-</html>
-"""
-
-TRANSCRIPT_PAGE_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Transcript - #{{ channel_name }}</title>
-    <style>
-        body { font-family: 'Consolas', 'Courier New', monospace; background-color: #0f172a; color: #38bdf8; padding: 40px; margin: 0; }
-        .container { max-width: 1000px; margin: 0 auto; background-color: #1e293b; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-        h2 { color: #f8fafc; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; }
-        pre { white-space: pre-wrap; word-wrap: break-word; color: #f1f5f9; font-size: 0.95rem; line-height: 1.5; }
-        .back-btn { display: inline-block; background-color: #5865F2; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-family: sans-serif; font-weight: bold; margin-bottom: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <a href="/" class="back-btn">⬅️ Back to Dashboard</a>
-        <h2>📜 Message Log for #{{ channel_name }}</h2>
-        <pre>{{ content }}</pre>
-    </div>
 </body>
 </html>
 """
@@ -368,16 +352,17 @@ def view_transcript(channel_name):
     if 'user_id' not in session:
         return redirect('/login')
 
-    filename = f"transcript-{channel_name}.txt"
+    filename = f"transcript-{channel_name}.html"
     filepath = os.path.join(TRANSCRIPT_DIR, filename)
 
     if not os.path.exists(filepath):
-        return "<h2 style='color:red; font-family:sans-serif;'>Transcript file not found.</h2>", 404
+        # Fallback check for old plain text format
+        txt_filepath = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel_name}.txt")
+        if os.path.exists(txt_filepath):
+            return send_file(txt_filepath, mimetype='text/plain')
+        return "<h2 style='color:red; font-family:sans-serif; text-align:center;'>Transcript file not found.</h2>", 404
 
-    with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    return render_template_string(TRANSCRIPT_PAGE_HTML, channel_name=channel_name, content=content)
+    return send_file(filepath)
 
 @app.route('/login')
 def login():
@@ -414,19 +399,16 @@ def callback():
 
     user_headers = {'Authorization': f"Bearer {access_token}"}
 
-    # Fetch User Identity
     user_response = requests.get(f"{DISCORD_API_URL}/users/@me", headers=user_headers)
     user_data = user_response.json()
     user_id = int(user_data['id'])
 
-    # 1. Check if user is explicitly whitelisted by User ID
     if user_id in ALLOWED_USER_IDS:
         session['user_id'] = user_data['id']
         session['username'] = user_data['username']
         session['avatar'] = user_data.get('avatar')
         return redirect('/')
 
-    # 2. Check if user has an allowed role inside the server
     member_response = requests.get(
         f"{DISCORD_API_URL}/users/@me/guilds/{GUILD_ID}/member", 
         headers=user_headers
@@ -496,9 +478,10 @@ def get_transcripts():
     saved_transcripts = []
     if os.path.exists(TRANSCRIPT_DIR):
         for f in sorted(os.listdir(TRANSCRIPT_DIR), reverse=True):
-            if f.startswith("transcript-") and f.endswith(".txt"):
-                channel_name = f.replace("transcript-", "").replace(".txt", "")
-                saved_transcripts.append({"channel_name": channel_name, "filename": f})
+            if f.startswith("transcript-") and (f.endswith(".html") or f.endswith(".txt")):
+                channel_name = f.replace("transcript-", "").replace(".html", "").replace(".txt", "")
+                if not any(t["channel_name"] == channel_name for t in saved_transcripts):
+                    saved_transcripts.append({"channel_name": channel_name, "filename": f})
     return jsonify(saved_transcripts)
 
 @app.route('/api/cooldowns')
@@ -585,35 +568,124 @@ def get_log_channel(guild):
 def get_blacklist_role(guild):
     return guild.get_role(BLACKLIST_ROLE_ID)
 
+# --- DISCORD-STYLED HTML TRANSCRIPT GENERATOR ---
 async def generate_transcript(channel: discord.TextChannel) -> discord.File:
-    lines = [f"=== TRANSCRIPT FOR TICKET CHANNEL: #{channel.name} ===", ""]
+    messages_html = ""
     
     async for msg in channel.history(limit=None, oldest_first=True):
-        timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-        attachments = f" [Attachments: {', '.join([a.url for a in msg.attachments])}]" if msg.attachments else ""
-        content = msg.clean_content if msg.clean_content else "(No text content)"
-        lines.append(f"[{timestamp}] {msg.author} ({msg.author.id}): {content}{attachments}")
+        timestamp = msg.created_at.strftime("%b %d, %Y, %I:%M %p")
+        author_name = html.escape(str(msg.author))
+        avatar_url = msg.author.display_avatar.url
+        bot_badge = '<span class="bot-badge">APP</span>' if msg.author.bot else ''
+
+        text_content = html.escape(msg.clean_content) if msg.clean_content else ''
         
+        embeds_html = ""
         for embed in msg.embeds:
-            if embed.title:
-                lines.append(f"   [Embed Title: {embed.title}]")
-            if embed.description:
-                lines.append(f"   [Embed Description: {embed.description}]")
+            fields_html = ""
             for field in embed.fields:
-                lines.append(f"   [Embed Field: {field.name} -> {field.value}]")
+                val_formatted = html.escape(field.value).replace('```', '')
+                fields_html += f"""
+                <div class="embed-field">
+                    <div class="embed-field-name">{html.escape(field.name)}</div>
+                    <div class="embed-field-value">{val_formatted}</div>
+                </div>
+                """
+            
+            embed_title = f'<div class="embed-title">{html.escape(embed.title)}</div>' if embed.title else ''
+            embed_desc = f'<div class="embed-description">{html.escape(embed.description)}</div>' if embed.description else ''
+            
+            embeds_html += f"""
+            <div class="embed">
+                {embed_title}
+                {embed_desc}
+                <div class="embed-fields">{fields_html}</div>
+            </div>
+            """
 
-    transcript_text = "\n".join(lines)
+        attachments_html = ""
+        for att in msg.attachments:
+            attachments_html += f'<div class="attachment"><a href="{att.url}" target="_blank">📎 {html.escape(att.filename)}</a></div>'
 
-    # Save to local persistent server storage for Dashboard access
-    saved_path = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel.name}.txt")
+        messages_html += f"""
+        <div class="message">
+            <img class="avatar" src="{avatar_url}" alt="Avatar">
+            <div class="message-body">
+                <div class="header">
+                    <span class="author">{author_name}</span>
+                    {bot_badge}
+                    <span class="timestamp">{timestamp}</span>
+                </div>
+                {f'<div class="content">{text_content}</div>' if text_content else ''}
+                {embeds_html}
+                {attachments_html}
+            </div>
+        </div>
+        """
+
+    full_html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Transcript #{channel.name}</title>
+        <style>
+            body {{ background-color: #313338; color: #dbdee1; font-family: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 20px; }}
+            .container {{ max-width: 1000px; margin: 0 auto; background-color: #2b2d31; border-radius: 8px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.4); }}
+            .channel-header {{ font-size: 1.4rem; font-weight: bold; color: #f2f3f5; border-bottom: 1px solid #3f4147; padding-bottom: 15px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; }}
+            .message {{ display: flex; margin-bottom: 18px; }}
+            .avatar {{ width: 40px; height: 40px; border-radius: 50%; margin-right: 16px; flex-shrink: 0; }}
+            .message-body {{ flex-grow: 1; }}
+            .header {{ display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }}
+            .author {{ color: #f2f3f5; font-weight: 600; font-size: 1rem; }}
+            .bot-badge {{ background-color: #5865f2; color: white; font-size: 0.65rem; font-weight: bold; padding: 1px 4px; border-radius: 3px; line-height: 1.2; }}
+            .timestamp {{ color: #949ba4; font-size: 0.75rem; margin-left: 4px; }}
+            .content {{ color: #dbdee1; font-size: 0.95rem; line-height: 1.375; word-wrap: break-word; white-space: pre-wrap; }}
+            
+            .embed {{ background-color: #2b2d31; border-left: 4px solid #1e1f22; border-radius: 4px; padding: 12px 16px; margin-top: 8px; max-width: 520px; background: #1e1f22; }}
+            .embed-title {{ color: #f2f3f5; font-weight: 700; margin-bottom: 6px; font-size: 0.95rem; }}
+            .embed-description {{ color: #dbdee1; font-size: 0.9rem; margin-bottom: 10px; line-height: 1.3; }}
+            .embed-fields {{ display: flex; flex-direction: column; gap: 8px; }}
+            .embed-field-name {{ color: #f2f3f5; font-weight: 600; font-size: 0.85rem; }}
+            .embed-field-value {{ background-color: #2b2d31; color: #dbdee1; padding: 6px 10px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; margin-top: 2px; white-space: pre-wrap; }}
+            .attachment {{ margin-top: 6px; font-size: 0.85rem; }}
+            .attachment a {{ color: #00a8fc; text-decoration: none; }}
+            .attachment a:hover {{ text-decoration: underline; }}
+            .back-btn {{ background-color: #5865f2; color: white; border: none; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="channel-header">
+                <span>💬 #{html.escape(channel.name)}</span>
+                <a href="/" class="back-btn">⬅️ Dashboard</a>
+            </div>
+            {messages_html}
+        </div>
+    </body>
+    </html>
+    """
+
+    # Save HTML transcript locally
+    html_filepath = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel.name}.html")
+    txt_filepath = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel.name}.txt")
+
     try:
-        with open(saved_path, "w", encoding="utf-8") as f:
-            f.write(transcript_text)
+        with open(html_filepath, "w", encoding="utf-8") as f:
+            f.write(full_html)
     except Exception as e:
-        print(f"Error saving transcript locally: {e}")
+        print(f"Error saving HTML transcript: {e}")
 
-    buffer = io.BytesIO(transcript_text.encode('utf-8'))
-    return discord.File(fp=buffer, filename=f"transcript-{channel.name}.txt")
+    # Plain text format for Discord file attachment
+    txt_content = f"Transcript for #{channel.name}\n"
+    async for msg in channel.history(limit=None, oldest_first=True):
+        txt_content += f"[{msg.created_at.strftime('%Y-%m-%d %H:%M:%S')}] {msg.author}: {msg.clean_content}\n"
+    
+    with open(txt_filepath, "w", encoding="utf-8") as f:
+        f.write(txt_content)
+
+    buffer = io.BytesIO(full_html.encode('utf-8'))
+    return discord.File(fp=buffer, filename=f"transcript-{channel.name}.html")
 
 # --- CLOSE CONFIRMATION VIEW ---
 class CloseConfirmView(View):
@@ -622,6 +694,12 @@ class CloseConfirmView(View):
 
     @discord.ui.button(label="✅ Yes, Close", style=discord.ButtonStyle.danger, custom_id="confirm_close_btn")
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
+        if not can_user_close_ticket(interaction.user, interaction.channel):
+            return await interaction.response.send_message(
+                "❌ You cannot close this ticket! Only the ticket owner or staff members can close it.",
+                ephemeral=True
+            )
+
         await interaction.response.send_message("🔒 Ticket confirmed for closure. Generating transcript and deleting in 5 seconds...")
 
         user_cooldowns[interaction.user.id] = time.time() + 28800
@@ -640,6 +718,11 @@ class CloseConfirmView(View):
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, custom_id="cancel_close_btn")
     async def cancel_close(self, interaction: discord.Interaction, button: Button):
+        if not can_user_close_ticket(interaction.user, interaction.channel):
+            return await interaction.response.send_message(
+                "❌ You cannot cancel this close request as you do not own this ticket.",
+                ephemeral=True
+            )
         await interaction.message.delete()
         await interaction.response.send_message("Ticket closure canceled.", ephemeral=True)
 
@@ -650,6 +733,12 @@ class TicketControlView(View):
 
     @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.secondary, custom_id="close_ticket_btn")
     async def close_ticket_button(self, interaction: discord.Interaction, button: Button):
+        if not can_user_close_ticket(interaction.user, interaction.channel):
+            return await interaction.response.send_message(
+                "❌ You cannot close this ticket! Only the ticket owner or staff members can close it.",
+                ephemeral=True
+            )
+
         embed = discord.Embed(
             title="Are you sure?",
             description="Are you sure you want to close this ticket? This action cannot be undone.",
@@ -706,6 +795,7 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
         ticket_channel = await guild.create_text_channel(
             name=formatted_channel_name,
             overwrites=overwrites,
+            topic=f"Ticket Owner: {user.name} | OwnerID:{user.id}",
             reason=f"Carry Ticket #{ticket_counter} opened by {user.name}"
         )
 
@@ -866,6 +956,12 @@ async def remove_user(interaction: discord.Interaction, member: discord.Member):
 
 @bot.tree.command(name="close", description="Close this ticket channel")
 async def close_ticket(interaction: discord.Interaction):
+    if not can_user_close_ticket(interaction.user, interaction.channel):
+        return await interaction.response.send_message(
+            "❌ You cannot close this ticket! Only the ticket owner or staff members can close it.",
+            ephemeral=True
+        )
+
     embed = discord.Embed(
         title="Are you sure?",
         description="Are you sure you want to close this ticket? This action cannot be undone.",
