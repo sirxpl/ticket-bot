@@ -111,8 +111,19 @@ DASHBOARD_HTML = """
         .section { background-color: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
         ul { list-style-type: none; padding: 0; margin: 0; }
         li { background: #0f172a; padding: 12px; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .badge-red { background: #ef4444; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
-        .badge-yellow { background: #f59e0b; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
+        
+        .btn-action { background: #f59e0b; color: #000; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-action:hover { opacity: 0.9; }
+        .btn-green { background: #10b981; color: #000; }
+
+        /* Modal styling */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); justify-content: center; align-items: center; z-index: 1000; }
+        .modal { background: #1e293b; padding: 30px; border-radius: 12px; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        .modal h3 { margin-top: 0; color: #f8fafc; }
+        .modal p { color: #94a3b8; font-size: 0.95rem; }
+        .modal-buttons { display: flex; justify-content: center; gap: 12px; margin-top: 20px; }
+        .btn-modal-confirm { background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-modal-cancel { background: #64748b; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -151,23 +162,99 @@ DASHBOARD_HTML = """
         </div>
     </div>
 
+    <div id="confirmModal" class="modal-overlay">
+        <div class="modal">
+            <h3 id="modalTitle">Are you sure?</h3>
+            <p id="modalDesc">This action cannot be undone.</p>
+            <div class="modal-buttons">
+                <button id="modalConfirmBtn" class="btn-modal-confirm">Confirm</button>
+                <button onclick="closeModal()" class="btn-modal-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        let pendingAction = null;
+
+        function promptConfirmation(title, message, actionCallback) {
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalDesc').innerText = message;
+            pendingAction = actionCallback;
+            document.getElementById('confirmModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('confirmModal').style.display = 'none';
+            pendingAction = null;
+        }
+
+        document.getElementById('modalConfirmBtn').onclick = async function() {
+            if (pendingAction) {
+                await pendingAction();
+            }
+            closeModal();
+        };
+
+        function removeCooldownPrompt(userId) {
+            promptConfirmation(
+                "Clear Cooldown?",
+                `Are you sure you want to remove the cooldown for User ID: ${userId}?`,
+                async () => {
+                    const res = await fetch('/api/remove_cooldown', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: userId })
+                    });
+                    const data = await res.json();
+                    alert(data.message || 'Action executed.');
+                    loadAdvancedData();
+                }
+            );
+        }
+
+        function removeBlacklistPrompt(userId, userName) {
+            promptConfirmation(
+                "Un-blacklist User?",
+                `Are you sure you want to remove ${userName} (${userId}) from the blacklist?`,
+                async () => {
+                    const res = await fetch('/api/remove_blacklist', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: userId })
+                    });
+                    const data = await res.json();
+                    alert(data.message || 'Action executed.');
+                    loadAdvancedData();
+                }
+            );
+        }
+
         async function loadAdvancedData() {
             try {
+                // Fetch active cooldowns
                 const cdRes = await fetch('/api/cooldowns');
                 const cdData = await cdRes.json();
                 const cdList = document.getElementById('cooldown-list');
                 cdList.innerHTML = cdData.length ? '' : '<li>No users on cooldown</li>';
                 cdData.forEach(user => {
-                    cdList.innerHTML += `<li><span>User ID: ${user.user_id}</span> <span class="badge-yellow">Expires in ${user.expires_in_seconds}s</span></li>`;
+                    cdList.innerHTML += `
+                        <li>
+                            <span>User ID: ${user.user_id} (${user.expires_in_seconds}s remaining)</span>
+                            <button onclick="removeCooldownPrompt('${user.user_id}')" class="btn-action">⚡ Clear Cooldown</button>
+                        </li>`;
                 });
 
+                // Fetch blacklisted members
                 const blRes = await fetch('/api/blacklisted');
                 const blData = await blRes.json();
                 const blList = document.getElementById('blacklist-list');
                 blList.innerHTML = blData.length ? '' : '<li>No blacklisted users found</li>';
                 blData.forEach(user => {
-                    blList.innerHTML += `<li><span>${user.name} (${user.id})</span> <span class="badge-red">Blacklisted</span></li>`;
+                    blList.innerHTML += `
+                        <li>
+                            <span>${user.name} (${user.id})</span>
+                            <button onclick="removeBlacklistPrompt('${user.id}', '${user.name}')" class="btn-action btn-green">✅ Un-blacklist</button>
+                        </li>`;
                 });
             } catch (e) {
                 console.error(e);
@@ -223,7 +310,6 @@ def callback():
     }
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
     
-    # Exchange authorization code for Access Token
     token_response = requests.post(f"{DISCORD_API_URL}/oauth2/token", data=data, headers=headers)
     token_json = token_response.json()
     access_token = token_json.get('access_token')
@@ -231,12 +317,10 @@ def callback():
     if not access_token:
         return f"OAuth Error: {token_json}", 400
 
-    # Fetch User Identity
     user_headers = {'Authorization': f"Bearer {access_token}"}
     user_response = requests.get(f"{DISCORD_API_URL}/users/@me", headers=user_headers)
     user_data = user_response.json()
 
-    # Store User Profile in Flask Session
     session['user_id'] = user_data['id']
     session['username'] = user_data['username']
     session['avatar'] = user_data.get('avatar')
@@ -282,6 +366,46 @@ def get_blacklisted():
                     "name": str(member)
                 })
     return jsonify(blacklisted_members)
+
+@app.route('/api/remove_cooldown', methods=['POST'])
+def remove_cooldown_api():
+    if 'user_id' not in session:
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+        
+    data = request.get_json() or {}
+    target_user_id = int(data.get('user_id', 0))
+    
+    if target_user_id in user_cooldowns:
+        del user_cooldowns[target_user_id]
+        return jsonify({"success": True, "message": f"Cooldown removed for User ID: {target_user_id}"})
+    
+    return jsonify({"success": False, "message": "User is not currently on cooldown"})
+
+@app.route('/api/remove_blacklist', methods=['POST'])
+def remove_blacklist_api():
+    if 'user_id' not in session:
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+        
+    data = request.get_json() or {}
+    target_user_id = int(data.get('user_id', 0))
+    
+    async def unblacklist():
+        for guild in bot.guilds:
+            role = guild.get_role(BLACKLIST_ROLE_ID)
+            member = guild.get_member(target_user_id)
+            if role and member and role in member.roles:
+                await member.remove_roles(role)
+                return True
+        return False
+
+    future = asyncio.run_coroutine_threadsafe(unblacklist(), bot.loop)
+    try:
+        success = future.result(timeout=5)
+        if success:
+            return jsonify({"success": True, "message": "User un-blacklisted successfully"})
+        return jsonify({"success": False, "message": "User or role not found in connected server"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 def run():
     app.run(host='0.0.0.0', port=8080)
