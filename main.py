@@ -3,15 +3,22 @@ import io
 import asyncio
 import time
 import json
+import requests
 import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View, Select, Modal, TextInput
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request, redirect, session
 from threading import Thread
 
 # --- CONFIGURATION ---
 BLACKLIST_ROLE_ID = 1530330613029015704
+
+# Discord OAuth2 Config
+CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
+CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
+REDIRECT_URI = "https://ticket-bot-f184.onrender.com/callback"
+DISCORD_API_URL = "https://discord.com/api/v10"
 
 # --- BOT SETUP ---
 intents = discord.Intents.default()
@@ -55,8 +62,32 @@ def save_data(file_path, data):
 # Load initial ticket counter from file
 ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
 
-# --- FLASK DASHBOARD & API SERVER ---
+# --- FLASK DASHBOARD & OAUTH2 SERVER ---
 app = Flask('')
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Login</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-card { background-color: #1e293b; padding: 40px; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .btn { background-color: #5865F2; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 20px; }
+        .btn:hover { background-color: #4752C4; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>🎫 Carry Bot Dashboard</h1>
+        <p>Please authorize with Discord to access the control panel.</p>
+        <a href="/login" class="btn">🔑 Login with Discord</a>
+    </div>
+</body>
+</html>
+"""
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -69,6 +100,9 @@ DASHBOARD_HTML = """
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 40px; }
         .container { max-width: 900px; margin: 0 auto; }
         .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #1e293b; padding-bottom: 20px; margin-bottom: 30px; }
+        .user-info { display: flex; align-items: center; gap: 12px; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; }
+        .logout-btn { background: #ef4444; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.85rem; }
         .status-badge { background-color: #10b981; color: #022c22; padding: 6px 16px; border-radius: 20px; font-weight: bold; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
         .card { background-color: #1e293b; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
@@ -84,8 +118,15 @@ DASHBOARD_HTML = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎫 Carry Bot Control Panel</h1>
-            <span class="status-badge">🟢 Bot Online</span>
+            <div>
+                <h1>🎫 Carry Bot Control Panel</h1>
+                <span class="status-badge">🟢 Bot Online</span>
+            </div>
+            <div class="user-info">
+                <img src="{{ user_avatar }}" class="avatar" alt="Avatar">
+                <span>Welcome, <strong>{{ username }}</strong>!</span>
+                <a href="/logout" class="logout-btn">Logout</a>
+            </div>
         </div>
         
         <div class="grid">
@@ -138,12 +179,76 @@ DASHBOARD_HTML = """
 </html>
 """
 
+# --- OAUTH2 ROUTES ---
 @app.route('/')
-def home():
+def index():
+    if 'user_id' not in session:
+        return render_template_string(LOGIN_HTML)
+    
     now = time.time()
     active_cooldown_count = sum(1 for expire in user_cooldowns.values() if now < expire)
-    return render_template_string(DASHBOARD_HTML, ticket_count=f"{ticket_counter:04d}", active_cooldowns=active_cooldown_count)
+    avatar_url = f"https://cdn.discordapp.com/avatars/{session['user_id']}/{session['avatar']}.png" if session.get('avatar') else "https://cdn.discordapp.com/embed/avatars/0.png"
+    
+    return render_template_string(
+        DASHBOARD_HTML, 
+        ticket_count=f"{ticket_counter:04d}", 
+        active_cooldowns=active_cooldown_count,
+        username=session.get('username', 'User'),
+        user_avatar=avatar_url
+    )
 
+@app.route('/login')
+def login():
+    discord_auth_url = (
+        f"{DISCORD_API_URL}/oauth2/authorize"
+        f"?client_id={CLIENT_ID}"
+        f"&redirect_uri={REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=identify"
+    )
+    return redirect(discord_auth_url)
+
+@app.route('/callback')
+def callback():
+    code = request.args.get('code')
+    if not code:
+        return "Authorization failed or access denied.", 400
+
+    data = {
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': REDIRECT_URI
+    }
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    
+    # Exchange authorization code for Access Token
+    token_response = requests.post(f"{DISCORD_API_URL}/oauth2/token", data=data, headers=headers)
+    token_json = token_response.json()
+    access_token = token_json.get('access_token')
+
+    if not access_token:
+        return f"OAuth Error: {token_json}", 400
+
+    # Fetch User Identity
+    user_headers = {'Authorization': f"Bearer {access_token}"}
+    user_response = requests.get(f"{DISCORD_API_URL}/users/@me", headers=user_headers)
+    user_data = user_response.json()
+
+    # Store User Profile in Flask Session
+    session['user_id'] = user_data['id']
+    session['username'] = user_data['username']
+    session['avatar'] = user_data.get('avatar')
+
+    return redirect('/')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/')
+
+# --- API ROUTES ---
 @app.route('/api/stats')
 def stats():
     now = time.time()
@@ -234,7 +339,7 @@ class CloseConfirmView(View):
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
-            log_embed.add_field(name="Closed By", value=interaction.user.mention, inline=False)
+            log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
             log_embed.add_field(name="Ticket Channel", value=interaction.channel.name, inline=False)
             await log_channel.send(embed=log_embed, file=transcript_file)
 
@@ -332,7 +437,7 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
             log_embed = discord.Embed(title="📝 New Carry Ticket Opened", color=discord.Color.blue())
             log_embed.add_field(name="Ticket Number", value=f"#{ticket_counter:04d}", inline=True)
             log_embed.add_field(name="Category", value=self.category_val.replace('-', ' ').title(), inline=True)
-            log_embed.add_field(name="Opened By", value=user.mention, inline=True)
+            log_embed.add_field(name="Opened By", value=f"{user.mention} (ID: {user.id})", inline=True)
             log_embed.add_field(name="Channel", value=f"{ticket_channel.mention}", inline=False)
             await log_channel.send(embed=log_embed)
 
@@ -488,7 +593,7 @@ async def force_close(interaction: discord.Interaction, reason: str):
     log_channel = get_log_channel(interaction.guild)
     if log_channel:
         log_embed = discord.Embed(title="⚠️ Ticket Force Closed", color=discord.Color.red())
-        log_embed.add_field(name="Closed By", value=interaction.user.mention, inline=False)
+        log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
         log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
         log_embed.add_field(name="Reason", value=reason, inline=False)
         await log_channel.send(embed=log_embed, file=transcript_file)
