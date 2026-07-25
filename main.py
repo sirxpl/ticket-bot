@@ -27,6 +27,12 @@ ALLOWED_ROLE_IDS = [
     1530330612567904276               # Staff/Admin Role ID
 ]
 
+# Valid ticket prefixes for channel safety checks
+TICKET_PREFIXES = (
+    "ticket-", "fallen-", "hidden-", "frost-", "event-", "pizza-", 
+    "lost-", "badlands-", "quickdraw-", "polluted-", "trials-", "hardcore-", "other-"
+)
+
 # Base URL for Web Dashboard Links
 DOMAIN_URL = os.getenv("DOMAIN_URL", "https://ticket-bot-f184.onrender.com")
 
@@ -352,7 +358,6 @@ def index():
 
 @app.route('/transcript/<channel_name>')
 def view_transcript(channel_name):
-    # Store requested target URL in session if not logged in
     if 'user_id' not in session:
         session['redirect_after_login'] = f"/transcript/{channel_name}"
         return redirect('/login')
@@ -457,14 +462,9 @@ def get_active_tickets():
     if not guild:
         return jsonify({"tickets": [], "guild_id": str(GUILD_ID)})
 
-    ticket_prefixes = [
-        "ticket-", "fallen-", "hidden-", "frost-", "event-", "pizza-", 
-        "lost-", "badlands-", "quickdraw-", "polluted-", "trials-", "hardcore-", "other-"
-    ]
-
     active_tickets = []
     for ch in guild.text_channels:
-        if any(ch.name.startswith(p) for p in ticket_prefixes):
+        if ch.name.startswith(TICKET_PREFIXES):
             active_tickets.append({
                 "id": str(ch.id),
                 "name": ch.name
@@ -860,10 +860,7 @@ class CarryDropdown(Select):
         if not is_admin:
             for channel in guild.text_channels:
                 if channel.overwrites_for(user).read_messages is True and channel.id != interaction.channel_id:
-                    if any(channel.name.startswith(prefix) for prefix in [
-                        "ticket-", "fallen-", "hidden-", "frost-", "event-", "pizza-", 
-                        "lost-", "badlands-", "quickdraw-", "polluted-", "trials-", "hardcore-", "other-"
-                    ]):
+                    if channel.name.startswith(TICKET_PREFIXES):
                         return await interaction.response.send_message(f"You already have an open ticket: {channel.mention}", ephemeral=True)
 
         await interaction.response.send_modal(CarryQuestionsModal(category_val=self.values[0]))
@@ -950,24 +947,16 @@ async def remove_user(interaction: discord.Interaction, member: discord.Member):
     await interaction.channel.set_permissions(member, overwrite=None)
     await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} removed.", color=discord.Color.red()))
 
-@bot.tree.command(name="close", description="Close this ticket channel")
-async def close_ticket(interaction: discord.Interaction):
-    if not can_user_close_ticket(interaction.user, interaction.channel):
-        return await interaction.response.send_message(
-            "❌ You cannot close this ticket! Only the ticket owner or staff members can close it.",
-            ephemeral=True
-        )
-
-    embed = discord.Embed(
-        title="Are you sure?",
-        description="Are you sure you want to close this ticket? This action cannot be undone.",
-        color=discord.Color.gold()
-    )
-    await interaction.response.send_message(embed=embed, view=CloseConfirmView(), ephemeral=False)
-
 @bot.tree.command(name="force_close", description="Force close a ticket with a reason")
 @app_commands.checks.has_permissions(manage_channels=True)
 async def force_close(interaction: discord.Interaction, reason: str):
+    # Security check: Ensure this is actually a ticket channel
+    if not interaction.channel.name.startswith(TICKET_PREFIXES):
+        return await interaction.response.send_message(
+            "❌ **Action Denied:** `/force_close` can only be used inside active ticket channels!",
+            ephemeral=True
+        )
+
     await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Generating transcript and deleting in 5 seconds...*")
     
     user_cooldowns[interaction.user.id] = time.time() + 28800
