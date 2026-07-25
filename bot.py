@@ -1,4 +1,5 @@
 import os
+import io
 import asyncio
 import time
 import json
@@ -80,6 +81,29 @@ def get_log_channel(guild):
 def get_blacklist_role(guild):
     return guild.get_role(BLACKLIST_ROLE_ID)
 
+async def generate_transcript(channel: discord.TextChannel) -> discord.File:
+    """Fetches all channel messages and creates a .txt transcript file."""
+    lines = [f"=== TRANSCRIPT FOR TICKET CHANNEL: #{channel.name} ===", ""]
+    
+    async for msg in channel.history(limit=None, oldest_first=True):
+        timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+        attachments = f" [Attachments: {', '.join([a.url for a in msg.attachments])}]" if msg.attachments else ""
+        content = msg.clean_content if msg.clean_content else "(No text content)"
+        lines.append(f"[{timestamp}] {msg.author} ({msg.author.id}): {content}{attachments}")
+        
+        # Format embed details if any
+        for embed in msg.embeds:
+            if embed.title:
+                lines.append(f"   [Embed Title: {embed.title}]")
+            if embed.description:
+                lines.append(f"   [Embed Description: {embed.description}]")
+            for field in embed.fields:
+                lines.append(f"   [Embed Field: {field.name} -> {field.value}]")
+
+    transcript_text = "\n".join(lines)
+    buffer = io.BytesIO(transcript_text.encode('utf-8'))
+    return discord.File(fp=buffer, filename=f"transcript-{channel.name}.txt")
+
 # --- CLOSE CONFIRMATION VIEW ---
 class CloseConfirmView(View):
     def __init__(self):
@@ -87,18 +111,21 @@ class CloseConfirmView(View):
 
     @discord.ui.button(label="✅ Yes, Close", style=discord.ButtonStyle.danger, custom_id="confirm_close_btn")
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("🔒 Ticket confirmed for closure. Deleting in 5 seconds...")
+        await interaction.response.send_message("🔒 Ticket confirmed for closure. Generating transcript and deleting in 5 seconds...")
 
         # Set 8-hour cooldown
         user_cooldowns[interaction.user.id] = time.time() + 28800
 
-        # Log ticket closure
+        # Generate transcript file
+        transcript_file = await generate_transcript(interaction.channel)
+
+        # Log ticket closure with transcript attached
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
             log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
             log_embed.add_field(name="Ticket Channel", value=interaction.channel.name, inline=False)
-            await log_channel.send(embed=log_embed)
+            await log_channel.send(embed=log_embed, file=transcript_file)
 
         await asyncio.sleep(5)
         await interaction.channel.delete()
@@ -305,7 +332,6 @@ async def setup_tickets(interaction: discord.Interaction):
     
     embed.set_footer(text="Ticket Bot | Carry System")
 
-    # Posts panel directly into channel
     await interaction.channel.send(embed=embed, view=TicketLauncher())
     await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
 
@@ -363,9 +389,11 @@ async def close_ticket(interaction: discord.Interaction):
 @bot.tree.command(name="force_close", description="Force close a ticket with a reason")
 @app_commands.checks.has_permissions(manage_channels=True)
 async def force_close(interaction: discord.Interaction, reason: str):
-    await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Deleting in 5 seconds...*")
+    await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Generating transcript and deleting in 5 seconds...*")
     
     user_cooldowns[interaction.user.id] = time.time() + 28800
+
+    transcript_file = await generate_transcript(interaction.channel)
 
     log_channel = get_log_channel(interaction.guild)
     if log_channel:
@@ -373,7 +401,7 @@ async def force_close(interaction: discord.Interaction, reason: str):
         log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
         log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
         log_embed.add_field(name="Reason", value=reason, inline=False)
-        await log_channel.send(embed=log_embed)
+        await log_channel.send(embed=log_embed, file=transcript_file)
 
     await asyncio.sleep(5)
     await interaction.channel.delete(reason=reason)
