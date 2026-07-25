@@ -122,11 +122,15 @@ DASHBOARD_HTML = """
         .card .value { font-size: 2.2rem; font-weight: bold; color: #38bdf8; }
         .section { background-color: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
         ul { list-style-type: none; padding: 0; margin: 0; }
-        li { background: #0f172a; padding: 12px; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        li { background: #0f172a; padding: 12px; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
         
         .btn-action { background: #f59e0b; color: #000; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
         .btn-action:hover { opacity: 0.9; }
         .btn-green { background: #10b981; color: #000; }
+        .btn-blue { background: #3b82f6; color: #fff; }
+        .btn-discord { background: #5865F2; color: #fff; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
+
+        select { background: #0f172a; color: #f8fafc; border: 1px solid #334155; padding: 6px; border-radius: 6px; }
 
         /* Modal styling */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); justify-content: center; align-items: center; z-index: 1000; }
@@ -161,6 +165,11 @@ DASHBOARD_HTML = """
                 <h3>Active User Cooldowns</h3>
                 <div class="value">{{ active_cooldowns }}</div>
             </div>
+        </div>
+
+        <div class="section">
+            <h3>📡 Live Active Ticket Channels & Category Redirect</h3>
+            <ul id="active-tickets-list">Loading...</ul>
         </div>
 
         <div class="section">
@@ -207,6 +216,27 @@ DASHBOARD_HTML = """
             closeModal();
         };
 
+        function redirectTicketPrompt(channelId, channelName) {
+            const selectElem = document.getElementById(`select-cat-${channelId}`);
+            const categoryId = selectElem.value;
+            const categoryName = selectElem.options[selectElem.selectedIndex].text;
+
+            promptConfirmation(
+                "Move Ticket Category?",
+                `Are you sure you want to redirect #${channelName} to category "${categoryName}"?`,
+                async () => {
+                    const res = await fetch('/api/redirect_ticket', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ channel_id: channelId, category_id: categoryId })
+                    });
+                    const data = await res.json();
+                    alert(data.message || 'Action executed.');
+                    loadAdvancedData();
+                }
+            );
+        }
+
         function removeCooldownPrompt(userId) {
             promptConfirmation(
                 "Clear Cooldown?",
@@ -243,6 +273,29 @@ DASHBOARD_HTML = """
 
         async function loadAdvancedData() {
             try {
+                // Fetch active ticket channels
+                const ticketsRes = await fetch('/api/active_tickets');
+                const ticketsData = await ticketsRes.json();
+                const ticketsList = document.getElementById('active-tickets-list');
+                
+                ticketsList.innerHTML = ticketsData.tickets.length ? '' : '<li>No active ticket channels</li>';
+                
+                ticketsData.tickets.forEach(ticket => {
+                    let catOptions = ticketsData.categories.map(cat => 
+                        `<option value="${cat.id}" ${cat.id === ticket.category_id ? 'selected' : ''}>${cat.name}</option>`
+                    ).join('');
+
+                    ticketsList.innerHTML += `
+                        <li>
+                            <span><strong>#${ticket.name}</strong> (Category: ${ticket.category_name})</span>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <select id="select-cat-${ticket.id}">${catOptions}</select>
+                                <button onclick="redirectTicketPrompt('${ticket.id}', '${ticket.name}')" class="btn-action btn-blue">↪️ Move</button>
+                                <a href="https://discord.com/channels/${ticketsData.guild_id}/${ticket.id}" target="_blank" class="btn-discord">↗️ Open in Discord</a>
+                            </div>
+                        </li>`;
+                });
+
                 // Fetch active cooldowns
                 const cdRes = await fetch('/api/cooldowns');
                 const cdData = await cdRes.json();
@@ -384,6 +437,63 @@ def stats():
         "ticket_counter": ticket_counter,
         "active_cooldowns": sum(1 for expire in user_cooldowns.values() if now < expire)
     })
+
+@app.route('/api/active_tickets')
+def get_active_tickets():
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        return jsonify({"tickets": [], "categories": [], "guild_id": str(GUILD_ID)})
+
+    ticket_prefixes = [
+        "ticket-", "fallen-", "hidden-", "frost-", "event-", "pizza-", 
+        "lost-", "badlands-", "quickdraw-", "polluted-", "trials-", "hardcore-", "other-"
+    ]
+
+    active_tickets = []
+    for ch in guild.text_channels:
+        if any(ch.name.startswith(p) for p in ticket_prefixes):
+            active_tickets.append({
+                "id": str(ch.id),
+                "name": ch.name,
+                "category_id": str(ch.category_id) if ch.category_id else None,
+                "category_name": ch.category.name if ch.category else "Uncategorized"
+            })
+
+    categories = [{"id": str(cat.id), "name": cat.name} for cat in guild.categories]
+
+    return jsonify({
+        "tickets": active_tickets,
+        "categories": categories,
+        "guild_id": str(GUILD_ID)
+    })
+
+@app.route('/api/redirect_ticket', methods=['POST'])
+def redirect_ticket_web():
+    if 'user_id' not in session:
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+        
+    data = request.get_json() or {}
+    channel_id = int(data.get('channel_id', 0))
+    category_id = int(data.get('category_id', 0))
+
+    async def move_channel():
+        guild = bot.get_guild(GUILD_ID)
+        if guild:
+            channel = guild.get_channel(channel_id)
+            category = guild.get_channel(category_id)
+            if channel and isinstance(category, discord.CategoryChannel):
+                await channel.edit(category=category)
+                return True
+        return False
+
+    future = asyncio.run_coroutine_threadsafe(move_channel(), bot.loop)
+    try:
+        success = future.result(timeout=5)
+        if success:
+            return jsonify({"success": True, "message": "Ticket category moved successfully!"})
+        return jsonify({"success": False, "message": "Failed to locate channel or category."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/cooldowns')
 def get_cooldowns():
@@ -820,56 +930,6 @@ async def blacklist_remove(interaction: discord.Interaction, member: discord.Mem
     else:
         await member.remove_roles(role)
         await interaction.response.send_message(embed=discord.Embed(description=f"✅ Removed {role.mention} role from {member.mention}.", color=discord.Color.green()))
-
-@bot.tree.command(name="redirect_ticket", description="Change a ticket's category type and move/rename the channel")
-@app_commands.checks.has_permissions(manage_channels=True)
-@app_commands.choices(new_type=[
-    app_commands.Choice(name="Fallen Carry", value="fallen-carry"),
-    app_commands.Choice(name="Hidden Wave Carry", value="hidden-wave-carry"),
-    app_commands.Choice(name="Frost Carry", value="frost-carry"),
-    app_commands.Choice(name="Event Carry", value="event-carry"),
-    app_commands.Choice(name="Pizza Party Carry", value="pizza-party-carry"),
-    app_commands.Choice(name="Lost Soul Carry", value="lost-soul-carry"),
-    app_commands.Choice(name="Badlands 2 Carry", value="badlands-2-carry"),
-    app_commands.Choice(name="Quickdraw Carry", value="quickdraw-carry"),
-    app_commands.Choice(name="Polluted Wasteland 2 Carry", value="polluted-wasteland-2-carry"),
-    app_commands.Choice(name="Trials", value="trials"),
-    app_commands.Choice(name="Hardcore Carry", value="hardcore-carry"),
-    app_commands.Choice(name="Other", value="other"),
-])
-async def redirect_ticket(
-    interaction: discord.Interaction, 
-    new_type: app_commands.Choice[str], 
-    target_category: discord.CategoryChannel = None
-):
-    channel = interaction.channel
-
-    # Extract ticket number from channel name if available
-    parts = channel.name.split('-')
-    ticket_num = parts[-1] if parts[-1].isdigit() else ""
-
-    # Build new channel name
-    new_channel_name = f"{new_type.value}-{ticket_num}" if ticket_num else f"{new_type.value}"
-
-    # Prepare update options
-    edit_kwargs = {"name": new_channel_name}
-    if target_category:
-        edit_kwargs["category"] = target_category
-
-    # Update channel name and move category if specified
-    await channel.edit(**edit_kwargs)
-
-    # Log/notify in channel
-    embed = discord.Embed(
-        title="🔄 Ticket Redirected",
-        description=f"This ticket type has been updated to **{new_type.name}**.",
-        color=discord.Color.teal()
-    )
-    if target_category:
-        embed.add_field(name="Moved Category", value=target_category.name, inline=False)
-    embed.set_footer(text=f"Redirected by {interaction.user.name}")
-
-    await interaction.response.send_message(embed=embed)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
