@@ -7,24 +7,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View, Select, Modal, TextInput
-from flask import Flask
+from flask import Flask, render_template_string, jsonify
 from threading import Thread
-
-# --- MINI KEEP-ALIVE WEB SERVER FOR RENDER ---
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is alive!"
-
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-keep_alive()
 
 # --- CONFIGURATION ---
 BLACKLIST_ROLE_ID = 1530330613029015704
@@ -70,6 +54,117 @@ def save_data(file_path, data):
 
 # Load initial ticket counter from file
 ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
+
+# --- FLASK DASHBOARD SERVER ---
+app = Flask('')
+
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticket Bot Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 40px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #1e293b;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .status-badge {
+            background-color: #10b981;
+            color: #022c22;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background-color: #1e293b;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .card h3 {
+            margin: 0 0 10px 0;
+            color: #94a3b8;
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .card .value {
+            font-size: 2.2rem;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎫 Carry Bot Control Panel</h1>
+            <span class="status-badge">🟢 Bot Online</span>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>Total Tickets Created</h3>
+                <div class="value">#{{ ticket_count }}</div>
+            </div>
+            <div class="card">
+                <h3>Active User Cooldowns</h3>
+                <div class="value">{{ active_cooldowns }}</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/')
+def home():
+    # Count how many users are currently actively on cooldown
+    now = time.time()
+    active_cooldown_count = sum(1 for expire in user_cooldowns.values() if now < expire)
+    return render_template_string(DASHBOARD_HTML, ticket_count=f"{ticket_counter:04d}", active_cooldowns=active_cooldown_count)
+
+@app.route('/api/stats')
+def stats():
+    now = time.time()
+    return jsonify({
+        "status": "online",
+        "ticket_counter": ticket_counter,
+        "active_cooldowns": sum(1 for expire in user_cooldowns.values() if now < expire)
+    })
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+keep_alive()
 
 # --- HELPER FUNCTIONS ---
 def get_log_channel(guild):
@@ -119,7 +214,7 @@ class CloseConfirmView(View):
         # Generate transcript file
         transcript_file = await generate_transcript(interaction.channel)
 
-        # Log ticket closure with transcript attached (User ID removed)
+        # Log ticket closure with transcript attached
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
@@ -216,7 +311,7 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
 
         await ticket_channel.send(content=f"{user.mention}", embeds=[welcome_embed, answers_embed], view=TicketControlView())
 
-        # Log ticket creation (User ID removed)
+        # Log ticket creation
         log_channel = get_log_channel(guild)
         if log_channel:
             log_embed = discord.Embed(title="📝 New Carry Ticket Opened", color=discord.Color.blue())
@@ -396,7 +491,6 @@ async def force_close(interaction: discord.Interaction, reason: str):
 
     transcript_file = await generate_transcript(interaction.channel)
 
-    # Log force close (User ID removed)
     log_channel = get_log_channel(interaction.guild)
     if log_channel:
         log_embed = discord.Embed(title="⚠️ Ticket Force Closed", color=discord.Color.red())
