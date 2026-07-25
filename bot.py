@@ -9,13 +9,20 @@ from discord.ui import Button, View, Select, Modal, TextInput
 from flask import Flask
 from threading import Thread
 
-# --- MINI KEEP-ALIVE SERVER FOR RENDER ---
+# --- MINI KEEP-ALIVE WEB SERVER FOR RENDER ---
 app = Flask('')
-@app.route('/')
-def home(): return "Bot is alive!"
 
-def run(): app.run(host='0.0.0.0', port=8080)
-def keep_alive(): Thread(target=run).start()
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
 keep_alive()
 
 # --- CONFIGURATION ---
@@ -28,6 +35,9 @@ intents.guilds = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Global trackers
+user_cooldowns = {}  # Format: {user_id: timestamp_when_cooldown_expires}
 
 # --- PERSISTENT DATA SYSTEMS ---
 STORAGE_DIR = "/var/data" if os.path.exists("/var/data") else "."
@@ -57,9 +67,8 @@ def save_data(file_path, data):
     except Exception as e:
         print(f"Error saving to {file_path}: {e}")
 
-# Load initial ticket counter
+# Load initial ticket counter from file
 ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
-user_cooldowns = {}
 
 # --- HELPER FUNCTIONS ---
 def get_log_channel(guild):
@@ -80,8 +89,10 @@ class CloseConfirmView(View):
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_message("🔒 Ticket confirmed for closure. Deleting in 5 seconds...")
 
+        # Set 8-hour cooldown
         user_cooldowns[interaction.user.id] = time.time() + 28800
 
+        # Log ticket closure
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
@@ -97,12 +108,12 @@ class CloseConfirmView(View):
         await interaction.message.delete()
         await interaction.response.send_message("Ticket closure canceled.", ephemeral=True)
 
-# --- TICKET CONTROL VIEW ---
+# --- BUTTON INSIDE OPENED TICKET ---
 class TicketControlView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🔒 Close", style=discord.ButtonStyle.secondary, custom_id="close_ticket_btn")
+    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.secondary, custom_id="close_ticket_btn")
     async def close_ticket_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(
             title="Are you sure?",
@@ -255,7 +266,8 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-# --- SLASH COMMANDS ---
+# --- ALL SLASH COMMANDS ---
+
 @bot.tree.command(name="setup_tickets", description="Spawns the Requesting Carry ticket panel")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_tickets(interaction: discord.Interaction):
@@ -293,11 +305,105 @@ async def setup_tickets(interaction: discord.Interaction):
     
     embed.set_footer(text="Ticket Bot | Carry System")
 
-    # Send the main ticket panel to the channel directly
+    # Posts panel directly into channel
     await interaction.channel.send(embed=embed, view=TicketLauncher())
-    
-    # Confirm to the admin who ran the command
     await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
+
+@bot.tree.command(name="set_ticket_count", description="Manually set or reset the ticket counter number")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_ticket_count(interaction: discord.Interaction, number: int):
+    global ticket_counter
+    ticket_counter = number
+    save_data(DATA_FILE, {"ticket_counter": ticket_counter})
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            description=f"⚙️ Ticket counter updated to **#{ticket_counter:04d}**.",
+            color=discord.Color.green()
+        ),
+        ephemeral=True
+    )
+
+@bot.tree.command(name="bypass_cooldown", description="Removes the ticket creation cooldown for a specific user")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def bypass_cooldown(interaction: discord.Interaction, member: discord.Member):
+    if member.id in user_cooldowns:
+        del user_cooldowns[member.id]
+        embed = discord.Embed(
+            description=f"⚡ Cooldown removed for {member.mention}. They can open a new ticket immediately!",
+            color=discord.Color.green()
+        )
+    else:
+        embed = discord.Embed(
+            description=f"ℹ️ {member.mention} is not currently on a ticket cooldown.",
+            color=discord.Color.blue()
+        )
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="add_user", description="Grant a user permission to view this ticket channel")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def add_user(interaction: discord.Interaction, member: discord.Member):
+    await interaction.channel.set_permissions(member, read_messages=True, send_messages=True)
+    await interaction.response.send_message(embed=discord.Embed(description=f"✅ {member.mention} added.", color=discord.Color.green()))
+
+@bot.tree.command(name="remove_user", description="Remove a user's permission to view this ticket channel")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def remove_user(interaction: discord.Interaction, member: discord.Member):
+    await interaction.channel.set_permissions(member, overwrite=None)
+    await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} removed.", color=discord.Color.red()))
+
+@bot.tree.command(name="close", description="Close this ticket channel")
+async def close_ticket(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Are you sure?",
+        description="Are you sure you want to close this ticket? This action cannot be undone.",
+        color=discord.Color.gold()
+    )
+    await interaction.response.send_message(embed=embed, view=CloseConfirmView(), ephemeral=False)
+
+@bot.tree.command(name="force_close", description="Force close a ticket with a reason")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def force_close(interaction: discord.Interaction, reason: str):
+    await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Deleting in 5 seconds...*")
+    
+    user_cooldowns[interaction.user.id] = time.time() + 28800
+
+    log_channel = get_log_channel(interaction.guild)
+    if log_channel:
+        log_embed = discord.Embed(title="⚠️ Ticket Force Closed", color=discord.Color.red())
+        log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
+        log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
+        log_embed.add_field(name="Reason", value=reason, inline=False)
+        await log_channel.send(embed=log_embed)
+
+    await asyncio.sleep(5)
+    await interaction.channel.delete(reason=reason)
+
+@bot.tree.command(name="edit_ticket", description="Edit a ticket channel's name or topic")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def edit_ticket(
+    interaction: discord.Interaction, 
+    target: discord.TextChannel, 
+    new_name: str = None, 
+    new_topic: str = None
+):
+    if not new_name and not new_topic:
+        return await interaction.response.send_message(
+            "Please provide at least a new name or a new topic to update!", 
+            ephemeral=True
+        )
+
+    kwargs = {}
+    if new_name:
+        kwargs['name'] = new_name
+
+    if new_topic:
+        kwargs['topic'] = new_topic
+
+    await target.edit(**kwargs)
+    await interaction.response.send_message(
+        f"✅ Successfully updated {target.mention}!", 
+        ephemeral=True
+    )
 
 @bot.tree.command(name="blacklist_add", description="Gives the Blacklisted role to a user")
 @app_commands.checks.has_permissions(manage_roles=True)
@@ -328,3 +434,5 @@ async def blacklist_remove(interaction: discord.Interaction, member: discord.Mem
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
     bot.run(TOKEN)
+else:
+    print("Error: DISCORD_TOKEN environment variable is not set.")
