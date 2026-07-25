@@ -15,8 +15,8 @@ from threading import Thread
 BLACKLIST_ROLE_ID = 1530330613029015704
 
 # Access Control Config
-GUILD_ID = 1369526633144254475         # Replace with your Discord Server ID
-ALLOWED_ROLE_ID = 1460109673288958074  # Replace with your Staff/Admin Role ID
+GUILD_ID = 1530005676003426487         # Replace with your Discord Server ID
+ALLOWED_ROLE_ID = 1530330612567904276  # Replace with your Staff/Admin Role ID
 
 # Discord OAuth2 Config
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
