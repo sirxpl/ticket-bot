@@ -11,18 +11,20 @@ from discord.ui import Button, View, Select, Modal, TextInput
 from flask import Flask, render_template_string, jsonify, request, redirect, session
 from threading import Thread
 
-# Allowed Individual Users (Bot Owners, Developers, etc.)
-ALLOWED_USER_IDS = [
-    777341204047331348,  # Your Personal Discord User ID
-    1012751329845841921   # Co-developer User ID
-]
-
 # --- CONFIGURATION ---
 BLACKLIST_ROLE_ID = 1530330613029015704
 
 # Access Control Config
-GUILD_ID = 1530005676003426487         # Replace with your Discord Server ID
-ALLOWED_ROLE_ID = 1530330612567904276  # Replace with your Staff/Admin Role ID
+GUILD_ID = 1530005676003426487         # Your Discord Server ID
+ALLOWED_ROLE_IDS = [
+    1530330612567904276               # Staff/Admin Role ID
+]
+
+# Allowed Individual Users (Bot Owners, Developers, etc.)
+ALLOWED_USER_IDS = [
+    777341204047331348,               # Your Personal Discord User ID
+    1012751329845841921               # Co-developer User ID
+]
 
 # Discord OAuth2 Config
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -332,45 +334,41 @@ def callback():
     # Fetch User Identity
     user_response = requests.get(f"{DISCORD_API_URL}/users/@me", headers=user_headers)
     user_data = user_response.json()
+    user_id = int(user_data['id'])
 
-    # Fetch User Member Data in your Server
+    # 1. Check if user is explicitly whitelisted by User ID (Access granted without server membership)
+    if user_id in ALLOWED_USER_IDS:
+        session['user_id'] = user_data['id']
+        session['username'] = user_data['username']
+        session['avatar'] = user_data.get('avatar')
+        return redirect('/')
+
+    # 2. Check if user has an allowed role inside the server
     member_response = requests.get(
         f"{DISCORD_API_URL}/users/@me/guilds/{GUILD_ID}/member", 
         headers=user_headers
     )
-    
-    if member_response.status_code != 200:
-        return """
-        <div style="font-family: sans-serif; background: #0f172a; color: #ef4444; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;">
-            <div>
-                <h1>🚫 Access Denied</h1>
-                <p style="color: #94a3b8;">You are not a member of the required Discord server.</p>
-                <a href="/logout" style="color: #38bdf8;">Return to Login</a>
-            </div>
+
+    if member_response.status_code == 200:
+        member_data = member_response.json()
+        user_roles = [int(r) for r in member_data.get('roles', [])]
+        
+        if any(role_id in user_roles for role_id in ALLOWED_ROLE_IDS):
+            session['user_id'] = user_data['id']
+            session['username'] = user_data['username']
+            session['avatar'] = user_data.get('avatar')
+            return redirect('/')
+
+    # ACCESS DENIED IF NEITHER CONDITION IS MET
+    return """
+    <div style="font-family: sans-serif; background: #0f172a; color: #ef4444; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;">
+        <div>
+            <h1>🚫 Access Denied</h1>
+            <p style="color: #94a3b8;">You do not have permission to access this dashboard.</p>
+            <a href="/logout" style="color: #38bdf8;">Return to Login</a>
         </div>
-        """, 403
-
-    member_data = member_response.json()
-    user_roles = [int(r) for r in member_data.get('roles', [])]
-
-    # ROLE CHECK: Verify user has the required Role ID
-    if ALLOWED_ROLE_ID not in user_roles:
-        return """
-        <div style="font-family: sans-serif; background: #0f172a; color: #ef4444; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;">
-            <div>
-                <h1>🚫 Access Denied</h1>
-                <p style="color: #94a3b8;">You do not have the required Staff/Admin role to access this dashboard.</p>
-                <a href="/logout" style="color: #38bdf8;">Return to Login</a>
-            </div>
-        </div>
-        """, 403
-
-    # Store User Profile in Session
-    session['user_id'] = user_data['id']
-    session['username'] = user_data['username']
-    session['avatar'] = user_data.get('avatar')
-
-    return redirect('/')
+    </div>
+    """, 403
 
 @app.route('/logout')
 def logout():
