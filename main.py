@@ -11,6 +11,12 @@ from discord.ui import Button, View, Select, Modal, TextInput
 from flask import Flask, render_template_string, jsonify, request, redirect, session
 from threading import Thread
 
+# Allowed Individual Users (Bot Owners, Developers, etc.)
+ALLOWED_USER_IDS = [
+    777341204047331348,  # Your Personal Discord User ID
+    1012751329845841921   # Co-developer User ID
+]
+
 # --- CONFIGURATION ---
 BLACKLIST_ROLE_ID = 1530330613029015704
 
