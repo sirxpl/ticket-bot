@@ -11,6 +11,12 @@ from discord.ui import Button, View, Select, Modal, TextInput
 from flask import Flask, render_template_string, jsonify, request, redirect, session
 from threading import Thread
 
+# Allowed Individual Users (Bot Owners, Developers, etc.)
+ALLOWED_USER_IDS = [
+    777341204047331348,   # Your Personal Discord User ID
+    1012751329845841921   # Co-developer User ID
+]
+
 # --- CONFIGURATION ---
 BLACKLIST_ROLE_ID = 1530330613029015704
 
@@ -18,12 +24,6 @@ BLACKLIST_ROLE_ID = 1530330613029015704
 GUILD_ID = 1530005676003426487         # Your Discord Server ID
 ALLOWED_ROLE_IDS = [
     1530330612567904276               # Staff/Admin Role ID
-]
-
-# Allowed Individual Users (Bot Owners, Developers, etc.)
-ALLOWED_USER_IDS = [
-    777341204047331348,               # Your Personal Discord User ID
-    1012751329845841921               # Co-developer User ID
 ]
 
 # Discord OAuth2 Config
@@ -820,6 +820,56 @@ async def blacklist_remove(interaction: discord.Interaction, member: discord.Mem
     else:
         await member.remove_roles(role)
         await interaction.response.send_message(embed=discord.Embed(description=f"✅ Removed {role.mention} role from {member.mention}.", color=discord.Color.green()))
+
+@bot.tree.command(name="redirect_ticket", description="Change a ticket's category type and move/rename the channel")
+@app_commands.checks.has_permissions(manage_channels=True)
+@app_commands.choices(new_type=[
+    app_commands.Choice(name="Fallen Carry", value="fallen-carry"),
+    app_commands.Choice(name="Hidden Wave Carry", value="hidden-wave-carry"),
+    app_commands.Choice(name="Frost Carry", value="frost-carry"),
+    app_commands.Choice(name="Event Carry", value="event-carry"),
+    app_commands.Choice(name="Pizza Party Carry", value="pizza-party-carry"),
+    app_commands.Choice(name="Lost Soul Carry", value="lost-soul-carry"),
+    app_commands.Choice(name="Badlands 2 Carry", value="badlands-2-carry"),
+    app_commands.Choice(name="Quickdraw Carry", value="quickdraw-carry"),
+    app_commands.Choice(name="Polluted Wasteland 2 Carry", value="polluted-wasteland-2-carry"),
+    app_commands.Choice(name="Trials", value="trials"),
+    app_commands.Choice(name="Hardcore Carry", value="hardcore-carry"),
+    app_commands.Choice(name="Other", value="other"),
+])
+async def redirect_ticket(
+    interaction: discord.Interaction, 
+    new_type: app_commands.Choice[str], 
+    target_category: discord.CategoryChannel = None
+):
+    channel = interaction.channel
+
+    # Extract ticket number from channel name if available
+    parts = channel.name.split('-')
+    ticket_num = parts[-1] if parts[-1].isdigit() else ""
+
+    # Build new channel name
+    new_channel_name = f"{new_type.value}-{ticket_num}" if ticket_num else f"{new_type.value}"
+
+    # Prepare update options
+    edit_kwargs = {"name": new_channel_name}
+    if target_category:
+        edit_kwargs["category"] = target_category
+
+    # Update channel name and move category if specified
+    await channel.edit(**edit_kwargs)
+
+    # Log/notify in channel
+    embed = discord.Embed(
+        title="🔄 Ticket Redirected",
+        description=f"This ticket type has been updated to **{new_type.name}**.",
+        color=discord.Color.teal()
+    )
+    if target_category:
+        embed.add_field(name="Moved Category", value=target_category.name, inline=False)
+    embed.set_footer(text=f"Redirected by {interaction.user.name}")
+
+    await interaction.response.send_message(embed=embed)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
