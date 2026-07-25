@@ -14,6 +14,10 @@ from threading import Thread
 # --- CONFIGURATION ---
 BLACKLIST_ROLE_ID = 1530330613029015704
 
+# Access Control Config
+GUILD_ID = 123456789012345678         # Replace with your Discord Server ID
+ALLOWED_ROLE_ID = 123456789012345678  # Replace with your Staff/Admin Role ID
+
 # Discord OAuth2 Config
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
@@ -291,7 +295,7 @@ def login():
         f"?client_id={CLIENT_ID}"
         f"&redirect_uri={REDIRECT_URI}"
         f"&response_type=code"
-        f"&scope=identify"
+        f"&scope=identify%20guilds.members.read"
     )
     return redirect(discord_auth_url)
 
@@ -318,9 +322,44 @@ def callback():
         return f"OAuth Error: {token_json}", 400
 
     user_headers = {'Authorization': f"Bearer {access_token}"}
+
+    # Fetch User Identity
     user_response = requests.get(f"{DISCORD_API_URL}/users/@me", headers=user_headers)
     user_data = user_response.json()
 
+    # Fetch User Member Data in your Server
+    member_response = requests.get(
+        f"{DISCORD_API_URL}/users/@me/guilds/{GUILD_ID}/member", 
+        headers=user_headers
+    )
+    
+    if member_response.status_code != 200:
+        return """
+        <div style="font-family: sans-serif; background: #0f172a; color: #ef4444; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;">
+            <div>
+                <h1>🚫 Access Denied</h1>
+                <p style="color: #94a3b8;">You are not a member of the required Discord server.</p>
+                <a href="/logout" style="color: #38bdf8;">Return to Login</a>
+            </div>
+        </div>
+        """, 403
+
+    member_data = member_response.json()
+    user_roles = [int(r) for r in member_data.get('roles', [])]
+
+    # ROLE CHECK: Verify user has the required Role ID
+    if ALLOWED_ROLE_ID not in user_roles:
+        return """
+        <div style="font-family: sans-serif; background: #0f172a; color: #ef4444; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;">
+            <div>
+                <h1>🚫 Access Denied</h1>
+                <p style="color: #94a3b8;">You do not have the required Staff/Admin role to access this dashboard.</p>
+                <a href="/logout" style="color: #38bdf8;">Return to Login</a>
+            </div>
+        </div>
+        """, 403
+
+    # Store User Profile in Session
     session['user_id'] = user_data['id']
     session['username'] = user_data['username']
     session['avatar'] = user_data.get('avatar')
