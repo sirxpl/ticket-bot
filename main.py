@@ -55,7 +55,7 @@ def save_data(file_path, data):
 # Load initial ticket counter from file
 ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
 
-# --- FLASK DASHBOARD SERVER ---
+# --- FLASK DASHBOARD & API SERVER ---
 app = Flask('')
 
 DASHBOARD_HTML = """
@@ -66,57 +66,19 @@ DASHBOARD_HTML = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ticket Bot Dashboard</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #0f172a;
-            color: #f8fafc;
-            margin: 0;
-            padding: 40px;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        .header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 2px solid #1e293b;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-        .status-badge {
-            background-color: #10b981;
-            color: #022c22;
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 0.9rem;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .card {
-            background-color: #1e293b;
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        }
-        .card h3 {
-            margin: 0 0 10px 0;
-            color: #94a3b8;
-            font-size: 0.95rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .card .value {
-            font-size: 2.2rem;
-            font-weight: bold;
-            color: #38bdf8;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 40px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #1e293b; padding-bottom: 20px; margin-bottom: 30px; }
+        .status-badge { background-color: #10b981; color: #022c22; padding: 6px 16px; border-radius: 20px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .card { background-color: #1e293b; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .card h3 { margin: 0 0 10px 0; color: #94a3b8; font-size: 0.95rem; text-transform: uppercase; }
+        .card .value { font-size: 2.2rem; font-weight: bold; color: #38bdf8; }
+        .section { background-color: #1e293b; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+        ul { list-style-type: none; padding: 0; margin: 0; }
+        li { background: #0f172a; padding: 12px; border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .badge-red { background: #ef4444; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
+        .badge-yellow { background: #f59e0b; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
     </style>
 </head>
 <body>
@@ -136,14 +98,48 @@ DASHBOARD_HTML = """
                 <div class="value">{{ active_cooldowns }}</div>
             </div>
         </div>
+
+        <div class="section">
+            <h3>⏳ Users Currently on Cooldown</h3>
+            <ul id="cooldown-list">Loading...</ul>
+        </div>
+
+        <div class="section">
+            <h3>🚫 Blacklisted Users</h3>
+            <ul id="blacklist-list">Loading...</ul>
+        </div>
     </div>
+
+    <script>
+        async function loadAdvancedData() {
+            try {
+                const cdRes = await fetch('/api/cooldowns');
+                const cdData = await cdRes.json();
+                const cdList = document.getElementById('cooldown-list');
+                cdList.innerHTML = cdData.length ? '' : '<li>No users on cooldown</li>';
+                cdData.forEach(user => {
+                    cdList.innerHTML += `<li><span>User ID: ${user.user_id}</span> <span class="badge-yellow">Expires in ${user.expires_in_seconds}s</span></li>`;
+                });
+
+                const blRes = await fetch('/api/blacklisted');
+                const blData = await blRes.json();
+                const blList = document.getElementById('blacklist-list');
+                blList.innerHTML = blData.length ? '' : '<li>No blacklisted users found</li>';
+                blData.forEach(user => {
+                    blList.innerHTML += `<li><span>${user.name} (${user.id})</span> <span class="badge-red">Blacklisted</span></li>`;
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        window.onload = loadAdvancedData;
+    </script>
 </body>
 </html>
 """
 
 @app.route('/')
 def home():
-    # Count how many users are currently actively on cooldown
     now = time.time()
     active_cooldown_count = sum(1 for expire in user_cooldowns.values() if now < expire)
     return render_template_string(DASHBOARD_HTML, ticket_count=f"{ticket_counter:04d}", active_cooldowns=active_cooldown_count)
@@ -156,6 +152,31 @@ def stats():
         "ticket_counter": ticket_counter,
         "active_cooldowns": sum(1 for expire in user_cooldowns.values() if now < expire)
     })
+
+@app.route('/api/cooldowns')
+def get_cooldowns():
+    now = time.time()
+    active_users = []
+    for uid, expire in list(user_cooldowns.items()):
+        if now < expire:
+            active_users.append({
+                "user_id": str(uid),
+                "expires_in_seconds": int(expire - now)
+            })
+    return jsonify(active_users)
+
+@app.route('/api/blacklisted')
+def get_blacklisted():
+    blacklisted_members = []
+    for guild in bot.guilds:
+        role = guild.get_role(BLACKLIST_ROLE_ID)
+        if role:
+            for member in role.members:
+                blacklisted_members.append({
+                    "id": str(member.id),
+                    "name": str(member)
+                })
+    return jsonify(blacklisted_members)
 
 def run():
     app.run(host='0.0.0.0', port=8080)
@@ -177,7 +198,6 @@ def get_blacklist_role(guild):
     return guild.get_role(BLACKLIST_ROLE_ID)
 
 async def generate_transcript(channel: discord.TextChannel) -> discord.File:
-    """Fetches all channel messages and creates a .txt transcript file."""
     lines = [f"=== TRANSCRIPT FOR TICKET CHANNEL: #{channel.name} ===", ""]
     
     async for msg in channel.history(limit=None, oldest_first=True):
@@ -186,7 +206,6 @@ async def generate_transcript(channel: discord.TextChannel) -> discord.File:
         content = msg.clean_content if msg.clean_content else "(No text content)"
         lines.append(f"[{timestamp}] {msg.author} ({msg.author.id}): {content}{attachments}")
         
-        # Format embed details if any
         for embed in msg.embeds:
             if embed.title:
                 lines.append(f"   [Embed Title: {embed.title}]")
@@ -208,13 +227,10 @@ class CloseConfirmView(View):
     async def confirm_close(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_message("🔒 Ticket confirmed for closure. Generating transcript and deleting in 5 seconds...")
 
-        # Set 8-hour cooldown
         user_cooldowns[interaction.user.id] = time.time() + 28800
 
-        # Generate transcript file
         transcript_file = await generate_transcript(interaction.channel)
 
-        # Log ticket closure with transcript attached
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
@@ -311,7 +327,6 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
 
         await ticket_channel.send(content=f"{user.mention}", embeds=[welcome_embed, answers_embed], view=TicketControlView())
 
-        # Log ticket creation
         log_channel = get_log_channel(guild)
         if log_channel:
             log_embed = discord.Embed(title="📝 New Carry Ticket Opened", color=discord.Color.blue())
@@ -345,7 +360,6 @@ class CarryDropdown(Select):
         user = interaction.user
         is_admin = user.guild_permissions.administrator
 
-        # Blacklist check via Role ID
         blacklist_role = get_blacklist_role(guild)
         if blacklist_role and blacklist_role in user.roles and not is_admin:
             return await interaction.response.send_message("❌ You are blacklisted from opening carry tickets.", ephemeral=True)
@@ -389,7 +403,7 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-# --- ALL SLASH COMMANDS ---
+# --- SLASH COMMANDS ---
 
 @bot.tree.command(name="setup_tickets", description="Spawns the Requesting Carry ticket panel")
 @app_commands.checks.has_permissions(administrator=True)
@@ -400,31 +414,11 @@ async def setup_tickets(interaction: discord.Interaction):
         color=discord.Color.blue()
     )
     
-    embed.add_field(
-        name="Normal Game Modes 🥶",
-        value="You can request a carry service for any normal game mode.",
-        inline=False
-    )
-    embed.add_field(
-        name="Special Game Modes 🥺",
-        value="You can request carry service for any special game mode, including Quickdraw and Lost Soul.",
-        inline=False
-    )
-    embed.add_field(
-        name="Trials 🐹",
-        value="You can request carry service for any trials, however requesting quarantine or jailed may result in long wait.",
-        inline=False
-    )
-    embed.add_field(
-        name="Hardcore 💎",
-        value="You can request carry service for hardcore your first hardcore run, but not for gem grinding.",
-        inline=False
-    )
-    embed.add_field(
-        name="Others 🐱",
-        value="Other is used for game modes below Fallen and for mission quests.",
-        inline=False
-    )
+    embed.add_field(name="Normal Game Modes 🥶", value="You can request a carry service for any normal game mode.", inline=False)
+    embed.add_field(name="Special Game Modes 🥺", value="You can request carry service for any special game mode, including Quickdraw and Lost Soul.", inline=False)
+    embed.add_field(name="Trials 🐹", value="You can request carry service for any trials, however requesting quarantine or jailed may result in long wait.", inline=False)
+    embed.add_field(name="Hardcore 💎", value="You can request carry service for hardcore your first hardcore run, but not for gem grinding.", inline=False)
+    embed.add_field(name="Others 🐱", value="Other is used for game modes below Fallen and for mission quests.", inline=False)
     
     embed.set_footer(text="Ticket Bot | Carry System")
 
