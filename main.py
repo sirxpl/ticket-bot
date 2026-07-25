@@ -43,9 +43,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Global trackers
 user_cooldowns = {}  # Format: {user_id: timestamp_when_cooldown_expires}
 
-# --- PERSISTENT DATA SYSTEMS ---
+# --- PERSISTENT DATA & TRANSCRIPT STORAGE ---
 STORAGE_DIR = "/var/data" if os.path.exists("/var/data") else "."
 DATA_FILE = os.path.join(STORAGE_DIR, "tickets.json")
+TRANSCRIPT_DIR = os.path.join(STORAGE_DIR, "transcripts")
+os.makedirs(TRANSCRIPT_DIR, exist_ok=True)
 
 def load_data(file_path, default_data):
     if not os.path.exists(file_path):
@@ -127,10 +129,8 @@ DASHBOARD_HTML = """
         .btn-action { background: #f59e0b; color: #000; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
         .btn-action:hover { opacity: 0.9; }
         .btn-green { background: #10b981; color: #000; }
-        .btn-blue { background: #3b82f6; color: #fff; }
         .btn-discord { background: #5865F2; color: #fff; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
-
-        select { background: #0f172a; color: #f8fafc; border: 1px solid #334155; padding: 6px; border-radius: 6px; }
+        .btn-view { background: #38bdf8; color: #0f172a; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
 
         /* Modal styling */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); justify-content: center; align-items: center; z-index: 1000; }
@@ -168,8 +168,13 @@ DASHBOARD_HTML = """
         </div>
 
         <div class="section">
-            <h3>📡 Live Active Ticket Channels & Category Redirect</h3>
+            <h3>📡 Live Active Ticket Channels</h3>
             <ul id="active-tickets-list">Loading...</ul>
+        </div>
+
+        <div class="section">
+            <h3>📁 Past Closed Tickets & Message Logs</h3>
+            <ul id="transcript-list">Loading...</ul>
         </div>
 
         <div class="section">
@@ -216,27 +221,6 @@ DASHBOARD_HTML = """
             closeModal();
         };
 
-        function redirectTicketPrompt(channelId, channelName) {
-            const selectElem = document.getElementById(`select-cat-${channelId}`);
-            const categoryId = selectElem.value;
-            const categoryName = selectElem.options[selectElem.selectedIndex].text;
-
-            promptConfirmation(
-                "Move Ticket Category?",
-                `Are you sure you want to redirect #${channelName} to category "${categoryName}"?`,
-                async () => {
-                    const res = await fetch('/api/redirect_ticket', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ channel_id: channelId, category_id: categoryId })
-                    });
-                    const data = await res.json();
-                    alert(data.message || 'Action executed.');
-                    loadAdvancedData();
-                }
-            );
-        }
-
         function removeCooldownPrompt(userId) {
             promptConfirmation(
                 "Clear Cooldown?",
@@ -281,18 +265,24 @@ DASHBOARD_HTML = """
                 ticketsList.innerHTML = ticketsData.tickets.length ? '' : '<li>No active ticket channels</li>';
                 
                 ticketsData.tickets.forEach(ticket => {
-                    let catOptions = ticketsData.categories.map(cat => 
-                        `<option value="${cat.id}" ${cat.id === ticket.category_id ? 'selected' : ''}>${cat.name}</option>`
-                    ).join('');
-
                     ticketsList.innerHTML += `
                         <li>
-                            <span><strong>#${ticket.name}</strong> (Category: ${ticket.category_name})</span>
-                            <div style="display:flex; gap:8px; align-items:center;">
-                                <select id="select-cat-${ticket.id}">${catOptions}</select>
-                                <button onclick="redirectTicketPrompt('${ticket.id}', '${ticket.name}')" class="btn-action btn-blue">↪️ Move</button>
-                                <a href="https://discord.com/channels/${ticketsData.guild_id}/${ticket.id}" target="_blank" class="btn-discord">↗️ Open in Discord</a>
-                            </div>
+                            <span><strong>#${ticket.name}</strong></span>
+                            <a href="https://discord.com/channels/${ticketsData.guild_id}/${ticket.id}" target="_blank" class="btn-discord">↗️ Open in Discord</a>
+                        </li>`;
+                });
+
+                // Fetch transcript history
+                const transRes = await fetch('/api/transcripts');
+                const transData = await transRes.json();
+                const transList = document.getElementById('transcript-list');
+                transList.innerHTML = transData.length ? '' : '<li>No saved ticket transcripts yet.</li>';
+
+                transData.forEach(item => {
+                    transList.innerHTML += `
+                        <li>
+                            <span>📄 Ticket: <strong>#${item.channel_name}</strong></span>
+                            <a href="/transcript/${item.channel_name}" target="_blank" class="btn-view">📄 View Message History</a>
                         </li>`;
                 });
 
@@ -331,7 +321,31 @@ DASHBOARD_HTML = """
 </html>
 """
 
-# --- OAUTH2 ROUTES ---
+TRANSCRIPT_PAGE_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Transcript - #{{ channel_name }}</title>
+    <style>
+        body { font-family: 'Consolas', 'Courier New', monospace; background-color: #0f172a; color: #38bdf8; padding: 40px; margin: 0; }
+        .container { max-width: 1000px; margin: 0 auto; background-color: #1e293b; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        h2 { color: #f8fafc; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        pre { white-space: pre-wrap; word-wrap: break-word; color: #f1f5f9; font-size: 0.95rem; line-height: 1.5; }
+        .back-btn { display: inline-block; background-color: #5865F2; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-family: sans-serif; font-weight: bold; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-btn">⬅️ Back to Dashboard</a>
+        <h2>📜 Message Log for #{{ channel_name }}</h2>
+        <pre>{{ content }}</pre>
+    </div>
+</body>
+</html>
+"""
+
+# --- OAUTH2 & WEB ROUTES ---
 @app.route('/')
 def index():
     if 'user_id' not in session:
@@ -348,6 +362,22 @@ def index():
         username=session.get('username', 'User'),
         user_avatar=avatar_url
     )
+
+@app.route('/transcript/<channel_name>')
+def view_transcript(channel_name):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    filename = f"transcript-{channel_name}.txt"
+    filepath = os.path.join(TRANSCRIPT_DIR, filename)
+
+    if not os.path.exists(filepath):
+        return "<h2 style='color:red; font-family:sans-serif;'>Transcript file not found.</h2>", 404
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    return render_template_string(TRANSCRIPT_PAGE_HTML, channel_name=channel_name, content=content)
 
 @app.route('/login')
 def login():
@@ -389,7 +419,7 @@ def callback():
     user_data = user_response.json()
     user_id = int(user_data['id'])
 
-    # 1. Check if user is explicitly whitelisted by User ID (Access granted without server membership)
+    # 1. Check if user is explicitly whitelisted by User ID
     if user_id in ALLOWED_USER_IDS:
         session['user_id'] = user_data['id']
         session['username'] = user_data['username']
@@ -412,7 +442,6 @@ def callback():
             session['avatar'] = user_data.get('avatar')
             return redirect('/')
 
-    # ACCESS DENIED IF NEITHER CONDITION IS MET
     return """
     <div style="font-family: sans-serif; background: #0f172a; color: #ef4444; height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;">
         <div>
@@ -442,7 +471,7 @@ def stats():
 def get_active_tickets():
     guild = bot.get_guild(GUILD_ID)
     if not guild:
-        return jsonify({"tickets": [], "categories": [], "guild_id": str(GUILD_ID)})
+        return jsonify({"tickets": [], "guild_id": str(GUILD_ID)})
 
     ticket_prefixes = [
         "ticket-", "fallen-", "hidden-", "frost-", "event-", "pizza-", 
@@ -454,46 +483,23 @@ def get_active_tickets():
         if any(ch.name.startswith(p) for p in ticket_prefixes):
             active_tickets.append({
                 "id": str(ch.id),
-                "name": ch.name,
-                "category_id": str(ch.category_id) if ch.category_id else None,
-                "category_name": ch.category.name if ch.category else "Uncategorized"
+                "name": ch.name
             })
-
-    categories = [{"id": str(cat.id), "name": cat.name} for cat in guild.categories]
 
     return jsonify({
         "tickets": active_tickets,
-        "categories": categories,
         "guild_id": str(GUILD_ID)
     })
 
-@app.route('/api/redirect_ticket', methods=['POST'])
-def redirect_ticket_web():
-    if 'user_id' not in session:
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-        
-    data = request.get_json() or {}
-    channel_id = int(data.get('channel_id', 0))
-    category_id = int(data.get('category_id', 0))
-
-    async def move_channel():
-        guild = bot.get_guild(GUILD_ID)
-        if guild:
-            channel = guild.get_channel(channel_id)
-            category = guild.get_channel(category_id)
-            if channel and isinstance(category, discord.CategoryChannel):
-                await channel.edit(category=category)
-                return True
-        return False
-
-    future = asyncio.run_coroutine_threadsafe(move_channel(), bot.loop)
-    try:
-        success = future.result(timeout=5)
-        if success:
-            return jsonify({"success": True, "message": "Ticket category moved successfully!"})
-        return jsonify({"success": False, "message": "Failed to locate channel or category."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+@app.route('/api/transcripts')
+def get_transcripts():
+    saved_transcripts = []
+    if os.path.exists(TRANSCRIPT_DIR):
+        for f in sorted(os.listdir(TRANSCRIPT_DIR), reverse=True):
+            if f.startswith("transcript-") and f.endswith(".txt"):
+                channel_name = f.replace("transcript-", "").replace(".txt", "")
+                saved_transcripts.append({"channel_name": channel_name, "filename": f})
+    return jsonify(saved_transcripts)
 
 @app.route('/api/cooldowns')
 def get_cooldowns():
@@ -597,6 +603,15 @@ async def generate_transcript(channel: discord.TextChannel) -> discord.File:
                 lines.append(f"   [Embed Field: {field.name} -> {field.value}]")
 
     transcript_text = "\n".join(lines)
+
+    # Save to local persistent server storage for Dashboard access
+    saved_path = os.path.join(TRANSCRIPT_DIR, f"transcript-{channel.name}.txt")
+    try:
+        with open(saved_path, "w", encoding="utf-8") as f:
+            f.write(transcript_text)
+    except Exception as e:
+        print(f"Error saving transcript locally: {e}")
+
     buffer = io.BytesIO(transcript_text.encode('utf-8'))
     return discord.File(fp=buffer, filename=f"transcript-{channel.name}.txt")
 
