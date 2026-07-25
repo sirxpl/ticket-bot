@@ -569,6 +569,12 @@ def get_log_channel(guild):
 def get_blacklist_role(guild):
     return guild.get_role(BLACKLIST_ROLE_ID)
 
+# --- VIEW TRANSCRIPT LINK BUTTON COMPONENT ---
+class TranscriptButtonView(View):
+    def __init__(self, transcript_url: str):
+        super().__init__(timeout=None)
+        self.add_item(Button(label="View Transcript", url=transcript_url, style=discord.ButtonStyle.link, emoji="📄"))
+
 # --- DISCORD-STYLED HTML TRANSCRIPT GENERATOR ---
 async def save_html_transcript(channel: discord.TextChannel) -> str:
     messages_html = ""
@@ -701,8 +707,7 @@ class CloseConfirmView(View):
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
             log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
             log_embed.add_field(name="Ticket Channel", value=interaction.channel.name, inline=False)
-            log_embed.add_field(name="🌐 Interactive Transcript", value=f"[View Saved Transcript]({transcript_url})", inline=False)
-            await log_channel.send(embed=log_embed)
+            await log_channel.send(embed=log_embed, view=TranscriptButtonView(transcript_url))
 
         await asyncio.sleep(5)
         await interaction.channel.delete()
@@ -975,8 +980,7 @@ async def force_close(interaction: discord.Interaction, reason: str):
         log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
         log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
         log_embed.add_field(name="Reason", value=reason, inline=False)
-        log_embed.add_field(name="🌐 Interactive Transcript", value=f"[View Saved Transcript]({transcript_url})", inline=False)
-        await log_channel.send(embed=log_embed)
+        await log_channel.send(embed=log_embed, view=TranscriptButtonView(transcript_url))
 
     await asyncio.sleep(5)
     await interaction.channel.delete(reason=reason)
