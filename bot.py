@@ -165,70 +165,18 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
 
         await interaction.response.send_message(f"Ticket created! Check out {ticket_channel.mention}", ephemeral=True)
 
-        ticket_payload = {
-            "flags": 32768,
-            "content": f"{user.mention}",
-            "components": [
-                {
-                    "type": 17,
-                    "accent_color": 3447003,
-                    "components": [
-                        {
-                            "type": 10,
-                            "components": [
-                                {
-                                    "type": 12,
-                                    "content": f"## Ticket Created\nWelcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you shortly."
-                                }
-                            ]
-                        },
-                        {"type": 14},
-                        {
-                            "type": 10,
-                            "components": [
-                                {
-                                    "type": 12,
-                                    "content": (
-                                        f"**1. ⏰ Which country and timezone are you from?**\n```{self.q1_timezone.value}```\n\n"
-                                        f"**2. 🎮 What is your roblox display name?**\n```{self.q2_roblox.value}```\n\n"
-                                        f"**3. 🎲 Are you able to join a private server?**\n```{self.q3_private_server.value}```"
-                                    )
-                                }
-                            ]
-                        }
-                    ]
-                },
-                {
-                    "type": 1,
-                    "components": [
-                        {
-                            "type": 2,
-                            "style": 2,
-                            "label": "🔒 Close",
-                            "custom_id": "close_ticket_btn"
-                        }
-                    ]
-                }
-            ]
-        }
+        welcome_embed = discord.Embed(
+            title="Ticket Created",
+            description=f"Welcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you shortly.",
+            color=discord.Color.blue()
+        )
+        answers_embed = discord.Embed(color=discord.Color.dark_grey())
+        answers_embed.add_field(name="1. ⏰ Which country and timezone are you from?", value=f"```{self.q1_timezone.value}```", inline=False)
+        answers_embed.add_field(name="2. 🎮 What is your roblox display name?", value=f"```{self.q2_roblox.value}```", inline=False)
+        answers_embed.add_field(name="3. 🎲 Are you able to join a private server?", value=f"```{self.q3_private_server.value}```", inline=False)
+        answers_embed.set_footer(text="Ticket Bot | Carry System")
 
-        try:
-            await bot.http.request(
-                discord.http.Route('POST', '/channels/{channel_id}/messages', channel_id=ticket_channel.id),
-                json=ticket_payload
-            )
-        except Exception:
-            welcome_embed = discord.Embed(
-                title="Ticket Created",
-                description=f"Welcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you shortly.",
-                color=discord.Color.blue()
-            )
-            answers_embed = discord.Embed(color=discord.Color.dark_grey())
-            answers_embed.add_field(name="1. ⏰ Which country and timezone are you from?", value=f"```{self.q1_timezone.value}```", inline=False)
-            answers_embed.add_field(name="2. 🎮 What is your roblox display name?", value=f"```{self.q2_roblox.value}```", inline=False)
-            answers_embed.add_field(name="3. 🎲 Are you able to join a private server?", value=f"```{self.q3_private_server.value}```", inline=False)
-            answers_embed.set_footer(text="Ticket Bot | Carry System")
-            await ticket_channel.send(embeds=[welcome_embed, answers_embed], view=TicketControlView())
+        await ticket_channel.send(content=f"{user.mention}", embeds=[welcome_embed, answers_embed], view=TicketControlView())
 
         log_channel = get_log_channel(guild)
         if log_channel:
@@ -311,79 +259,45 @@ async def on_ready():
 @bot.tree.command(name="setup_tickets", description="Spawns the Requesting Carry ticket panel")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_tickets(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Requesting Carry",
+        description="Choose what you need help with",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="Normal Game Modes 🥶",
+        value="You can request a carry service for any normal game mode.",
+        inline=False
+    )
+    embed.add_field(
+        name="Special Game Modes 🥺",
+        value="You can request carry service for any special game mode, including Quickdraw and Lost Soul.",
+        inline=False
+    )
+    embed.add_field(
+        name="Trials 🐹",
+        value="You can request carry service for any trials, however requesting quarantine or jailed may result in long wait.",
+        inline=False
+    )
+    embed.add_field(
+        name="Hardcore 💎",
+        value="You can request carry service for hardcore your first hardcore run, but not for gem grinding.",
+        inline=False
+    )
+    embed.add_field(
+        name="Others 🐱",
+        value="Other is used for game modes below Fallen and for mission quests.",
+        inline=False
+    )
+    
+    embed.set_footer(text="Ticket Bot | Carry System")
+
+    # Send the main ticket panel to the channel directly
+    await interaction.channel.send(embed=embed, view=TicketLauncher())
+    
+    # Confirm to the admin who ran the command
     await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
-
-    dropdown_dict = {
-        "type": 1,
-        "components": [
-            {
-                "type": 3,
-                "custom_id": "carry_dropdown",
-                "placeholder": "Select a category...",
-                "options": [
-                    {"label": "Fallen Carry", "description": "Request fallen mode carry", "emoji": {"name": "🛡️"}, "value": "fallen-carry"},
-                    {"label": "Hidden Wave Carry", "description": "Request hidden wave carry", "emoji": {"name": "🥷"}, "value": "hidden-wave-carry"},
-                    {"label": "Frost Carry", "description": "Request frost mode carry", "emoji": {"name": "❄️"}, "value": "frost-carry"},
-                    {"label": "Event Carry", "description": "Request current event carry", "emoji": {"name": "🎮"}, "value": "event-carry"},
-                    {"label": "Pizza Party Carry", "description": "Request pizza party carry", "emoji": {"name": "🍕"}, "value": "pizza-party-carry"},
-                    {"label": "Lost Soul Carry", "description": "Request lost soul carry", "emoji": {"name": "👻"}, "value": "lost-soul-carry"},
-                    {"label": "Badlands 2 Carry", "description": "Request badlands 2 carry", "emoji": {"name": "🤠"}, "value": "badlands-2-carry"},
-                    {"label": "Quickdraw Carry", "description": "Request quickdraw carry", "emoji": {"name": "🔫"}, "value": "quickdraw-carry"},
-                    {"label": "Polluted Wasteland 2 Carry", "description": "Request polluted wasteland 2 carry", "emoji": {"name": "☢️"}, "value": "polluted-wasteland-2-carry"},
-                    {"label": "Trials", "description": "Request carry for trials", "emoji": {"name": "👾"}, "value": "trials"},
-                    {"label": "Hardcore Carry", "description": "Request hardcore mode carry", "emoji": {"name": "💎"}, "value": "hardcore-carry"},
-                    {"label": "Other", "description": "Request carry for something that not named above", "emoji": {"name": "❓"}, "value": "other"}
-                ]
-            }
-        ]
-    }
-
-    panel_payload = {
-        "flags": 32768,
-        "components": [
-            {
-                "type": 17,
-                "accent_color": 3447003,
-                "components": [
-                    {
-                        "type": 10,
-                        "components": [
-                            {
-                                "type": 12,
-                                "content": "## Requesting Carry\nChoose what you need help with"
-                            }
-                        ]
-                    },
-                    {"type": 14},
-                    {
-                        "type": 10,
-                        "components": [
-                            {
-                                "type": 12,
-                                "content": (
-                                    "### Normal Game Modes 🥶\nYou can request a carry service for any normal game mode.\n\n"
-                                    "### Special Game Modes 🥺\nYou can request carry service for any special game mode, including Quickdraw and Lost Soul.\n\n"
-                                    "### Trials 🐹\nYou can request carry service for any trials, however requesting quarantine or jailed may result in long wait.\n\n"
-                                    "### Hardcore 💎\nYou can request carry service for hardcore your first hardcore run, but not for gem grinding.\n\n"
-                                    "### Others 🐱\nOther is used for game modes below Fallen and for mission quests."
-                                )
-                            }
-                        ]
-                    }
-                ]
-            },
-            dropdown_dict
-        ]
-    }
-
-    if interaction.channel:
-        try:
-            await bot.http.request(
-                discord.http.Route('POST', '/channels/{channel_id}/messages', channel_id=interaction.channel.id),
-                json=panel_payload
-            )
-        except Exception as e:
-            print(f"Failed to post panel: {e}")
 
 @bot.tree.command(name="blacklist_add", description="Gives the Blacklisted role to a user")
 @app_commands.checks.has_permissions(manage_roles=True)
