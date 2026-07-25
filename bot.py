@@ -119,11 +119,11 @@ class CloseConfirmView(View):
         # Generate transcript file
         transcript_file = await generate_transcript(interaction.channel)
 
-        # Log ticket closure with transcript attached
+        # Log ticket closure with transcript attached (User ID removed)
         log_channel = get_log_channel(interaction.guild)
         if log_channel:
             log_embed = discord.Embed(title="🔒 Ticket Closed", color=discord.Color.orange())
-            log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
+            log_embed.add_field(name="Closed By", value=interaction.user.mention, inline=False)
             log_embed.add_field(name="Ticket Channel", value=interaction.channel.name, inline=False)
             await log_channel.send(embed=log_embed, file=transcript_file)
 
@@ -216,12 +216,13 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
 
         await ticket_channel.send(content=f"{user.mention}", embeds=[welcome_embed, answers_embed], view=TicketControlView())
 
+        # Log ticket creation (User ID removed)
         log_channel = get_log_channel(guild)
         if log_channel:
             log_embed = discord.Embed(title="📝 New Carry Ticket Opened", color=discord.Color.blue())
             log_embed.add_field(name="Ticket Number", value=f"#{ticket_counter:04d}", inline=True)
             log_embed.add_field(name="Category", value=self.category_val.replace('-', ' ').title(), inline=True)
-            log_embed.add_field(name="Opened By", value=f"{user.mention} (ID: {user.id})", inline=True)
+            log_embed.add_field(name="Opened By", value=user.mention, inline=True)
             log_embed.add_field(name="Channel", value=f"{ticket_channel.mention}", inline=False)
             await log_channel.send(embed=log_embed)
 
@@ -395,10 +396,11 @@ async def force_close(interaction: discord.Interaction, reason: str):
 
     transcript_file = await generate_transcript(interaction.channel)
 
+    # Log force close (User ID removed)
     log_channel = get_log_channel(interaction.guild)
     if log_channel:
         log_embed = discord.Embed(title="⚠️ Ticket Force Closed", color=discord.Color.red())
-        log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
+        log_embed.add_field(name="Closed By", value=interaction.user.mention, inline=False)
         log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
         log_embed.add_field(name="Reason", value=reason, inline=False)
         await log_channel.send(embed=log_embed, file=transcript_file)
