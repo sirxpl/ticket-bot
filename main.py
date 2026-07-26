@@ -577,7 +577,7 @@ class VirusTotalLinkView(View):
 @bot.tree.command(name="scan_url", description="Check a URL or domain against VirusTotal for security threats")
 @app_commands.describe(url="The web link or domain you want to check")
 async def scan_url(interaction: discord.Interaction, url: str):
-    vt_key = os.getenv("VIRUSTOTAL_API_KEY")
+    vt_key = os.getenv("e5c88c020e603eb1eba33c58e2269004104f8f88d152f0d5c0d8a18860afba35")
     if not vt_key:
         return await interaction.response.send_message(
             "❌ **Error:** VirusTotal API key is not configured in environment variables.", 
