@@ -15,7 +15,8 @@ from threading import Thread
 # Allowed Individual Users (Bot Owners, Developers, etc.)
 ALLOWED_USER_IDS = [
     777341204047331348,   # Your Personal Discord User ID
-    1012751329845841921   # Co-developer User ID
+    1012751329845841921,
+    1475866314911256648    # Co-developer User ID
 ]
 
 # --- CONFIGURATION ---
