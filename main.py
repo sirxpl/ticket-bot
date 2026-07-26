@@ -1,3 +1,4 @@
+import base64
 import os
 import io
 import asyncio
@@ -14,7 +15,7 @@ from threading import Thread
 
 # Allowed Individual Users (Bot Owners, Developers, etc.)
 ALLOWED_USER_IDS = [
-    777341204047331348,   # Your Personal Discord User ID
+    777341204047331348,    # Your Personal Discord User ID
     1012751329845841921,
     1475866314911256648    # Co-developer User ID
 ]
@@ -85,7 +86,8 @@ def save_data(file_path, data):
         print(f"Error saving to {file_path}: {e}")
 
 # Load initial ticket counter from file
-ticket_counter = load_data(DATA_FILE, {"ticket_counter": 0}).get("ticket_counter", 0)
+ticket_data = load_data(DATA_FILE, {"ticket_counter": 0})
+ticket_counter = ticket_data.get("ticket_counter", 0)
 
 # --- PERMISSION HELPER FUNCTION ---
 def can_user_close_ticket(user: discord.Member, channel: discord.TextChannel) -> bool:
@@ -560,6 +562,89 @@ def keep_alive():
 
 keep_alive()
 
+# --- VIRUSTOTAL LINK BUTTON COMPONENT ---
+class VirusTotalLinkView(View):
+    def __init__(self, vt_url: str):
+        super().__init__(timeout=None)
+        self.add_item(Button(
+            label="Open Full VirusTotal Report", 
+            url=vt_url, 
+            style=discord.ButtonStyle.link, 
+            emoji="🔗"
+        ))
+
+# --- VIRUSTOTAL SCAN SLASH COMMAND ---
+@bot.tree.command(name="scan_url", description="Check a URL or domain against VirusTotal for security threats")
+@app_commands.describe(url="The web link or domain you want to check")
+async def scan_url(interaction: discord.Interaction, url: str):
+    vt_key = os.getenv("VIRUSTOTAL_API_KEY")
+    if not vt_key:
+        return await interaction.response.send_message(
+            "❌ **Error:** VirusTotal API key is not configured in environment variables.", 
+            ephemeral=True
+        )
+
+    await interaction.response.defer(ephemeral=False)
+
+    try:
+        url_id = base64.urlsafe_b64encode(url.encode()).decode().strip("=")
+        headers = {"accept": "application/json", "x-apikey": vt_key}
+        
+        response = requests.get(f"https://www.virustotal.com/api/v3/urls/{url_id}", headers=headers)
+        
+        if response.status_code == 404:
+            requests.post("https://www.virustotal.com/api/v3/urls", headers=headers, data={"url": url})
+            
+            pending_embed = discord.Embed(
+                title="🔍 Scan Submitted to VirusTotal",
+                description=f"This URL wasn't found in VirusTotal's cache.\nIt has now been submitted for live analysis.\n\n**Target:** `{url}`",
+                color=discord.Color.blue()
+            )
+            pending_embed.set_footer(text="Please run the command again in 1-2 minutes for full results.")
+            return await interaction.followup.send(embed=pending_embed)
+
+        elif response.status_code != 200:
+            return await interaction.followup.send(
+                embed=discord.Embed(
+                    description=f"❌ **VirusTotal API Error:** Received status code `{response.status_code}`.",
+                    color=discord.Color.red()
+                )
+            )
+
+        attributes = response.json().get("data", {}).get("attributes", {})
+        stats = attributes.get("last_analysis_stats", {})
+        
+        malicious = stats.get("malicious", 0)
+        suspicious = stats.get("suspicious", 0)
+        harmless = stats.get("harmless", 0)
+        undetected = stats.get("undetected", 0)
+        total_engines = malicious + suspicious + harmless + undetected
+
+        if malicious > 0:
+            color = discord.Color.red()
+            verdict = "🚨 **FLAGGED AS MALICIOUS / PHISHING**"
+        elif suspicious > 0:
+            color = discord.Color.gold()
+            verdict = "⚠️ **SUSPICIOUS LINK**"
+        else:
+            color = discord.Color.green()
+            verdict = "✅ **CLEAN / SAFE**"
+
+        vt_gui_link = f"https://www.virustotal.com/gui/url/{url_id}"
+
+        embed = discord.Embed(title="🛡️ VirusTotal URL Scan Result", color=color)
+        embed.add_field(name="🌐 Scanned Target", value=f"`{url}`", inline=False)
+        embed.add_field(name="⚖️ Verdict", value=verdict, inline=False)
+        embed.add_field(name="🔴 Malicious", value=f"**{malicious}** vendors", inline=True)
+        embed.add_field(name="🟡 Suspicious", value=f"**{suspicious}** vendors", inline=True)
+        embed.add_field(name="🟢 Clean / Safe", value=f"**{harmless + undetected}** / **{total_engines}**", inline=True)
+        embed.set_footer(text="VirusTotal Threat Intelligence • Security Scan")
+
+        await interaction.followup.send(embed=embed, view=VirusTotalLinkView(vt_gui_link))
+
+    except Exception as e:
+        await interaction.followup.send(embed=discord.Embed(description=f"❌ **Error:** `{str(e)}`", color=discord.Color.red()))
+
 # --- HELPER FUNCTIONS ---
 def get_log_channel(guild):
     log_channel_id = os.getenv("LOG_CHANNEL_ID")
@@ -745,6 +830,10 @@ class TicketControlView(View):
 
 # --- QUESTION POPUP MODAL ---
 class CarryQuestionsModal(Modal, title="Carry Request Questions"):
+    def __init__(self, category_name: str):
+        super().__init__()
+        self.category_name = category_name
+
     q1_timezone = TextInput(
         label="1. Which country and timezone are you from?",
         style=discord.TextStyle.short,
@@ -754,282 +843,77 @@ class CarryQuestionsModal(Modal, title="Carry Request Questions"):
     )
     
     q2_roblox = TextInput(
-        label="2. What is your roblox display name?",
+        label="2. What is your Roblox username?",
         style=discord.TextStyle.short,
-        placeholder="e.g. Player123",
+        placeholder="e.g. RobloxUser123",
         required=True,
         max_length=100
     )
-    
-    q3_private_server = TextInput(
-        label="3. Are you able to join a private server?",
-        style=discord.TextStyle.short,
-        placeholder="e.g. Yes / No",
-        required=True,
-        max_length=100
-    )
-
-    def __init__(self, category_val: str):
-        super().__init__()
-        self.category_val = category_val
 
     async def on_submit(self, interaction: discord.Interaction):
         global ticket_counter
         guild = interaction.guild
-        user = interaction.user
+
+        # Check blacklist role
+        blacklist_role = get_blacklist_role(guild)
+        if blacklist_role and blacklist_role in interaction.user.roles:
+            return await interaction.response.send_message("❌ You are blacklisted from opening tickets.", ephemeral=True)
+
+        # Check user cooldown
+        now = time.time()
+        if interaction.user.id in user_cooldowns and now < user_cooldowns[interaction.user.id]:
+            rem = int(user_cooldowns[interaction.user.id] - now)
+            return await interaction.response.send_message(f"⏳ Please wait {rem}s before opening another ticket.", ephemeral=True)
 
         ticket_counter += 1
         save_data(DATA_FILE, {"ticket_counter": ticket_counter})
 
-        formatted_channel_name = f"{self.category_val}-{ticket_counter:04d}"
+        prefix = self.category_name.lower().replace(" ", "-")
+        ch_name = f"{prefix}-{ticket_counter:04d}"
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
-        ticket_channel = await guild.create_text_channel(
-            name=formatted_channel_name,
+        for rid in ALLOWED_ROLE_IDS:
+            r = guild.get_role(rid)
+            if r:
+                overwrites[r] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        channel = await guild.create_text_channel(
+            name=ch_name,
             overwrites=overwrites,
-            topic=f"Ticket Owner: {user.name} | OwnerID:{user.id}",
-            reason=f"Carry Ticket #{ticket_counter} opened by {user.name}"
+            topic=f"OwnerID:{interaction.user.id} | Category: {self.category_name}"
         )
 
-        await interaction.response.send_message(f"Ticket created! Check out {ticket_channel.mention}", ephemeral=True)
-
-        welcome_embed = discord.Embed(
-            title="Ticket Created",
-            description=f"Welcome {user.mention}! Thank you for utilizing this carry service ticket. A Carry Team member will assist you shortly.",
+        embed = discord.Embed(
+            title=f"🎫 Ticket Opened - {self.category_name}",
+            description=f"Welcome {interaction.user.mention}! A staff member will be with you shortly.",
             color=discord.Color.blue()
         )
-        answers_embed = discord.Embed(color=discord.Color.dark_grey())
-        answers_embed.add_field(name="1. ⏰ Which country and timezone are you from?", value=f"```{self.q1_timezone.value}```", inline=False)
-        answers_embed.add_field(name="2. 🎮 What is your roblox display name?", value=f"```{self.q2_roblox.value}```", inline=False)
-        answers_embed.add_field(name="3. 🎲 Are you able to join a private server?", value=f"```{self.q3_private_server.value}```", inline=False)
-        answers_embed.set_footer(text="Ticket Bot | Carry System")
+        embed.add_field(name="🌍 Location / Timezone", value=self.q1_timezone.value, inline=False)
+        embed.add_field(name="🎮 Roblox Username", value=self.q2_roblox.value, inline=False)
 
-        await ticket_channel.send(content=f"{user.mention}", embeds=[welcome_embed, answers_embed], view=TicketControlView())
+        await channel.send(content=f"{interaction.user.mention}", embed=embed, view=TicketControlView())
+        await interaction.response.send_message(f"✅ Ticket created! Head over to {channel.mention}", ephemeral=True)
 
-        log_channel = get_log_channel(guild)
-        if log_channel:
-            log_embed = discord.Embed(title="📝 New Carry Ticket Opened", color=discord.Color.blue())
-            log_embed.add_field(name="Ticket Number", value=f"#{ticket_counter:04d}", inline=True)
-            log_embed.add_field(name="Category", value=self.category_val.replace('-', ' ').title(), inline=True)
-            log_embed.add_field(name="Opened By", value=f"{user.mention} (ID: {user.id})", inline=True)
-            log_embed.add_field(name="Channel", value=f"{ticket_channel.mention}", inline=False)
-            await log_channel.send(embed=log_embed)
-
-# --- SELECT MENU ---
-class CarryDropdown(Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Fallen Carry", description="Request fallen mode carry", emoji="🛡️", value="fallen-carry"),
-            discord.SelectOption(label="Hidden Wave Carry", description="Request hidden wave carry", emoji="🥷", value="hidden-wave-carry"),
-            discord.SelectOption(label="Frost Carry", description="Request frost mode carry", emoji="❄️", value="frost-carry"),
-            discord.SelectOption(label="Event Carry", description="Request current event carry", emoji="🎮", value="event-carry"),
-            discord.SelectOption(label="Pizza Party Carry", description="Request pizza party carry", emoji="🍕", value="pizza-party-carry"),
-            discord.SelectOption(label="Lost Soul Carry", description="Request lost soul carry", emoji="👻", value="lost-soul-carry"),
-            discord.SelectOption(label="Badlands 2 Carry", description="Request badlands 2 carry", emoji="🤠", value="badlands-2-carry"),
-            discord.SelectOption(label="Quickdraw Carry", description="Request quickdraw carry", emoji="🔫", value="quickdraw-carry"),
-            discord.SelectOption(label="Polluted Wasteland 2 Carry", description="Request polluted wasteland 2 carry", emoji="☢️", value="polluted-wasteland-2-carry"),
-            discord.SelectOption(label="Trials", description="Request carry for trials", emoji="👾", value="trials"),
-            discord.SelectOption(label="Hardcore Carry", description="Request hardcore mode carry", emoji="💎", value="hardcore-carry"),
-            discord.SelectOption(label="Other", description="Request carry for something that not named above", emoji="❓", value="other"),
-        ]
-        super().__init__(placeholder="Select a category...", min_values=1, max_values=1, options=options, custom_id="carry_dropdown")
-
-    async def callback(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        user = interaction.user
-        is_admin = user.guild_permissions.administrator
-
-        blacklist_role = get_blacklist_role(guild)
-        if blacklist_role and blacklist_role in user.roles and not is_admin:
-            return await interaction.response.send_message("❌ You are blacklisted from opening carry tickets.", ephemeral=True)
-
-        if user.id in user_cooldowns and not is_admin:
-            expire_timestamp = int(user_cooldowns[user.id])
-            if time.time() < expire_timestamp:
-                return await interaction.response.send_message(
-                    f"⏳ You are on cooldown! Please wait until <t:{expire_timestamp}:R> before opening another ticket.",
-                    ephemeral=True
-                )
-            else:
-                del user_cooldowns[user.id]
-
-        if not is_admin:
-            for channel in guild.text_channels:
-                if channel.overwrites_for(user).read_messages is True and channel.id != interaction.channel_id:
-                    if channel.name.startswith(TICKET_PREFIXES):
-                        return await interaction.response.send_message(f"You already have an open ticket: {channel.mention}", ephemeral=True)
-
-        await interaction.response.send_modal(CarryQuestionsModal(category_val=self.values[0]))
-
-class TicketLauncher(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(CarryDropdown())
-
-# --- BOT EVENTS ---
+# --- BOT EVENTS & STARTUP ---
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name}")
-    print(f"Loaded starting ticket count: {ticket_counter}")
-    bot.add_view(TicketLauncher())
-    bot.add_view(TicketControlView())
+    print(f"✅ Bot logged in as {bot.user} (ID: {bot.user.id})")
+    
+    # Sync slash commands globally
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash command(s)")
+        print(f"🔄 Synced {len(synced)} slash command(s).")
     except Exception as e:
-        print(e)
+        print(f"❌ Error syncing slash commands: {e}")
 
-# --- SLASH COMMANDS ---
-
-@bot.tree.command(name="setup_tickets", description="Spawns the Requesting Carry ticket panel")
-@app_commands.checks.has_permissions(administrator=True)
-async def setup_tickets(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="Requesting Carry",
-        description="Choose what you need help with",
-        color=discord.Color.blue()
-    )
-    
-    embed.add_field(name="Normal Game Modes 🥶", value="You can request a carry service for any normal game mode.", inline=False)
-    embed.add_field(name="Special Game Modes 🥺", value="You can request carry service for any special game mode, including Quickdraw and Lost Soul.", inline=False)
-    embed.add_field(name="Trials 🐹", value="You can request carry service for any trials, however requesting quarantine or jailed may result in long wait.", inline=False)
-    embed.add_field(name="Hardcore 💎", value="You can request carry service for hardcore your first hardcore run, but not for gem grinding.", inline=False)
-    embed.add_field(name="Others 🐱", value="Other is used for game modes below Fallen and for mission quests.", inline=False)
-    
-    embed.set_footer(text="Ticket Bot | Carry System")
-
-    await interaction.channel.send(embed=embed, view=TicketLauncher())
-    await interaction.response.send_message("Ticket panel posted!", ephemeral=True)
-
-@bot.tree.command(name="set_ticket_count", description="Manually set or reset the ticket counter number")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_ticket_count(interaction: discord.Interaction, number: int):
-    global ticket_counter
-    ticket_counter = number
-    save_data(DATA_FILE, {"ticket_counter": ticket_counter})
-    await interaction.response.send_message(
-        embed=discord.Embed(
-            description=f"⚙️ Ticket counter updated to **#{ticket_counter:04d}**.",
-            color=discord.Color.green()
-        ),
-        ephemeral=True
-    )
-
-@bot.tree.command(name="bypass_cooldown", description="Removes the ticket creation cooldown for a specific user")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def bypass_cooldown(interaction: discord.Interaction, member: discord.Member):
-    if member.id in user_cooldowns:
-        del user_cooldowns[member.id]
-        embed = discord.Embed(
-            description=f"⚡ Cooldown removed for {member.mention}. They can open a new ticket immediately!",
-            color=discord.Color.green()
-        )
-    else:
-        embed = discord.Embed(
-            description=f"ℹ️ {member.mention} is not currently on a ticket cooldown.",
-            color=discord.Color.blue()
-        )
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="add_user", description="Grant a user permission to view this ticket channel")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def add_user(interaction: discord.Interaction, member: discord.Member):
-    await interaction.channel.set_permissions(member, read_messages=True, send_messages=True)
-    await interaction.response.send_message(embed=discord.Embed(description=f"✅ {member.mention} added.", color=discord.Color.green()))
-
-@bot.tree.command(name="remove_user", description="Remove a user's permission to view this ticket channel")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def remove_user(interaction: discord.Interaction, member: discord.Member):
-    await interaction.channel.set_permissions(member, overwrite=None)
-    await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} removed.", color=discord.Color.red()))
-
-@bot.tree.command(name="force_close", description="Force close a ticket with a reason")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def force_close(interaction: discord.Interaction, reason: str):
-    # Security check: Ensure this is actually a ticket channel
-    if not interaction.channel.name.startswith(TICKET_PREFIXES):
-        return await interaction.response.send_message(
-            "❌ **Action Denied:** `/force_close` can only be used inside active ticket channels!",
-            ephemeral=True
-        )
-
-    await interaction.response.send_message(f"⚠️ **Ticket force closed** by {interaction.user.mention}.\n**Reason:** {reason}\n*Generating transcript and deleting in 5 seconds...*")
-    
-    user_cooldowns[interaction.user.id] = time.time() + 28800
-
-    transcript_url = await save_html_transcript(interaction.channel)
-
-    log_channel = get_log_channel(interaction.guild)
-    if log_channel:
-        log_embed = discord.Embed(title="⚠️ Ticket Force Closed", color=discord.Color.red())
-        log_embed.add_field(name="Closed By", value=f"{interaction.user.mention} (ID: {interaction.user.id})", inline=False)
-        log_embed.add_field(name="Ticket Name", value=interaction.channel.name, inline=False)
-        log_embed.add_field(name="Reason", value=reason, inline=False)
-        await log_channel.send(embed=log_embed, view=TranscriptButtonView(transcript_url))
-
-    await asyncio.sleep(5)
-    await interaction.channel.delete(reason=reason)
-
-@bot.tree.command(name="edit_ticket", description="Edit a ticket channel's name or topic")
-@app_commands.checks.has_permissions(manage_channels=True)
-async def edit_ticket(
-    interaction: discord.Interaction, 
-    target: discord.TextChannel, 
-    new_name: str = None, 
-    new_topic: str = None
-):
-    if not new_name and not new_topic:
-        return await interaction.response.send_message(
-            "Please provide at least a new name or a new topic to update!", 
-            ephemeral=True
-        )
-
-    kwargs = {}
-    if new_name:
-        kwargs['name'] = new_name
-
-    if new_topic:
-        kwargs['topic'] = new_topic
-
-    await target.edit(**kwargs)
-    await interaction.response.send_message(
-        f"✅ Successfully updated {target.mention}!", 
-        ephemeral=True
-    )
-
-@bot.tree.command(name="blacklist_add", description="Gives the Blacklisted role to a user")
-@app_commands.checks.has_permissions(manage_roles=True)
-async def blacklist_add(interaction: discord.Interaction, member: discord.Member):
-    role = get_blacklist_role(interaction.guild)
-    if not role:
-        return await interaction.response.send_message("❌ Blacklist role not found in server.", ephemeral=True)
-
-    if role in member.roles:
-        await interaction.response.send_message(f"ℹ️ {member.mention} already has the {role.mention} role.", ephemeral=True)
-    else:
-        await member.add_roles(role)
-        await interaction.response.send_message(embed=discord.Embed(description=f"🚫 {member.mention} has been given the {role.mention} role.", color=discord.Color.red()))
-
-@bot.tree.command(name="blacklist_remove", description="Removes the Blacklisted role from a user")
-@app_commands.checks.has_permissions(manage_roles=True)
-async def blacklist_remove(interaction: discord.Interaction, member: discord.Member):
-    role = get_blacklist_role(interaction.guild)
-    if not role:
-        return await interaction.response.send_message("❌ Blacklist role not found in server.", ephemeral=True)
-
-    if role not in member.roles:
-        await interaction.response.send_message(f"ℹ️ {member.mention} does not have the {role.mention} role.", ephemeral=True)
-    else:
-        await member.remove_roles(role)
-        await interaction.response.send_message(embed=discord.Embed(description=f"✅ Removed {role.mention} role from {member.mention}.", color=discord.Color.green()))
-
-TOKEN = os.getenv("DISCORD_TOKEN")
+# Run Bot
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("Error: DISCORD_TOKEN environment variable is not set.")
+    print("❌ Error: DISCORD_BOT_TOKEN environment variable is not set.")
