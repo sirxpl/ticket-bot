@@ -17,7 +17,6 @@ TOKEN_URL = 'https://discord.com/api/oauth2/token'
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
-# Global variable to pass active Discord ticket channels from main.py
 active_tickets_cache = []
 
 HTML_TEMPLATE = """
@@ -36,11 +35,13 @@ HTML_TEMPLATE = """
         .title { font-size: 26px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
         .status-badge { background-color: #10b981; color: #022c22; padding: 5px 14px; border-radius: 20px; font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
         
-        .user-nav { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 15px; }
+        .user-profile { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
+        .avatar { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #3b82f6; object-fit: cover; }
+        
         .btn { padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 700; border: none; cursor: pointer; transition: 0.2s; font-size: 14px; }
         .btn-login { background-color: #5865f2; color: white; display: inline-flex; align-items: center; gap: 8px; }
         .btn-login:hover { background-color: #4752c4; }
-        .btn-logout { background-color: #ef4444; color: white; }
+        .btn-logout { background-color: #ef4444; color: white; margin-left: 8px; }
         .btn-logout:hover { background-color: #dc2626; }
         .btn-discord { background-color: #5865f2; color: white; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px; }
         .btn-unblacklist { background-color: #10b981; color: #022c22; padding: 6px 14px; border-radius: 6px; border: none; font-weight: 700; cursor: pointer; }
@@ -71,12 +72,13 @@ HTML_TEMPLATE = """
                     <span class="status-badge">🟢 Bot Online</span>
                 </div>
             </div>
-            <div class="user-nav">
+            <div>
                 {% if user %}
-                    <span>Welcome, <strong>{{ user.username }}</strong>!</span>
-                    <a href="/logout" class="btn btn-logout">Logout</a>
-                {% else %}
-                    <a href="/login" class="btn btn-login">Login with Discord</a>
+                    <div class="user-profile">
+                        <img src="{{ user.avatar_url }}" alt="Avatar" class="avatar">
+                        <span>Welcome, <strong>{{ user.username }}</strong>!</span>
+                        <a href="/logout" class="btn btn-logout">Logout</a>
+                    </div>
                 {% endif %}
             </div>
         </div>
@@ -176,8 +178,6 @@ def index():
     user = session.get("user")
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
-    
-    # Fetch local HTML transcript logs
     transcripts = [os.path.basename(f) for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")]
 
     return render_template_string(
@@ -207,8 +207,23 @@ def callback():
         authorization_response=request.url
     )
     session['oauth2_token'] = token
+    
+    # Fetch Discord profile details
     user_data = discord_sess.get('https://discord.com/api/users/@me').json()
-    session['user'] = {'username': user_data.get('username'), 'id': user_data.get('id')}
+    user_id = user_data.get('id')
+    avatar_hash = user_data.get('avatar')
+    
+    # Generate Discord CDN avatar URL or default fallback
+    if avatar_hash:
+        avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png"
+    else:
+        avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+
+    session['user'] = {
+        'username': user_data.get('username'),
+        'id': user_id,
+        'avatar_url': avatar_url
+    }
     return redirect(url_for('index'))
 
 @app.route("/logout")
