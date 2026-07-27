@@ -1,6 +1,5 @@
 # cogs/tickets.py
 import os
-import time
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -15,7 +14,6 @@ from utils.storage import (
 )
 
 BLACKLIST_ROLE_ID = 1530330613029015704
-ALLOWED_ROLE_IDS = [1530330612567904276]
 
 # --- MODAL FOR TICKET DETAILS ---
 class CarryQuestionsModal(Modal, title="Ticket Details"):
@@ -31,14 +29,12 @@ class CarryQuestionsModal(Modal, title="Ticket Details"):
         await interaction.response.defer(ephemeral=True)
         user, guild = interaction.user, interaction.guild
 
-        # Increment ticket counter
         data = get_tickets_data()
         data["ticket_counter"] = data.get("ticket_counter", 0) + 1
         save_tickets_data(data)
 
         channel_name = f"{self.prefix}-{data['ticket_counter']:04d}"
         
-        # Set channel permissions
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -168,6 +164,20 @@ class TicketCog(commands.Cog):
         view.add_item(select)
 
         await interaction.response.send_message("Select the target category:", view=view, ephemeral=True)
+
+    @app_commands.command(name="rename_ticket", description="Rename the current ticket channel")
+    @app_commands.describe(new_name="The new name for this ticket channel")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def rename_ticket(self, interaction: discord.Interaction, new_name: str):
+        old_name = interaction.channel.name
+        
+        clean_name = new_name.lower().replace(" ", "-")
+        await interaction.channel.edit(name=clean_name)
+        
+        await interaction.response.send_message(
+            f"✅ Renamed channel from **#{old_name}** to **#{clean_name}**!", 
+            ephemeral=True
+        )
 
 
 async def setup(bot: commands.Bot):
