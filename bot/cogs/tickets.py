@@ -67,31 +67,6 @@ class TicketControlView(View):
         await create_html_transcript(interaction.channel)
         await interaction.channel.delete()
 
-    @discord.ui.button(label="Move Category", style=discord.ButtonStyle.secondary, emoji="📁")
-    async def move_category_button(self, interaction: discord.Interaction, button: Button):
-        categories = interaction.guild.categories
-        
-        if not categories:
-            return await interaction.response.send_message("❌ No categories found in this server.", ephemeral=True)
-
-        options = [
-            discord.SelectOption(label=cat.name, value=str(cat.id), emoji="📂")
-            for cat in categories[:25]
-        ]
-
-        select = Select(placeholder="Select destination category...", options=options)
-
-        async def callback(select_interaction: discord.Interaction):
-            target_cat = select_interaction.guild.get_channel(int(select.values[0]))
-            await select_interaction.channel.edit(category=target_cat)
-            await select_interaction.response.send_message(f"📁 Ticket moved to **{target_cat.name}**.", ephemeral=True)
-
-        select.callback = callback
-        view = View()
-        view.add_item(select)
-
-        await interaction.response.send_message("Choose where to move this channel:", view=view, ephemeral=True)
-
 
 # --- TICKET SELECTION DROPDOWN ---
 class TicketDropdown(Select):
