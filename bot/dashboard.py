@@ -14,6 +14,7 @@ AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
 TOKEN_URL = 'https://discord.com/api/oauth2/token'
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -29,15 +30,17 @@ HTML_TEMPLATE = """
         .title { font-size: 28px; font-weight: bold; }
         .badge { background-color: #10b981; color: #022c22; padding: 6px 14px; border-radius: 20px; font-weight: 600; }
         .btn { padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; border: none; cursor: pointer; }
-        .btn-login { background-color: #5865f2; color: white; }
+        .btn-login { background-color: #5865f2; color: white; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
         .btn-logout { background-color: #ef4444; color: white; }
         .btn-action { background-color: #10b981; color: white; padding: 6px 12px; }
+        .btn-link { background-color: #3b82f6; color: white; padding: 6px 12px; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
         .card { background-color: #1e293b; border-radius: 10px; padding: 20px; }
         .card-title { font-size: 12px; color: #94a3b8; font-weight: 700; margin-bottom: 8px; }
         .card-value { font-size: 32px; font-weight: 800; color: #38bdf8; }
         .section { background-color: #1e293b; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
         .list-box { background-color: #0f172a; border-radius: 6px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .login-gate { text-align: center; padding: 50px 20px; background-color: #1e293b; border-radius: 12px; margin-top: 40px; }
     </style>
 </head>
 <body>
@@ -49,39 +52,48 @@ HTML_TEMPLATE = """
             </div>
             <div>
                 {% if user %}
-                    <span>Welcome, <strong>{{ user.username }}</strong>!</span>
-                    <a href="/logout" class="btn btn-logout">Logout</a>
+                    <span>Logged in as <strong>{{ user.username }}</strong></span>
+                    <a href="/logout" class="btn btn-logout" style="margin-left: 10px;">Logout</a>
                 {% else %}
                     <a href="/login" class="btn btn-login">Login with Discord</a>
                 {% endif %}
             </div>
         </div>
-        <div class="grid">
-            <div class="card">
-                <div class="card-title">TOTAL TICKETS CREATED</div>
-                <div class="card-value">#{{ "%04d" % total_tickets }}</div>
+
+        {% if user %}
+            <div class="grid">
+                <div class="card">
+                    <div class="card-title">TOTAL TICKETS CREATED</div>
+                    <div class="card-value">#{{ "%04d" % total_tickets }}</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">BLACKLISTED USERS</div>
+                    <div class="card-value" style="color: #f43f5e;">{{ blacklisted_users|length }}</div>
+                </div>
             </div>
-            <div class="card">
-                <div class="card-title">BLACKLISTED USERS</div>
-                <div class="card-value" style="color: #f43f5e;">{{ blacklisted_users|length }}</div>
-            </div>
-        </div>
-        <div class="section">
-            <h3>🚫 Blacklisted Users</h3>
-            {% if blacklisted_users %}
-                {% for uid in blacklisted_users %}
-                    <div class="list-box" id="user-{{ uid }}">
-                        <span>User ID: <strong>{{ uid }}</strong></span>
-                        {% if user %}
+
+            <div class="section">
+                <h3>🚫 Blacklisted Users</h3>
+                {% if blacklisted_users %}
+                    {% for uid in blacklisted_users %}
+                        <div class="list-box" id="user-{{ uid }}">
+                            <span>User ID: <strong>{{ uid }}</strong></span>
                             <button class="btn btn-action" onclick="unblacklist('{{ uid }}')">✓ Un-blacklist</button>
-                        {% endif %}
-                    </div>
-                {% endfor %}
-            {% else %}
-                <p style="color: #64748b;">No blacklisted users found.</p>
-            {% endif %}
-        </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #64748b;">No blacklisted users found.</p>
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="login-gate">
+                <h2>🔒 Restricted Area</h2>
+                <p style="color: #94a3b8; margin-bottom: 25px;">You must sign in with your authorized Discord account to view active tickets, closed transcripts, and manage blacklisted users.</p>
+                <a href="/login" class="btn btn-login" style="padding: 12px 24px;">🔑 Login with Discord</a>
+            </div>
+        {% endif %}
     </div>
+
     <script>
         async function unblacklist(userId) {
             const res = await fetch(`/api/unblacklist/${userId}`, { method: 'POST' });
@@ -97,7 +109,7 @@ def make_session(state=None):
     return OAuth2Session(
         client_id=CLIENT_ID,
         state=state,
-        scope=['identify'],
+        scope=['identify', 'guilds.members.read'],
         redirect_uri=REDIRECT_URI
     )
 
