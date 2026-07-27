@@ -3,51 +3,38 @@ import os
 import chat_exporter
 from pymongo import MongoClient
 
-# --- MONGODB SETUP ---
 MONGO_URI = os.getenv("MONGO_URI")
 
 if MONGO_URI:
-    # Pass tlsAllowInvalidCertificates=True to bypass SSL handshake errors on cloud platforms like Render
+    # Pass tlsAllowInvalidCertificates=True to prevent SSL Handshake errors on Render
     client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True)
     db = client["discord_bot"]
     tickets_col = db["tickets"]
     blacklist_col = db["blacklist"]
 else:
-    print("⚠️ WARNING: 'MONGO_URI' not set! Data will not persist.")
+    print("⚠️ WARNING: 'MONGO_URI' not set!")
     client = None
 
 TRANSCRIPTS_DIR = "/tmp/transcripts"
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
-# --- TICKET COUNTER FUNCTIONS ---
 def get_tickets_data():
-    if not client:
-        return {"ticket_counter": 0}
+    if not client: return {"ticket_counter": 0}
     data = tickets_col.find_one({"_id": "config"})
     return data if data else {"ticket_counter": 0}
 
 def save_tickets_data(data):
     if client:
-        tickets_col.update_one(
-            {"_id": "config"}, 
-            {"$set": {"ticket_counter": data.get("ticket_counter", 0)}}, 
-            upsert=True
-        )
+        tickets_col.update_one({"_id": "config"}, {"$set": {"ticket_counter": data.get("ticket_counter", 0)}}, upsert=True)
 
-# --- BLACKLIST FUNCTIONS ---
 def get_blacklist_data():
-    if not client:
-        return {"blacklisted_users": []}
+    if not client: return {"blacklisted_users": []}
     data = blacklist_col.find_one({"_id": "config"})
     return data if data else {"blacklisted_users": []}
 
 def save_blacklist_data(data):
     if client:
-        blacklist_col.update_one(
-            {"_id": "config"}, 
-            {"$set": {"blacklisted_users": data.get("blacklisted_users", [])}}, 
-            upsert=True
-        )
+        blacklist_col.update_one({"_id": "config"}, {"$set": {"blacklisted_users": data.get("blacklisted_users", [])}}, upsert=True)
 
 def is_user_blacklisted(user_id: int) -> bool:
     data = get_blacklist_data()
@@ -56,20 +43,17 @@ def is_user_blacklisted(user_id: int) -> bool:
 def add_to_blacklist(user_id: int):
     data = get_blacklist_data()
     users = data.get("blacklisted_users", [])
-    str_id = str(user_id)
-    if str_id not in users:
-        users.append(str_id)
+    if str(user_id) not in users:
+        users.append(str(user_id))
         save_blacklist_data({"blacklisted_users": users})
 
 def remove_from_blacklist(user_id: int):
     data = get_blacklist_data()
     users = data.get("blacklisted_users", [])
-    str_id = str(user_id)
-    if str_id in users:
-        users.remove(str_id)
+    if str(user_id) in users:
+        users.remove(str(user_id))
         save_blacklist_data({"blacklisted_users": users})
 
-# --- TRANSCRIPT GENERATOR ---
 async def create_html_transcript(channel):
     try:
         transcript = await chat_exporter.export(channel)
@@ -79,5 +63,5 @@ async def create_html_transcript(channel):
                 f.write(transcript)
             return file_path
     except Exception as e:
-        print(f"Transcript Export Error: {e}")
+        print(f"Transcript Error: {e}")
         return None
