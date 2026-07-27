@@ -15,3 +15,9 @@ Thumbs.db
 tickets.json
 transcripts/
 *.log
+
+# Local data files
+blacklist.json
+tickets.json
+transcripts/
+*.log
