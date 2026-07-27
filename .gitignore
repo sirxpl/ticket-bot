@@ -1,1 +1,17 @@
+# --- Secrets & Environment Variables ---
+.env
 
+# --- Python System & Cache Files ---
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# --- Operating System Hidden Files ---
+.DS_Store
+Thumbs.db
+
+# --- Bot Data & Database Files ---
+tickets.json
+transcripts/
+*.log
