@@ -2,3 +2,5 @@ discord.py
 flask
 requests
 chat-exporter
+pymongo
+dnspython
