@@ -20,7 +20,7 @@ if MONGO_URI:
 TRANSCRIPTS_DIR = "/tmp/transcripts"
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
-# --- TICKET COUNTER FUNCTIONS ---
+# --- TICKET COUNTER ---
 def get_tickets_data():
     if tickets_col is None: return {"ticket_counter": 0}
     try:
@@ -43,7 +43,7 @@ def increment_ticket_counter() -> int:
     save_tickets_data({"ticket_counter": new_count})
     return new_count
 
-# --- BLACKLIST FUNCTIONS ---
+# --- BLACKLIST ---
 def get_blacklist_data():
     if blacklist_col is None: return {"blacklisted_users": []}
     try:
