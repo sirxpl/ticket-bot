@@ -216,21 +216,35 @@ class TicketControlView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# PUBLIC CARRY PANEL VIEW
+# PUBLIC CARRY PANEL VIEW (STORES CONFIG IN BUTTON CUSTOM_ID)
 # ---------------------------------------------------------------------------
 class CarryPanelView(discord.ui.View):
-    def __init__(self, category_id: int = None, support_role_id: int = None, log_channel_id: int = None, title: str = None, description: str = None):
+    def __init__(self, category_id: int = 0, support_role_id: int = 0, log_channel_id: int = 0):
         super().__init__(timeout=None)
-        self.category_id = category_id
-        self.support_role_id = support_role_id
-        self.log_channel_id = log_channel_id
-        self.title = title
-        self.description = description
+        cat = category_id or 0
+        sup = support_role_id or 0
+        log = log_channel_id or 0
 
-    @discord.ui.button(label="Request Carry", style=discord.ButtonStyle.primary, custom_id="request_carry_btn", emoji="🛒")
-    async def request_carry_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        btn = discord.ui.Button(
+            label="Request Carry",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"req_carry:{cat}:{sup}:{log}",
+            emoji="🛒"
+        )
+        btn.callback = self.request_carry_callback
+        self.add_item(btn)
+
+    async def request_carry_callback(self, interaction: discord.Interaction):
+        # Extract stored settings from custom_id
+        custom_id = interaction.data.get("custom_id", "")
+        parts = custom_id.split(":")
+        
+        category_id = int(parts[1]) if len(parts) > 1 and parts[1] != "0" else None
+        support_role_id = int(parts[2]) if len(parts) > 2 and parts[2] != "0" else None
+        log_channel_id = int(parts[3]) if len(parts) > 3 and parts[3] != "0" else None
+
         await interaction.response.send_modal(
-            CarryRequestModal(self.category_id, self.support_role_id, self.log_channel_id)
+            CarryRequestModal(category_id, support_role_id, log_channel_id)
         )
 
 
@@ -265,7 +279,7 @@ class EditPanelDetailsModal(discord.ui.Modal, title="Edit Panel Text"):
 
 
 # ---------------------------------------------------------------------------
-# CONFIG WIZARD VIEW (DYNAMIC USER SESSION)
+# CONFIG WIZARD VIEW
 # ---------------------------------------------------------------------------
 class ConfigWizardView(discord.ui.View):
     def __init__(self, target_channel: discord.TextChannel = None):
@@ -338,9 +352,7 @@ class ConfigWizardView(discord.ui.View):
         view = CarryPanelView(
             category_id=self.category_id,
             support_role_id=self.support_role_id,
-            log_channel_id=self.log_channel_id,
-            title=self.custom_title,
-            description=self.custom_description
+            log_channel_id=self.log_channel_id
         )
         await self.target_channel.send(embed=panel_embed, view=view)
         await interaction.response.send_message(f"🎉 Ticket Panel successfully deployed to {self.target_channel.mention}!", ephemeral=True)
@@ -369,8 +381,7 @@ class TicketsCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        # Persistent views that listen for button clicks after bot restarts
-        self.bot.add_view(CarryPanelView())
+        # Register ticket channel controls & catch-all carry panel listener
         self.bot.add_view(TicketControlView())
 
     @app_commands.command(name="setup_carry", description="Start the interactive ticket setup wizard")
