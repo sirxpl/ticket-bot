@@ -1,6 +1,7 @@
 discord.py
 flask
 requests
+requests_oauthlib
 chat-exporter
 pymongo
 dnspython
