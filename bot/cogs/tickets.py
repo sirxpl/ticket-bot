@@ -10,7 +10,7 @@ LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 DASHBOARD_URL = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com").replace("/callback", "")
 
 # ---------------------------------------------------------------------------
-# MODAL: CARRY REQUEST INPUT
+# CARRY REQUEST MODAL
 # ---------------------------------------------------------------------------
 class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
     game_mode = discord.ui.TextInput(
@@ -52,7 +52,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
             if not category:
                 category = await interaction.guild.create_category("CARRY TICKETS")
 
-        # Overwrites Setup
+        # Permissions Overwrites
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -235,7 +235,7 @@ class CarryPanelView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# MODAL: SET CUSTOM PANEL TITLE & DESCRIPTION
+# MODAL: EDIT PANEL DETAILS
 # ---------------------------------------------------------------------------
 class EditPanelDetailsModal(discord.ui.Modal, title="Edit Panel Text"):
     panel_title = discord.ui.TextInput(
@@ -265,10 +265,10 @@ class EditPanelDetailsModal(discord.ui.Modal, title="Edit Panel Text"):
 
 
 # ---------------------------------------------------------------------------
-# INTERACTIVE SETUP WIZARD (EXACT MATCH FOR IMAGE_AFB4F7.PNG)
+# CONFIG WIZARD VIEW (FIXED __init__ FOR target_channel)
 # ---------------------------------------------------------------------------
 class ConfigWizardView(discord.ui.View):
-    def __init__(self, target_channel: discord.TextChannel):
+    def __init__(self, target_channel: discord.TextChannel = None):
         super().__init__(timeout=300)
         self.target_channel = target_channel
         self.category_id = None
@@ -278,41 +278,18 @@ class ConfigWizardView(discord.ui.View):
         self.custom_description = "Click below to request a carry ticket!"
 
     def build_embed(self):
+        target_text = self.target_channel.mention if self.target_channel else "`Not Set`"
         embed = discord.Embed(
             title="⚙️ Ticket Setup Panel",
-            description="Use the configuration options below to customize and send the ticket panel.",
+            description=f"Use the configuration options below to customize and send the ticket panel.",
             color=discord.Color.gold()
         )
-        embed.add_field(
-            name="📢 Panel Channel",
-            value=self.target_channel.mention,
-            inline=True
-        )
-        embed.add_field(
-            name="📂 Category",
-            value=f"<#{self.category_id}>" if self.category_id else "`Default (CARRY TICKETS)`",
-            inline=True
-        )
-        embed.add_field(
-            name="👥 Support Role",
-            value=f"<@&{self.support_role_id}>" if self.support_role_id else "`None`",
-            inline=True
-        )
-        embed.add_field(
-            name="📜 Log Channel",
-            value=f"<#{self.log_channel_id}>" if self.log_channel_id else "`Default Logs`",
-            inline=True
-        )
-        embed.add_field(
-            name="✏️ Panel Title",
-            value=f"`{self.custom_title}`",
-            inline=True
-        )
-        embed.add_field(
-            name="📝 Panel Description",
-            value=f"`{self.custom_description}`",
-            inline=False
-        )
+        embed.add_field(name="📢 Panel Channel", value=target_text, inline=True)
+        embed.add_field(name="📂 Category", value=f"<#{self.category_id}>" if self.category_id else "`Default (CARRY TICKETS)`", inline=True)
+        embed.add_field(name="👥 Support Role", value=f"<@&{self.support_role_id}>" if self.support_role_id else "`None`", inline=True)
+        embed.add_field(name="📜 Log Channel", value=f"<#{self.log_channel_id}>" if self.log_channel_id else "`Default Logs`", inline=True)
+        embed.add_field(name="✏️ Panel Title", value=f"`{self.custom_title}`", inline=True)
+        embed.add_field(name="📝 Panel Description", value=f"`{self.custom_description}`", inline=False)
         return embed
 
     @discord.ui.select(
@@ -350,6 +327,9 @@ class ConfigWizardView(discord.ui.View):
 
     @discord.ui.button(label="✅ Submit & Send Panel", style=discord.ButtonStyle.success, row=3)
     async def deploy_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.target_channel:
+            return await interaction.response.send_message("❌ Target channel is missing. Please select a channel first.", ephemeral=True)
+
         panel_embed = discord.Embed(
             title=self.custom_title,
             description=self.custom_description,
@@ -389,6 +369,7 @@ class TicketsCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
+        # Register persistent views for ticket interaction after restarts
         self.bot.add_view(CarryPanelView())
         self.bot.add_view(TicketControlView())
 
