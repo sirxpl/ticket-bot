@@ -10,7 +10,90 @@ LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 DASHBOARD_URL = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com").replace("/callback", "")
 
 # ---------------------------------------------------------------------------
-# MODALS
+# MODAL: CARRY REQUEST INPUT
+# ---------------------------------------------------------------------------
+class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
+    game_mode = discord.ui.TextInput(
+        label="What game mode?",
+        placeholder="e.g. Normal / Hardcore / Insane",
+        required=True,
+        max_length=50
+    )
+    
+    additional_info = discord.ui.TextInput(
+        label="Additional Information",
+        style=discord.TextStyle.paragraph,
+        placeholder="Provide extra details (e.g. carry type, level, username)...",
+        required=False,
+        max_length=500
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        if is_blacklisted(interaction.user.id):
+            return await interaction.followup.send("❌ You are blacklisted from opening carry tickets.", ephemeral=True)
+
+        count = increment_ticket_counter()
+        channel_name = f"carry-{count:04d}"
+
+        # Ensure category exists
+        category = discord.utils.get(interaction.guild.categories, name="CARRY TICKETS")
+        if not category:
+            category = await interaction.guild.create_category("CARRY TICKETS")
+
+        # Channel permissions
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+
+        channel = await interaction.guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites
+        )
+
+        # Ticket Content Embed
+        ticket_embed = discord.Embed(
+            title=f"🎫 Carry Ticket #{count:04d}",
+            description=f"Welcome {interaction.user.mention}! Our carry team will be with you shortly.",
+            color=discord.Color.blurple()
+        )
+        ticket_embed.add_field(name="🎮 Game Mode", value=self.game_mode.value, inline=True)
+        ticket_embed.add_field(
+            name="📝 Additional Info", 
+            value=self.additional_info.value if self.additional_info.value.strip() else "None provided.", 
+            inline=False
+        )
+
+        await channel.send(
+            content=interaction.user.mention, 
+            embed=ticket_embed, 
+            view=TicketControlView()
+        )
+
+        await interaction.followup.send(f"✅ Ticket created! Check out {channel.mention}", ephemeral=True)
+
+        # Log Ticket Creation
+        log_chan = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_chan:
+            log_embed = discord.Embed(title="🎫 New Carry Ticket Opened", color=discord.Color.green())
+            log_embed.add_field(name="Ticket Number", value=f"#{count:04d}", inline=True)
+            log_embed.add_field(name="User", value=interaction.user.mention, inline=True)
+            log_embed.add_field(name="Channel", value=channel.mention, inline=True)
+            log_embed.add_field(name="Game Mode", value=self.game_mode.value, inline=False)
+            log_embed.add_field(
+                name="Additional Info", 
+                value=self.additional_info.value if self.additional_info.value.strip() else "None", 
+                inline=False
+            )
+            await log_chan.send(embed=log_embed)
+
+
+# ---------------------------------------------------------------------------
+# MODAL: ADD USER TO TICKET
 # ---------------------------------------------------------------------------
 class AddUserModal(discord.ui.Modal, title="Add User to Ticket"):
     user_id_input = discord.ui.TextInput(
@@ -27,7 +110,7 @@ class AddUserModal(discord.ui.Modal, title="Add User to Ticket"):
             await interaction.channel.set_permissions(member, read_messages=True, send_messages=True)
             await interaction.response.send_message(f"✅ Added {member.mention} to this ticket.", ephemeral=True)
 
-            # Log to Log Channel
+            # Log User Addition
             log_chan = interaction.guild.get_channel(LOG_CHANNEL_ID)
             if log_chan:
                 embed = discord.Embed(title="👤 User Added to Ticket", color=discord.Color.blue())
@@ -40,7 +123,7 @@ class AddUserModal(discord.ui.Modal, title="Add User to Ticket"):
 
 
 # ---------------------------------------------------------------------------
-# TICKET CONTROL BUTTONS INSIDE TICKET CHANNELS
+# TICKET ACTION CONTROLS INSIDE TICKET CHANNELS
 # ---------------------------------------------------------------------------
 class TicketControlView(discord.ui.View):
     def __init__(self):
@@ -92,7 +175,7 @@ class TicketControlView(discord.ui.View):
         filename = f"{interaction.channel.name}.html"
         filepath = os.path.join(TRANSCRIPTS_DIR, filename)
 
-        # Export HTML direct to disk for Flask Dashboard
+        # Export HTML direct to disk for Dashboard
         transcript = await chat_exporter.export(interaction.channel)
         if transcript:
             with open(filepath, "w", encoding="utf-8") as f:
@@ -102,7 +185,7 @@ class TicketControlView(discord.ui.View):
         
         embed = discord.Embed(
             title="🌐 Transcript Saved to Website",
-            description=f"The transcript for `{interaction.channel.name}` is now accessible on the web dashboard.\n\n🔗 [Click Here to View Transcript]({view_url})",
+            description=f"The transcript for `{interaction.channel.name}` is now saved to the web dashboard.\n\n🔗 [Click Here to View Transcript]({view_url})",
             color=discord.Color.blue()
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -124,69 +207,15 @@ class TicketControlView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# CARRY PANEL DROPDOWN & VIEW
+# MAIN CARRY PANEL VIEW (BUTTON ON PUBLIC CHANNEL)
 # ---------------------------------------------------------------------------
-class CarrySelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Normal Carry", value="normal", description="Request a Normal Mode Carry", emoji="🟢"),
-            discord.SelectOption(label="Hardcore Carry", value="hardcore", description="Request a Hardcore Mode Carry", emoji="🔴"),
-            discord.SelectOption(label="Insane Carry", value="insane", description="Request an Insane Mode Carry", emoji="🟣")
-        ]
-        super().__init__(placeholder="🛒 Request Carry", min_values=1, max_values=1, options=options, custom_id="carry_select")
-
-    async def callback(self, interaction: discord.Interaction):
-        # Acknowledge the interaction immediately to prevent timeouts
-        await interaction.response.defer(ephemeral=True)
-
-        if is_blacklisted(interaction.user.id):
-            return await interaction.followup.send("❌ You are blacklisted from opening carry tickets.", ephemeral=True)
-
-        carry_type = self.values[0]
-        count = increment_ticket_counter()
-        channel_name = f"{carry_type}-carry-{count:04d}"
-
-        # Category Setup
-        category = discord.utils.get(interaction.guild.categories, name="CARRY TICKETS")
-        if not category:
-            category = await interaction.guild.create_category("CARRY TICKETS")
-
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-
-        channel = await interaction.guild.create_text_channel(
-            name=channel_name,
-            category=category,
-            overwrites=overwrites
-        )
-
-        ticket_embed = discord.Embed(
-            title=f"🎫 {carry_type.capitalize()} Carry Request #{count:04d}",
-            description=f"Welcome {interaction.user.mention}!\n\nOur carry team will be with you shortly. Please state details or wait for a booster to claim.",
-            color=discord.Color.brand_green()
-        )
-        await channel.send(content=interaction.user.mention, embed=ticket_embed, view=TicketControlView())
-
-        # Response via followup after deferring
-        await interaction.followup.send(f"✅ Created your ticket: {channel.mention}", ephemeral=True)
-
-        # Log Ticket Creation
-        log_chan = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_chan:
-            log_embed = discord.Embed(title="🎫 Carry Ticket Opened", color=discord.Color.green())
-            log_embed.add_field(name="User", value=interaction.user.mention, inline=True)
-            log_embed.add_field(name="Type", value=carry_type.capitalize(), inline=True)
-            log_embed.add_field(name="Channel", value=channel.mention, inline=True)
-            await log_chan.send(embed=log_embed)
-
-
 class CarryPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(CarrySelect())
+
+    @discord.ui.button(label="Request Carry", style=discord.ButtonStyle.primary, custom_id="request_carry_btn", emoji="🛒")
+    async def request_carry_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CarryRequestModal())
 
 
 # ---------------------------------------------------------------------------
@@ -204,12 +233,12 @@ class TicketsCog(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     async def setup_carry(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🎮 Carry Request System",
-            description="Select the carry service you require from the dropdown menu below to open a ticket.",
-            color=discord.Color.blurple()
+            title="Request Carry",
+            description="Click below to request a carry ticket!",
+            color=discord.Color.blue()
         )
         await interaction.channel.send(embed=embed, view=CarryPanelView())
-        await interaction.response.send_message("✅ Carry Panel deployed!", ephemeral=True)
+        await interaction.response.send_message("✅ Carry Request panel deployed!", ephemeral=True)
 
 
 async def setup(bot):
