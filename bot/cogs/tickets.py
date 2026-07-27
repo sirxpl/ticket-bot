@@ -67,6 +67,31 @@ class TicketControlView(View):
         await create_html_transcript(interaction.channel)
         await interaction.channel.delete()
 
+    @discord.ui.button(label="Move Category", style=discord.ButtonStyle.secondary, emoji="📁")
+    async def move_category_button(self, interaction: discord.Interaction, button: Button):
+        categories = interaction.guild.categories
+        
+        if not categories:
+            return await interaction.response.send_message("❌ No categories found in this server.", ephemeral=True)
+
+        options = [
+            discord.SelectOption(label=cat.name, value=str(cat.id), emoji="📂")
+            for cat in categories[:25]
+        ]
+
+        select = Select(placeholder="Select destination category...", options=options)
+
+        async def callback(select_interaction: discord.Interaction):
+            target_cat = select_interaction.guild.get_channel(int(select.values[0]))
+            await select_interaction.channel.edit(category=target_cat)
+            await select_interaction.response.send_message(f"📁 Ticket moved to **{target_cat.name}**.", ephemeral=True)
+
+        select.callback = callback
+        view = View()
+        view.add_item(select)
+
+        await interaction.response.send_message("Choose where to move this channel:", view=view, ephemeral=True)
+
 
 # --- TICKET SELECTION DROPDOWN ---
 class TicketDropdown(Select):
@@ -141,29 +166,25 @@ class TicketCog(commands.Cog):
 
         await interaction.followup.send(f"✅ {user.mention} has been removed from the blacklist.", ephemeral=True)
 
-@app_commands.command(name="move_ticket", description="Move the current ticket channel to another category")
+    @app_commands.command(name="move_ticket", description="Move the current ticket channel to another category")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def move_ticket(self, interaction: discord.Interaction):
-        # 1. Detect all categories in the guild
         categories = interaction.guild.categories
 
         if not categories:
             return await interaction.response.send_message("❌ No categories found in this server.", ephemeral=True)
 
-        # 2. Build options for the dropdown
         options = [
             discord.SelectOption(label=cat.name, value=str(cat.id), emoji="📁")
-            for cat in categories[:25]  # Discord limits select menus to 25 options
+            for cat in categories[:25]
         ]
 
-        # 3. Create interactive dropdown
         select = Select(placeholder="Choose a category to move this ticket to...", options=options)
 
         async def select_callback(select_interaction: discord.Interaction):
             category_id = int(select.values[0])
             target_category = select_interaction.guild.get_channel(category_id)
             
-            # Move the channel
             await select_interaction.channel.edit(category=target_category)
             await select_interaction.response.send_message(f"✅ Moved ticket to **{target_category.name}**!")
 
@@ -172,6 +193,7 @@ class TicketCog(commands.Cog):
         view.add_item(select)
 
         await interaction.response.send_message("Select the target category:", view=view, ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(TicketCog(bot))
