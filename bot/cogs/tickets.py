@@ -10,7 +10,7 @@ LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 DASHBOARD_URL = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com").replace("/callback", "")
 
 # ---------------------------------------------------------------------------
-# CARRY REQUEST MODAL (FOR USERS OPENING TICKETS)
+# MODAL: CARRY REQUEST INPUT
 # ---------------------------------------------------------------------------
 class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
     game_mode = discord.ui.TextInput(
@@ -219,11 +219,13 @@ class TicketControlView(discord.ui.View):
 # PUBLIC CARRY PANEL VIEW
 # ---------------------------------------------------------------------------
 class CarryPanelView(discord.ui.View):
-    def __init__(self, category_id: int = None, support_role_id: int = None, log_channel_id: int = None):
+    def __init__(self, category_id: int = None, support_role_id: int = None, log_channel_id: int = None, title: str = None, description: str = None):
         super().__init__(timeout=None)
         self.category_id = category_id
         self.support_role_id = support_role_id
         self.log_channel_id = log_channel_id
+        self.title = title
+        self.description = description
 
     @discord.ui.button(label="Request Carry", style=discord.ButtonStyle.primary, custom_id="request_carry_btn", emoji="🛒")
     async def request_carry_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -233,7 +235,37 @@ class CarryPanelView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# EXACT WIZARD SETUP AS IN YOUR SCREENSHOTS
+# MODAL: SET CUSTOM PANEL TITLE & DESCRIPTION
+# ---------------------------------------------------------------------------
+class EditPanelDetailsModal(discord.ui.Modal, title="Edit Panel Text"):
+    panel_title = discord.ui.TextInput(
+        label="Panel Title",
+        placeholder="e.g. Request Carry",
+        default="Request Carry",
+        required=True,
+        max_length=100
+    )
+    panel_description = discord.ui.TextInput(
+        label="Panel Description",
+        style=discord.TextStyle.paragraph,
+        placeholder="e.g. Click below to request a carry ticket!",
+        default="Click below to request a carry ticket!",
+        required=True,
+        max_length=500
+    )
+
+    def __init__(self, wizard_view):
+        super().__init__()
+        self.wizard_view = wizard_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.wizard_view.custom_title = self.panel_title.value.strip()
+        self.wizard_view.custom_description = self.panel_description.value.strip()
+        await interaction.response.edit_message(embed=self.wizard_view.build_embed(), view=self.wizard_view)
+
+
+# ---------------------------------------------------------------------------
+# INTERACTIVE SETUP WIZARD (EXACT MATCH FOR IMAGE_AFB4F7.PNG)
 # ---------------------------------------------------------------------------
 class ConfigWizardView(discord.ui.View):
     def __init__(self, target_channel: discord.TextChannel):
@@ -242,31 +274,43 @@ class ConfigWizardView(discord.ui.View):
         self.category_id = None
         self.support_role_id = None
         self.log_channel_id = None
+        self.custom_title = "Request Carry"
+        self.custom_description = "Click below to request a carry ticket!"
 
     def build_embed(self):
         embed = discord.Embed(
-            title="⚙️ Ticket System Setup",
-            description=f"Configure settings for the carry panel to be posted in {self.target_channel.mention}:",
-            color=discord.Color.blurple()
+            title="⚙️ Ticket Setup Panel",
+            description="Use the configuration options below to customize and send the ticket panel.",
+            color=discord.Color.gold()
         )
         embed.add_field(
-            name="📍 Target Channel",
+            name="📢 Panel Channel",
             value=self.target_channel.mention,
-            inline=False
+            inline=True
         )
         embed.add_field(
-            name="📂 Ticket Category",
-            value=f"<#{self.category_id}>" if self.category_id else "`Not Selected (Default)`",
-            inline=False
+            name="📂 Category",
+            value=f"<#{self.category_id}>" if self.category_id else "`Default (CARRY TICKETS)`",
+            inline=True
         )
         embed.add_field(
-            name="👥 Support / Booster Role",
-            value=f"<@&{self.support_role_id}>" if self.support_role_id else "`Not Selected`",
-            inline=False
+            name="👥 Support Role",
+            value=f"<@&{self.support_role_id}>" if self.support_role_id else "`None`",
+            inline=True
         )
         embed.add_field(
             name="📜 Log Channel",
-            value=f"<#{self.log_channel_id}>" if self.log_channel_id else "`Not Selected (Default)`",
+            value=f"<#{self.log_channel_id}>" if self.log_channel_id else "`Default Logs`",
+            inline=True
+        )
+        embed.add_field(
+            name="✏️ Panel Title",
+            value=f"`{self.custom_title}`",
+            inline=True
+        )
+        embed.add_field(
+            name="📝 Panel Description",
+            value=f"`{self.custom_description}`",
             inline=False
         )
         return embed
@@ -300,20 +344,26 @@ class ConfigWizardView(discord.ui.View):
         self.log_channel_id = select.values[0].id
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="✅ Save & Deploy Panel", style=discord.ButtonStyle.success, row=3)
+    @discord.ui.button(label="✏️ Edit Title & Description", style=discord.ButtonStyle.secondary, row=3)
+    async def edit_details(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(EditPanelDetailsModal(self))
+
+    @discord.ui.button(label="✅ Submit & Send Panel", style=discord.ButtonStyle.success, row=3)
     async def deploy_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
         panel_embed = discord.Embed(
-            title="🎮 Carry Request System",
-            description="Click the button below to request a carry ticket!",
+            title=self.custom_title,
+            description=self.custom_description,
             color=discord.Color.blue()
         )
         view = CarryPanelView(
             category_id=self.category_id,
             support_role_id=self.support_role_id,
-            log_channel_id=self.log_channel_id
+            log_channel_id=self.log_channel_id,
+            title=self.custom_title,
+            description=self.custom_description
         )
         await self.target_channel.send(embed=panel_embed, view=view)
-        await interaction.response.send_message(f"🎉 Carry Panel successfully deployed to {self.target_channel.mention}!", ephemeral=True)
+        await interaction.response.send_message(f"🎉 Ticket Panel successfully deployed to {self.target_channel.mention}!", ephemeral=True)
 
 
 class ChannelSelectView(discord.ui.View):
@@ -347,7 +397,7 @@ class TicketsCog(commands.Cog):
     async def setup_carry(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="⚙️ Ticket Setup Wizard",
-            description="Please select the text channel where you want to post the **Carry Ticket Request Panel**.",
+            description="Select the text channel where you want to post the **Carry Ticket Request Panel**.",
             color=discord.Color.gold()
         )
         await interaction.response.send_message(embed=embed, view=ChannelSelectView(), ephemeral=True)
