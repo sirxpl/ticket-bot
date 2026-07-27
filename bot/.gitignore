@@ -1,23 +1,34 @@
-# --- Secrets & Environment Variables ---
+# ==========================================
+# Secrets & Sensitive Data (NEVER COMMIT)
+# ==========================================
 .env
+.env.*
 
-# --- Python System & Cache Files ---
-__pycache__/
-*.pyc
-.venv/
-env/
-
-# --- Operating System Hidden Files ---
-.DS_Store
-Thumbs.db
-
-# --- Bot Data & Database Files ---
-tickets.json
-transcripts/
-*.log
-
-# Local data files
+# ==========================================
+# Local Bot Databases & Storage Files
+# ==========================================
 blacklist.json
 tickets.json
 transcripts/
 *.log
+*.sqlite
+*.db
+
+# ==========================================
+# Python System & Cache Files
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# ==========================================
+# Operating System & IDE Configs
+# ==========================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
