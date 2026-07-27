@@ -7,7 +7,8 @@ from pymongo import MongoClient
 MONGO_URI = os.getenv("MONGO_URI")
 
 if MONGO_URI:
-    client = MongoClient(MONGO_URI)
+    # Pass tlsAllowInvalidCertificates=True to bypass SSL handshake errors on cloud platforms like Render
+    client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True)
     db = client["discord_bot"]
     tickets_col = db["tickets"]
     blacklist_col = db["blacklist"]
