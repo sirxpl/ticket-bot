@@ -9,7 +9,6 @@ blacklist_col = None
 
 if MONGO_URI:
     try:
-        # tlsAllowInvalidCertificates prevents Render SSL handshake crashes
         client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True, serverSelectionTimeoutMS=5000)
         db = client["discord_bot"]
         tickets_col = db["tickets"]
@@ -17,12 +16,11 @@ if MONGO_URI:
         print("✅ MongoDB connected successfully!")
     except Exception as e:
         print(f"⚠️ MongoDB Connection Error: {e}")
-else:
-    print("⚠️ WARNING: 'MONGO_URI' environment variable is missing!")
 
 TRANSCRIPTS_DIR = "/tmp/transcripts"
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
+# --- TICKET COUNTER FUNCTIONS ---
 def get_tickets_data():
     if tickets_col is None: return {"ticket_counter": 0}
     try:
@@ -39,6 +37,13 @@ def save_tickets_data(data):
         except Exception as e:
             print(f"Error saving tickets: {e}")
 
+def increment_ticket_counter() -> int:
+    data = get_tickets_data()
+    new_count = data.get("ticket_counter", 0) + 1
+    save_tickets_data({"ticket_counter": new_count})
+    return new_count
+
+# --- BLACKLIST FUNCTIONS ---
 def get_blacklist_data():
     if blacklist_col is None: return {"blacklisted_users": []}
     try:
@@ -55,7 +60,7 @@ def save_blacklist_data(data):
         except Exception as e:
             print(f"Error saving blacklist: {e}")
 
-def is_user_blacklisted(user_id: int) -> bool:
+def is_blacklisted(user_id: int) -> bool:
     data = get_blacklist_data()
     return str(user_id) in data.get("blacklisted_users", [])
 
@@ -72,16 +77,3 @@ def remove_from_blacklist(user_id: int):
     if str(user_id) in users:
         users.remove(str(user_id))
         save_blacklist_data({"blacklisted_users": users})
-
-async def create_html_transcript(channel):
-    try:
-        import chat_exporter
-        transcript = await chat_exporter.export(channel)
-        if transcript:
-            file_path = os.path.join(TRANSCRIPTS_DIR, f"{channel.name}.html")
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(transcript)
-            return file_path
-    except Exception as e:
-        print(f"Transcript Error: {e}")
-        return None
