@@ -52,7 +52,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
             if not category:
                 category = await interaction.guild.create_category("CARRY TICKETS")
 
-        # Permissions Overwrites
+        # Overwrites Setup
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -265,7 +265,7 @@ class EditPanelDetailsModal(discord.ui.Modal, title="Edit Panel Text"):
 
 
 # ---------------------------------------------------------------------------
-# CONFIG WIZARD VIEW (FIXED __init__ FOR target_channel)
+# CONFIG WIZARD VIEW (DYNAMIC USER SESSION)
 # ---------------------------------------------------------------------------
 class ConfigWizardView(discord.ui.View):
     def __init__(self, target_channel: discord.TextChannel = None):
@@ -281,7 +281,7 @@ class ConfigWizardView(discord.ui.View):
         target_text = self.target_channel.mention if self.target_channel else "`Not Set`"
         embed = discord.Embed(
             title="⚙️ Ticket Setup Panel",
-            description=f"Use the configuration options below to customize and send the ticket panel.",
+            description="Use the configuration options below to customize and send the ticket panel.",
             color=discord.Color.gold()
         )
         embed.add_field(name="📢 Panel Channel", value=target_text, inline=True)
@@ -328,7 +328,7 @@ class ConfigWizardView(discord.ui.View):
     @discord.ui.button(label="✅ Submit & Send Panel", style=discord.ButtonStyle.success, row=3)
     async def deploy_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.target_channel:
-            return await interaction.response.send_message("❌ Target channel is missing. Please select a channel first.", ephemeral=True)
+            return await interaction.response.send_message("❌ Target channel missing.", ephemeral=True)
 
         panel_embed = discord.Embed(
             title=self.custom_title,
@@ -369,7 +369,7 @@ class TicketsCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        # Register persistent views for ticket interaction after restarts
+        # Persistent views that listen for button clicks after bot restarts
         self.bot.add_view(CarryPanelView())
         self.bot.add_view(TicketControlView())
 
