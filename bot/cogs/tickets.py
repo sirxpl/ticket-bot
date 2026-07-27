@@ -43,7 +43,6 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
         count = increment_ticket_counter()
         channel_name = f"carry-{count:04d}"
 
-        # Category Setup
         category = None
         if self.category_id:
             category = interaction.guild.get_channel(self.category_id)
@@ -52,7 +51,6 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
             if not category:
                 category = await interaction.guild.create_category("CARRY TICKETS")
 
-        # Overwrites Setup
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -91,7 +89,6 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
         await channel.send(content=ping_content, embed=ticket_embed, view=TicketControlView())
         await interaction.followup.send(f"✅ Ticket created! Check out {channel.mention}", ephemeral=True)
 
-        # Log Ticket Creation
         target_log_id = self.log_channel_id or LOG_CHANNEL_ID
         log_chan = interaction.guild.get_channel(target_log_id)
         if log_chan:
@@ -216,7 +213,7 @@ class TicketControlView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# PUBLIC CARRY PANEL VIEW (STORES CONFIG IN BUTTON CUSTOM_ID)
+# PUBLIC CARRY PANEL VIEW
 # ---------------------------------------------------------------------------
 class CarryPanelView(discord.ui.View):
     def __init__(self, category_id: int = 0, support_role_id: int = 0, log_channel_id: int = 0):
@@ -235,7 +232,6 @@ class CarryPanelView(discord.ui.View):
         self.add_item(btn)
 
     async def request_carry_callback(self, interaction: discord.Interaction):
-        # Extract stored settings from custom_id
         custom_id = interaction.data.get("custom_id", "")
         parts = custom_id.split(":")
         
@@ -381,7 +377,7 @@ class TicketsCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        # Register ticket channel controls & catch-all carry panel listener
+        # ONLY register static views for active ticket channels on startup
         self.bot.add_view(TicketControlView())
 
     @app_commands.command(name="setup_carry", description="Start the interactive ticket setup wizard")
