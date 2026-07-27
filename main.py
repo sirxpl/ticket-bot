@@ -589,8 +589,6 @@ class TranscriptButtonView(View):
         super().__init__(timeout=None)
         self.add_item(Button(label="View Transcript", url=transcript_url, style=discord.ButtonStyle.link, emoji="📄"))
 
-#
-
 # --- TICKET MODAL & QUESTION CLASS ---
 class CarryQuestionsModal(Modal, title="Ticket Details"):
     roblox_user = TextInput(label="Roblox Username", placeholder="e.g. Builderman", required=True, max_length=50)
@@ -658,7 +656,6 @@ class CarryQuestionsModal(Modal, title="Ticket Details"):
         await ticket_channel.send(content=f"{user.mention}", embed=embed, view=TicketControlView())
         await interaction.followup.send(f"✅ Ticket created! Head over to {ticket_channel.mention}", ephemeral=True)
 
-
 # --- TICKET CONTROL VIEW (INSIDE CHANNEL) ---
 class TicketControlView(View):
     def __init__(self):
@@ -675,7 +672,6 @@ class TicketControlView(View):
             color=discord.Color.gold()
         )
         await interaction.response.send_message(embed=embed, view=CloseConfirmView(), ephemeral=True)
-
 
 # --- CLOSE CONFIRMATION VIEW ---
 class CloseConfirmView(View):
@@ -745,7 +741,6 @@ class CloseConfirmView(View):
         await asyncio.sleep(2)
         await channel.delete()
 
-
 # --- DROPDOWN CATEGORY SELECTOR ---
 class CarrySelect(Select):
     def __init__(self):
@@ -763,12 +758,10 @@ class CarrySelect(Select):
         modal = CarryQuestionsModal(category_name, prefix)
         await interaction.response.send_modal(modal)
 
-
 class TicketDropdownView(View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(CarrySelect())
-
 
 # --- SLASH COMMANDS ---
 
@@ -810,7 +803,6 @@ async def scan_url(interaction: discord.Interaction, url: str):
     except Exception as e:
         await interaction.followup.send(f"❌ An error occurred during the scan: {e}")
 
-
 # 2. Setup Ticket Panel
 @bot.tree.command(name="setup_tickets", description="Send the interactive ticket menu to this channel")
 @app_commands.checks.has_permissions(administrator=True)
@@ -822,7 +814,6 @@ async def setup_tickets(interaction: discord.Interaction):
     )
     await interaction.channel.send(embed=embed, view=TicketDropdownView())
     await interaction.response.send_message("✅ Ticket panel successfully deployed!", ephemeral=True)
-
 
 # 3. Close Current Ticket
 @bot.tree.command(name="close", description="Close the current ticket channel")
@@ -840,7 +831,6 @@ async def close_ticket_cmd(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, view=CloseConfirmView(), ephemeral=True)
 
-
 # 4. Blacklist User
 @bot.tree.command(name="blacklist", description="Blacklist a user from creating tickets")
 @app_commands.describe(user="The member to blacklist")
@@ -855,7 +845,6 @@ async def blacklist_user(interaction: discord.Interaction, user: discord.Member)
 
     await user.add_roles(role)
     await interaction.response.send_message(f"🚫 {user.mention} has been added to the ticket blacklist.")
-
 
 # 5. Un-blacklist User
 @bot.tree.command(name="unblacklist", description="Remove a user from the ticket blacklist")
@@ -872,6 +861,21 @@ async def unblacklist_user(interaction: discord.Interaction, user: discord.Membe
     await user.remove_roles(role)
     await interaction.response.send_message(f"✅ {user.mention} has been removed from the blacklist.")
 
+# --- GLOBAL SLASH COMMAND ERROR HANDLER ---
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.MissingPermissions):
+        embed = discord.Embed(
+            title="🚫 Access Denied",
+            description="You do not have permission to use this command!",
+            color=discord.Color.red()
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    else:
+        raise error
 
 # --- BOT EVENT LISTENERS ---
 @bot.event
