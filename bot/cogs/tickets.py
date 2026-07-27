@@ -1,5 +1,6 @@
 # cogs/tickets.py
 import os
+import requests
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -178,6 +179,43 @@ class TicketCog(commands.Cog):
             f"✅ Renamed channel from **#{old_name}** to **#{clean_name}**!", 
             ephemeral=True
         )
+
+    @app_commands.command(name="scan_url", description="Check a URL or domain against VirusTotal for security threats")
+    @app_commands.describe(url="The web link or domain you want to check")
+    async def scan_url(self, interaction: discord.Interaction, url: str):
+        vt_key = os.getenv("VIRUSTOTAL_API_KEY")
+        if not vt_key:
+            return await interaction.response.send_message("❌ VirusTotal API key is missing from environment variables.", ephemeral=True)
+
+        await interaction.response.defer()
+
+        headers = {"x-apikey": vt_key}
+        data = {"url": url}
+
+        try:
+            response = requests.post("https://www.virustotal.com/api/v3/urls", headers=headers, data=data)
+            if response.status_code == 200:
+                analysis_id = response.json()["data"]["id"]
+                analysis_url = f"https://www.virustotal.com/api/v3/analyses/{analysis_id}"
+                res = requests.get(analysis_url, headers=headers).json()
+                
+                stats = res.get("data", {}).get("attributes", {}).get("stats", {})
+                malicious = stats.get("malicious", 0)
+                suspicious = stats.get("suspicious", 0)
+
+                embed = discord.Embed(
+                    title="🔍 VirusTotal URL Scan Result",
+                    description=f"**Target URL:** `{url}`",
+                    color=discord.Color.red() if malicious > 0 else discord.Color.green()
+                )
+                embed.add_field(name="Malicious Detections", value=str(malicious), inline=True)
+                embed.add_field(name="Suspicious Detections", value=str(suspicious), inline=True)
+                
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.followup.send(f"❌ VirusTotal Error: Received status code {response.status_code}")
+        except Exception as e:
+            await interaction.followup.send(f"❌ An error occurred during scanning: {e}")
 
 
 async def setup(bot: commands.Bot):
