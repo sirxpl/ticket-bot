@@ -214,7 +214,17 @@ class CarryPanelView(discord.ui.View):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def home():
-    return "Bot and Web Dashboard are online!"
+    guild = bot.guilds[0] if bot.guilds else None
+    channels = guild.text_channels if guild else []
+    categories = guild.categories if guild else []
+    roles = guild.roles if guild else []
+
+    return render_template(
+        "dashboard.html",
+        channels=channels,
+        categories=categories,
+        roles=roles
+    )
 
 @app.route("/dashboard/tickets", methods=["GET", "POST"])
 def ticket_panel_config():
