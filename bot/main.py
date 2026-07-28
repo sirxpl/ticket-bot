@@ -4,9 +4,8 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 from discord import app_commands
-from flask import Flask, render_template, request, redirect, flash
+from flask import Flask, render_template, request, redirect, flash, session
 import chat_exporter
-from utils.storage import increment_ticket_counter, is_blacklisted, TRANSCRIPTS_DIR
 
 # Load environment variables
 load_dotenv()
@@ -14,11 +13,15 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 DASHBOARD_URL = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com").replace("/callback", "")
 
-# Flask App Setup
+# Directory setup for transcripts
+TRANSCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "transcripts")
+os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
+
+# Flask App Initialisation
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-this")
 
-# Discord Bot Setup
+# Discord Bot Initialisation
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -53,11 +56,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        if is_blacklisted(interaction.user.id):
-            return await interaction.followup.send("❌ You are blacklisted from opening carry tickets.", ephemeral=True)
-
-        count = increment_ticket_counter()
-        channel_name = f"carry-{count:04d}"
+        channel_name = f"carry-{interaction.user.name.lower()}"
 
         # Category Setup
         category = None
@@ -68,7 +67,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
             if not category:
                 category = await interaction.guild.create_category("CARRY TICKETS")
 
-        # Permissions Overwrites Setup
+        # Overwrites Setup
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -87,7 +86,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
         )
 
         ticket_embed = discord.Embed(
-            title=f"🎫 Carry Ticket #{count:04d}",
+            title=f"🎫 Carry Ticket for {interaction.user.display_name}",
             description=f"Welcome {interaction.user.mention}! Our carry team will be with you shortly.",
             color=discord.Color.blurple()
         )
@@ -106,22 +105,6 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
 
         await channel.send(content=ping_content, embed=ticket_embed, view=TicketControlView())
         await interaction.followup.send(f"✅ Ticket created! Check out {channel.mention}", ephemeral=True)
-
-        # Log Ticket Creation
-        target_log_id = self.log_channel_id or LOG_CHANNEL_ID
-        log_chan = interaction.guild.get_channel(target_log_id)
-        if log_chan:
-            log_embed = discord.Embed(title="🎫 New Carry Ticket Opened", color=discord.Color.green())
-            log_embed.add_field(name="Ticket Number", value=f"#{count:04d}", inline=True)
-            log_embed.add_field(name="User", value=interaction.user.mention, inline=True)
-            log_embed.add_field(name="Channel", value=channel.mention, inline=True)
-            log_embed.add_field(name="Game Mode", value=self.game_mode.value, inline=False)
-            log_embed.add_field(
-                name="Additional Info", 
-                value=self.additional_info.value if self.additional_info.value.strip() else "None", 
-                inline=False
-            )
-            await log_chan.send(embed=log_embed)
 
 
 # ---------------------------------------------------------------------------
@@ -154,27 +137,6 @@ class TicketControlView(discord.ui.View):
         
         embed = discord.Embed(description=f"🙋‍♂️ Ticket claimed by {interaction.user.mention}.", color=discord.Color.green())
         await interaction.channel.send(embed=embed)
-
-    @discord.ui.button(label="Website Transcript", style=discord.ButtonStyle.primary, custom_id="ticket_transcript", emoji="📜")
-    async def export_transcript(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        
-        filename = f"{interaction.channel.name}.html"
-        filepath = os.path.join(TRANSCRIPTS_DIR, filename)
-
-        transcript = await chat_exporter.export(interaction.channel)
-        if transcript:
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(transcript)
-
-        view_url = f"{DASHBOARD_URL}/transcripts/{filename}"
-        
-        embed = discord.Embed(
-            title="🌐 Transcript Saved to Website",
-            description=f"The transcript for `{interaction.channel.name}` is now saved to the web dashboard.\n\n🔗 [Click Here to View Transcript]({view_url})",
-            color=discord.Color.blue()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 # ---------------------------------------------------------------------------
@@ -214,13 +176,11 @@ class CarryPanelView(discord.ui.View):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def home():
-    # Fetch Discord server data safely
     guild = bot.guilds[0] if bot.guilds else None
     channels = guild.text_channels if guild else []
     categories = guild.categories if guild else []
     roles = guild.roles if guild else []
 
-    # Get user session safely (or set default mock user if not logged in)
     user_data = session.get("user", None)
 
     return render_template(
@@ -229,54 +189,44 @@ def home():
         channels=channels,
         categories=categories,
         roles=roles,
-        active_tickets=[],      # Ensures dashboard doesn't crash on missing active tickets
-        cooldowns=[],         # Ensures dashboard doesn't crash on missing cooldowns
-        blacklisted_users=[]  # Ensures dashboard doesn't crash on missing blacklisted users
+        total_tickets=0,
+        active_tickets=[],
+        transcripts=[],
+        cooldowns=[],
+        blacklisted_users=[]
     )
-@app.route("/dashboard/tickets", methods=["GET", "POST"])
-def ticket_panel_config():
-    if request.method == "POST":
-        channel_id = int(request.form.get("channel_id", 0))
-        category_id = int(request.form.get("category_id", 0)) if request.form.get("category_id") else None
-        support_role_id = int(request.form.get("support_role_id", 0)) if request.form.get("support_role_id") else None
-        log_channel_id = int(request.form.get("log_channel_id", 0)) if request.form.get("log_channel_id") else None
-        title = request.form.get("title", "Request Carry")
-        description = request.form.get("description", "Click below to request a carry ticket!")
 
-        channel = bot.get_channel(channel_id)
-        if channel:
-            embed = discord.Embed(
-                title=title,
-                description=description,
-                color=discord.Color.blue()
-            )
-            view = CarryPanelView(category_id, support_role_id, log_channel_id)
-            
-            future = asyncio.run_coroutine_threadsafe(
-                channel.send(embed=embed, view=view),
-                bot.loop
-            )
-            try:
-                future.result(timeout=10)
-                flash("🎉 Carry panel successfully deployed to Discord!", "success")
-            except Exception as e:
-                flash(f"❌ Failed to send panel: {e}", "danger")
-        else:
-            flash("❌ Discord channel not found.", "danger")
+@app.route("/dashboard/tickets", methods=["POST"])
+def deploy_ticket_panel():
+    channel_id = int(request.form.get("channel_id", 0))
+    category_id = int(request.form.get("category_id", 0)) if request.form.get("category_id") else None
+    support_role_id = int(request.form.get("support_role_id", 0)) if request.form.get("support_role_id") else None
+    log_channel_id = int(request.form.get("log_channel_id", 0)) if request.form.get("log_channel_id") else None
+    title = request.form.get("title", "Request Carry")
+    description = request.form.get("description", "Click below to request a carry ticket!")
 
-        return redirect("/dashboard/tickets")
+    channel = bot.get_channel(channel_id)
+    if channel:
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.blue()
+        )
+        view = CarryPanelView(category_id, support_role_id, log_channel_id)
+        
+        future = asyncio.run_coroutine_threadsafe(
+            channel.send(embed=embed, view=view),
+            bot.loop
+        )
+        try:
+            future.result(timeout=10)
+            flash("🎉 Carry panel successfully deployed to Discord!", "success")
+        except Exception as e:
+            flash(f"❌ Failed to send panel: {e}", "danger")
+    else:
+        flash("❌ Discord channel not found.", "danger")
 
-    guild = bot.guilds[0] if bot.guilds else None
-    channels = guild.text_channels if guild else []
-    categories = guild.categories if guild else []
-    roles = guild.roles if guild else []
-
-    return render_template(
-        "tickets_config.html",
-        channels=channels,
-        categories=categories,
-        roles=roles
-    )
+    return redirect("/")
 
 
 # ---------------------------------------------------------------------------
@@ -302,4 +252,8 @@ if __name__ == "__main__":
     import threading
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
-    bot.run(TOKEN)
+    
+    if TOKEN:
+        bot.run(TOKEN)
+    else:
+        print("❌ Error: DISCORD_TOKEN environment variable is missing.")
