@@ -2,237 +2,29 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carry Bot Control Panel</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-    <style>
-        body {
-            background-color: #0d0f17;
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-        .panel-card {
-            background-color: #161922;
-            border: 1px solid #232733;
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
-        }
-        .stat-card {
-            background-color: #1a1e29;
-            border: 1px solid #262b3a;
-            border-radius: 10px;
-            padding: 20px;
-        }
-        .stat-value {
-            font-size: 2.2rem;
-            font-weight: 700;
-            color: #5865F2;
-        }
-        .form-control, .form-select {
-            background-color: #1e2230 !important;
-            border: 1px solid #2d3345 !important;
-            color: #ffffff !important;
-        }
-        .form-control:focus, .form-select:focus {
-            border-color: #5865F2 !important;
-            box-shadow: 0 0 0 0.25rem rgba(88, 101, 242, 0.25) !important;
-        }
-        .btn-discord {
-            background-color: #5865F2;
-            color: #ffffff;
-            font-weight: 600;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 8px;
-            transition: background-color 0.2s;
-        }
-        .btn-discord:hover {
-            background-color: #4752c4;
-            color: #ffffff;
-        }
-    </style>
-</head>
+    </head>
 <body>
-    <div class="container py-4">
-        
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="fw-bold m-0">🎫 Carry Bot Control Panel</h2>
-                <span class="badge bg-success mt-1">● Bot Online</span>
-            </div>
-            {% if user is defined and user %}
-            <div class="d-flex align-items-center gap-3">
-                <span>Welcome, <strong>{{ user.username if user.username is defined else 'Admin' }}</strong>!</span>
-                <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
-            </div>
-            {% endif %}
-        </div>
-
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, message in messages %}
-              <div class="alert alert-{{ category if category != 'message' else 'info' }} alert-dismissible fade show" role="alert">
-                {{ message }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-              </div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
-
-        <div class="row g-3 mb-4">
-            <div class="col-md-6">
-                <div class="stat-card">
-                    <div class="text-secondary small fw-bold">TOTAL TICKETS CREATED</div>
-                    <div class="stat-value">#{{ "%04d"|format(total_tickets if total_tickets is defined and total_tickets else 0) }}</div>
+    <div class="container">
+        {% if user %}
+            <header>
+                <h2>🎫 Carry Bot Control Panel</h2>
+                <div class="user-profile">
+                    <img src="{{ user.avatar_url }}" width="34" style="border-radius: 50%;">
+                    <span>Welcome, {{ user.username }}!</span>
+                    <a href="/logout">Logout</a>
                 </div>
-            </div>
-            <div class="col-md-6">
-                <div class="stat-card">
-                    <div class="text-secondary small fw-bold">ACTIVE USER COOLDOWNS</div>
-                    <div class="stat-value">{{ cooldowns|length if cooldowns is defined and cooldowns else 0 }}</div>
-                </div>
-            </div>
-        </div>
+            </header>
 
-        <div class="panel-card">
-            <h4 class="fw-bold mb-2">⚙️ Deploy Carry Ticket Panel</h4>
-            <p class="text-secondary small mb-4">Send a carry request embed panel directly to any channel in your Discord server.</p>
-
-            <form action="/dashboard/tickets" method="POST">
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label small fw-bold text-secondary">📢 TARGET TEXT CHANNEL</label>
-                        <select name="channel_id" class="form-select" required>
-                            {% if channels is defined and channels %}
-                                {% for ch in channels %}
-                                    <option value="{{ ch.id }}">#{{ ch.name }}</option>
-                                {% endfor %}
-                            {% else %}
-                                <option value="">No text channels found</option>
-                            {% endif %}
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label small fw-bold text-secondary">📂 TICKET CATEGORY (OPTIONAL)</label>
-                        <select name="category_id" class="form-select">
-                            <option value="">Default (CARRY TICKETS)</option>
-                            {% if categories is defined and categories %}
-                                {% for cat in categories %}
-                                    <option value="{{ cat.id }}">{{ cat.name }}</option>
-                                {% endfor %}
-                            {% endif %}
-                        </select>
-                    </div>
-                </div>
-
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label small fw-bold text-secondary">👥 SUPPORT ROLE (OPTIONAL)</label>
-                        <select name="support_role_id" class="form-select">
-                            <option value="">None</option>
-                            {% if roles is defined and roles %}
-                                {% for role in roles %}
-                                    <option value="{{ role.id }}">{{ role.name }}</option>
-                                {% endfor %}
-                            {% endif %}
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label small fw-bold text-secondary">📜 LOG CHANNEL (OPTIONAL)</label>
-                        <select name="log_channel_id" class="form-select">
-                            <option value="">Default Log Channel</option>
-                            {% if channels is defined and channels %}
-                                {% for ch in channels %}
-                                    <option value="{{ ch.id }}">#{{ ch.name }}</option>
-                                {% endfor %}
-                            {% endif %}
-                        </select>
-                    </div>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label small fw-bold text-secondary">✏️ EMBED TITLE</label>
-                    <input type="text" name="title" class="form-control" value="Request Carry">
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label small fw-bold text-secondary">📝 EMBED DESCRIPTION</label>
-                    <textarea name="description" class="form-control" rows="2">Click below to request a carry ticket!</textarea>
-                </div>
-
-                <button type="submit" class="btn btn-discord w-100 fw-bold">🚀 Send Panel to Discord</button>
-            </form>
-        </div>
-
-        <div class="panel-card">
-            <h5 class="fw-bold mb-3">📡 Live Active Ticket Channels</h5>
-            {% if active_tickets is defined and active_tickets %}
-                <ul class="list-group list-group-flush bg-transparent">
-                    {% for ticket in active_tickets %}
-                        <li class="list-group-item bg-transparent text-white d-flex justify-content-between align-items-center border-secondary">
-                            <span>#{{ ticket.name }}</span>
-                            <a href="{{ ticket.url if ticket.url is defined else '#' }}" target="_blank" class="btn btn-outline-primary btn-sm">Open in Discord ↗</a>
-                        </li>
-                    {% endfor %}
-                </ul>
             {% else %}
-                <p class="text-secondary m-0 small">No active ticket channels right now.</p>
-            {% endif %}
-        </div>
-
-        <div class="panel-card">
-            <h5 class="fw-bold mb-3">📁 Past Closed Tickets & Message Logs</h5>
-            {% if transcripts is defined and transcripts %}
-                <ul class="list-group list-group-flush bg-transparent">
-                    {% for file in transcripts %}
-                        <li class="list-group-item bg-transparent text-white d-flex justify-content-between align-items-center border-secondary">
-                            <span>📜 {{ file }}</span>
-                            <a href="/transcripts/{{ file }}" target="_blank" class="btn btn-sm btn-secondary">View Transcript</a>
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p class="text-secondary m-0 small">No saved ticket transcripts yet.</p>
-            {% endif %}
-        </div>
-
-        <div class="row g-3">
-            <div class="col-md-6">
-                <div class="panel-card h-100">
-                    <h5 class="fw-bold mb-3">⏳ Users Currently on Cooldown</h5>
-                    {% if cooldowns is defined and cooldowns %}
-                        <ul class="list-unstyled m-0">
-                            {% for user in cooldowns %}
-                                <li class="text-warning small mb-1">⚠️ User ID: {{ user }}</li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <p class="text-secondary m-0 small">No users on cooldown.</p>
-                    {% endif %}
-                </div>
+            <div style="text-align: center; padding: 60px 20px;">
+                <h2>🔒 Restricted Control Panel</h2>
+                <p>You must authorize with Discord to access ticket channels, logs, and bot deployment settings.</p>
+                <a href="/login" style="background-color: #5865f2; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                    🔑 Login with Discord
+                </a>
             </div>
-
-            <div class="col-md-6">
-                <div class="panel-card h-100">
-                    <h5 class="fw-bold mb-3">🚫 Blacklisted Users</h5>
-                    {% if blacklisted_users is defined and blacklisted_users %}
-                        <ul class="list-unstyled m-0">
-                            {% for user in blacklisted_users %}
-                                <li class="text-danger small mb-1">🛑 User ID: {{ user }}</li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <p class="text-secondary m-0 small">No users currently blacklisted.</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-
+        {% endif %}
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
