@@ -14,15 +14,16 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 DASHBOARD_URL = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com").replace("/callback", "")
 
-# Flask App Initialisation
+# Flask App Setup
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-this")
 
-# Discord Bot Initialisation
+# Discord Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
 
 # ---------------------------------------------------------------------------
 # CARRY REQUEST MODAL
@@ -67,7 +68,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
             if not category:
                 category = await interaction.guild.create_category("CARRY TICKETS")
 
-        # Overwrites Setup
+        # Permissions Overwrites Setup
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -177,7 +178,7 @@ class TicketControlView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# PUBLIC CARRY PANEL VIEW (Encodes Config into Button custom_id)
+# PUBLIC CARRY PANEL VIEW
 # ---------------------------------------------------------------------------
 class CarryPanelView(discord.ui.View):
     def __init__(self, category_id: int = 0, support_role_id: int = 0, log_channel_id: int = 0):
@@ -209,11 +210,11 @@ class CarryPanelView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# FLASK ROUTES
+# FLASK DASHBOARD ROUTES
 # ---------------------------------------------------------------------------
 @app.route("/")
 def home():
-    return "Bot and Web Dashboard are running!"
+    return "Bot and Web Dashboard are online!"
 
 @app.route("/dashboard/tickets", methods=["GET", "POST"])
 def ticket_panel_config():
@@ -262,11 +263,10 @@ def ticket_panel_config():
 
 
 # ---------------------------------------------------------------------------
-# BOT EVENTS & STARTUP
+# BOT STARTUP & RUNNER
 # ---------------------------------------------------------------------------
 @bot.event
 async def on_ready():
-    # Only register persistent controls for active ticket channels
     bot.add_view(TicketControlView())
     try:
         synced = await bot.tree.sync()
@@ -274,10 +274,9 @@ async def on_ready():
     except Exception as e:
         print(f"Failed to sync commands: {e}")
 
-    print(f"✅ Bot is online as {bot.user}")
+    print(f"✅ Bot logged in as {bot.user}")
 
 
-# Entry point runner
 def run_flask():
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
