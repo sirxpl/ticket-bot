@@ -1,70 +1,51 @@
-# main.py
-import os
-import sys
-import threading
-import asyncio
-import discord
-from discord.ext import commands, tasks
+# ---------------------------------------------------------------------------
+# CARRY PANEL DEPLOYMENT ROUTE (Add this inside main.py)
+# ---------------------------------------------------------------------------
+@app.route("/dashboard/tickets", methods=["GET", "POST"])
+def ticket_panel_config():
+    if request.method == "POST":
+        channel_id = int(request.form.get("channel_id", 0))
+        category_id = int(request.form.get("category_id", 0)) if request.form.get("category_id") else None
+        support_role_id = int(request.form.get("support_role_id", 0)) if request.form.get("support_role_id") else None
+        log_channel_id = int(request.form.get("log_channel_id", 0)) if request.form.get("log_channel_id") else None
+        title = request.form.get("title", "Request Carry")
+        description = request.form.get("description", "Click below to request a carry ticket!")
 
-# Ensure Python can locate dashboard.py if main.py is inside a subfolder (e.g., /bot)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        # Find channel and send the panel embed directly via the bot
+        channel = bot.get_channel(channel_id)
+        if channel:
+            embed = discord.Embed(
+                title=title,
+                description=description,
+                color=discord.Color.blue()
+            )
+            # Create persistent button view with settings inside custom_id
+            view = CarryPanelView(category_id, support_role_id, log_channel_id)
+            
+            # Send asynchronously to Discord
+            future = asyncio.run_coroutine_threadsafe(
+                channel.send(embed=embed, view=view),
+                bot.loop
+            )
+            try:
+                future.result(timeout=10)
+                flash("🎉 Carry panel successfully deployed to Discord!", "success")
+            except Exception as e:
+                flash(f"❌ Failed to send panel: {e}", "danger")
+        else:
+            flash("❌ Discord channel not found.", "danger")
 
-import dashboard
-from dashboard import app as flask_app
+        return redirect("/dashboard/tickets")
 
+    # Fetch choices for dropdowns on GET request
+    guild = bot.guilds[0] if bot.guilds else None
+    channels = guild.text_channels if guild else []
+    categories = guild.categories if guild else []
+    roles = guild.roles if guild else []
 
-# --- RUN FLASK WEB DASHBOARD IN BACKGROUND THREAD ---
-def run_flask():
-    port = int(os.getenv("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port)
-
-threading.Thread(target=run_flask, daemon=True).start()
-
-
-# --- BOT CLASS SETUP ---
-class TicketBot(commands.Bot):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    async def setup_hook(self):
-        # Load cogs
-        await self.load_extension("cogs.tickets")
-        
-        # Sync slash commands globally
-        synced = await self.tree.sync()
-        print(f"✅ Synced {len(synced)} slash command(s).")
-        
-        # Start background task to update dashboard cache
-        self.update_active_tickets.start()
-
-    async def on_ready(self):
-        print(f"🤖 Bot is online and logged in as {self.user}")
-
-    # Task running every 10 seconds to update live channels on the Flask website
-    @tasks.loop(seconds=10)
-    async def update_active_tickets(self):
-        active_channels = []
-        for guild in self.guilds:
-            for channel in guild.text_channels:
-                # Matches ticket channel naming conventions
-                if "ticket-" in channel.name or "report-" in channel.name or "carry-" in channel.name:
-                    active_channels.append({
-                        "name": channel.name,
-                        "id": channel.id,
-                        "guild_id": guild.id
-                    })
-        dashboard.active_tickets_cache = active_channels
-
-
-# --- INITIALIZE AND RUN BOT ---
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-
-bot = TicketBot(command_prefix="!", intents=intents)
-
-token = os.getenv("DISCORD_BOT_TOKEN")
-if not token:
-    print("❌ ERROR: 'DISCORD_BOT_TOKEN' environment variable is missing!")
-else:
-    bot.run(token)
+    return render_template(
+        "tickets_config.html",
+        channels=channels,
+        categories=categories,
+        roles=roles
+    )
