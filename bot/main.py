@@ -75,16 +75,15 @@ def login_required(f):
 def home():
     user_data = session.get("user", None)
 
-    # 🔒 IF NOT LOGGED IN: Render the login screen only
     if not user_data:
         return render_template("dashboard.html", user=None)
 
-    # 🔓 IF LOGGED IN: Fetch full dashboard data
     guild = bot.guilds[0] if bot.guilds else None
     channels = guild.text_channels if guild else []
     categories = guild.categories if guild else []
     roles = guild.roles if guild else []
     
+    # Load dynamic data from storage
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
     
@@ -99,10 +98,10 @@ def home():
         categories=categories,
         roles=roles,
         total_tickets=tickets_info.get("ticket_counter", 0),
-        active_tickets=[],
+        active_tickets=tickets_info.get("active_tickets", []), # 👈 Updated
         transcripts=transcripts,
-        cooldowns=[],
-        blacklisted_users=blacklist_info.get("blacklisted_users", [])
+        cooldowns=tickets_info.get("cooldowns", []),           # 👈 Updated
+        blacklisted_users=blacklist_info.get("blacklisted_users", []) # 👈 Updated
     )
 
 # ---------------------------------------------------------------------------
