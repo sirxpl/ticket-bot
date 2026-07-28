@@ -2,29 +2,171 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carry Bot Control Panel</title>
-    </head>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1f22;
+            color: #f2f3f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #2b2d31;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #35363c;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .user-info img {
+            border-radius: 50%;
+        }
+        .btn-logout {
+            color: #f23f43;
+            text-decoration: none;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .btn-login {
+            background-color: #5865f2;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: bold;
+            display: inline-block;
+        }
+        .card {
+            background: #313338;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        form label {
+            display: block;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        form input, form select, form textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            background: #1e1f22;
+            border: 1px solid #4e5058;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button.btn-submit {
+            background: #23a55a;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            margin-top: 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+        }
+        .gatekeeper {
+            text-align: center;
+            padding: 50px 20px;
+        }
+    </style>
+</head>
 <body>
-    <div class="container">
-        {% if user %}
-            <header>
-                <h2>🎫 Carry Bot Control Panel</h2>
-                <div class="user-profile">
-                    <img src="{{ user.avatar_url }}" width="34" style="border-radius: 50%;">
-                    <span>Welcome, {{ user.username }}!</span>
-                    <a href="/logout">Logout</a>
-                </div>
-            </header>
 
-            {% else %}
-            <div style="text-align: center; padding: 60px 20px;">
-                <h2>🔒 Restricted Control Panel</h2>
-                <p>You must authorize with Discord to access ticket channels, logs, and bot deployment settings.</p>
-                <a href="/login" style="background-color: #5865f2; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
-                    🔑 Login with Discord
-                </a>
+<div class="container">
+    {% if user %}
+        <header>
+            <h2>🎫 Carry Bot Control Panel</h2>
+            <div class="user-info">
+                <img src="{{ user.avatar_url }}" width="36" height="36" alt="Avatar">
+                <span>Welcome, <strong>{{ user.username }}</strong>!</span>
+                <a href="/logout" class="btn-logout">Logout</a>
             </div>
-        {% endif %}
-    </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div style="padding: 10px; margin-bottom: 15px; border-radius: 4px; background-color: {% if category == 'success' %}#23a55a{% else %}#da373c{% endif %}; color: white;">
+                {{ message }}
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <div class="card">
+            <h3>🚀 Deploy Carry Ticket Panel</h3>
+            <form action="/dashboard/tickets" method="POST">
+                <label>Select Target Channel:</label>
+                <select name="channel_id" required>
+                    {% for channel in channels %}
+                        <option value="{{ channel.id }}">#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <label>Category for Opened Tickets:</label>
+                <select name="category_id">
+                    <option value="">None</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <label>Support Role:</label>
+                <select name="support_role_id">
+                    <option value="">None</option>
+                    {% for role in roles %}
+                        <option value="{{ role.id }}">@{{ role.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <label>Panel Title:</label>
+                <input type="text" name="title" value="Request Carry">
+
+                <label>Panel Description:</label>
+                <textarea name="description" rows="3">Click the button below to request a carry ticket!</textarea>
+
+                <button type="submit" class="btn-submit">Send Panel to Discord</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>📜 Saved Transcripts</h3>
+            <ul>
+                {% for transcript in transcripts %}
+                    <li><a href="/transcripts/{{ transcript }}" target="_blank" style="color: #00a8fc;">{{ transcript }}</a></li>
+                {% else %}
+                    <li>No transcripts saved yet.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+    {% else %}
+        <div class="gatekeeper">
+            <h2>🔒 Restricted Control Panel</h2>
+            <p style="color: #b5bac1; margin-bottom: 25px;">You must authorize with Discord OAuth2 to view ticket controls and server options.</p>
+            <a href="/login" class="btn-login">🔑 Login with Discord</a>
+        </div>
+    {% endif %}
+</div>
+
 </body>
 </html>
