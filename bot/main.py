@@ -48,7 +48,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 def make_oauth_session(state=None):
-    # Added 'guilds' & 'guilds.members.read' scopes so you can easily add role permission checks later!
     return OAuth2Session(
         client_id=CLIENT_ID,
         state=state,
@@ -57,13 +56,13 @@ def make_oauth_session(state=None):
     )
 
 # ---------------------------------------------------------------------------
-# AUTHENTICATION DECORATOR (GATEKEEPER)
+# AUTHENTICATION DECORATOR (STRICT GATEKEEPER)
 # ---------------------------------------------------------------------------
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get("user"):
-            flash("🔒 Please log in with Discord to perform this action.", "warning")
+            flash("🔒 You must log in with Discord to access the dashboard.", "warning")
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated_function
@@ -76,12 +75,16 @@ def login_required(f):
 def home():
     user_data = session.get("user", None)
 
+    # 🔒 IF NOT LOGGED IN: Render the login screen only
+    if not user_data:
+        return render_template("dashboard.html", user=None)
+
+    # 🔓 IF LOGGED IN: Fetch full dashboard data
     guild = bot.guilds[0] if bot.guilds else None
     channels = guild.text_channels if guild else []
     categories = guild.categories if guild else []
     roles = guild.roles if guild else []
     
-    # Load dynamic data from storage
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
     
@@ -125,14 +128,12 @@ def callback():
     )
     session['oauth2_token'] = token
     
-    # Fetch Discord user profile
     user_data = discord_sess.get('https://discord.com/api/users/@me').json()
     user_id = user_data.get('id')
     avatar_hash = user_data.get('avatar')
     
     avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png" if avatar_hash else "https://cdn.discordapp.com/embed/avatars/0.png"
 
-    # Store user details in session
     session['user'] = {
         'username': user_data.get('username'),
         'id': user_id,
@@ -149,7 +150,7 @@ def logout():
     return redirect(url_for('home'))
 
 # ---------------------------------------------------------------------------
-# PROTECTED DASHBOARD ACTIONS
+# PROTECTED API & PANEL ROUTES
 # ---------------------------------------------------------------------------
 @app.route("/transcripts/<path:filename>")
 @login_required
