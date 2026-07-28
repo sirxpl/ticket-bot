@@ -1,13 +1,24 @@
 import os
 import glob
 import asyncio
+from functools import wraps
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
-from flask import Flask, render_template, request, redirect, flash, session, url_for, jsonify, send_from_directory
+from flask import (
+    Flask, 
+    render_template, 
+    request, 
+    redirect, 
+    flash, 
+    session, 
+    url_for, 
+    jsonify, 
+    send_from_directory
+)
 from requests_oauthlib import OAuth2Session
 
-# Import your storage helpers
+# Import storage helpers
 from utils.storage import get_tickets_data, get_blacklist_data, remove_from_blacklist, TRANSCRIPTS_DIR
 
 # ---------------------------------------------------------------------------
@@ -37,12 +48,25 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 def make_oauth_session(state=None):
+    # Added 'guilds' & 'guilds.members.read' scopes so you can easily add role permission checks later!
     return OAuth2Session(
         client_id=CLIENT_ID,
         state=state,
-        scope=['identify', 'guilds.members.read'],
+        scope=['identify', 'guilds', 'guilds.members.read'],
         redirect_uri=REDIRECT_URI
     )
+
+# ---------------------------------------------------------------------------
+# AUTHENTICATION DECORATOR (GATEKEEPER)
+# ---------------------------------------------------------------------------
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("user"):
+            flash("🔒 Please log in with Discord to perform this action.", "warning")
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 # ---------------------------------------------------------------------------
@@ -50,14 +74,14 @@ def make_oauth_session(state=None):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def home():
+    user_data = session.get("user", None)
+
     guild = bot.guilds[0] if bot.guilds else None
     channels = guild.text_channels if guild else []
     categories = guild.categories if guild else []
     roles = guild.roles if guild else []
-
-    user_data = session.get("user", None)
     
-    # Load dynamic data from utils/storage.py and directory logs
+    # Load dynamic data from storage
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
     
@@ -79,7 +103,7 @@ def home():
     )
 
 # ---------------------------------------------------------------------------
-# OAUTH2 LOGIN / CALLBACK / LOGOUT
+# OAUTH2 AUTHENTICATION ROUTES
 # ---------------------------------------------------------------------------
 @app.route("/login")
 def login():
@@ -101,44 +125,45 @@ def callback():
     )
     session['oauth2_token'] = token
     
+    # Fetch Discord user profile
     user_data = discord_sess.get('https://discord.com/api/users/@me').json()
     user_id = user_data.get('id')
     avatar_hash = user_data.get('avatar')
     
     avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png" if avatar_hash else "https://cdn.discordapp.com/embed/avatars/0.png"
 
+    # Store user details in session
     session['user'] = {
         'username': user_data.get('username'),
         'id': user_id,
         'avatar_url': avatar_url
     }
+    
+    flash(f"👋 Welcome back, {user_data.get('username')}!", "success")
     return redirect(url_for('home'))
 
 @app.route("/logout")
 def logout():
     session.clear()
+    flash("Logged out successfully.", "info")
     return redirect(url_for('home'))
 
 # ---------------------------------------------------------------------------
-# TRANSCRIPTS & API ENDPOINTS
+# PROTECTED DASHBOARD ACTIONS
 # ---------------------------------------------------------------------------
 @app.route("/transcripts/<path:filename>")
+@login_required
 def get_transcript(filename):
-    if not session.get("user"):
-        return "Unauthorized", 401
     return send_from_directory(TRANSCRIPTS_DIR, filename)
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])
+@login_required
 def api_unblacklist(user_id):
-    if not session.get("user"):
-        return jsonify({"success": False, "message": "Unauthorized"}), 401
     remove_from_blacklist(user_id)
     return jsonify({"success": True})
 
-# ---------------------------------------------------------------------------
-# DEPLOY PANEL ACTION
-# ---------------------------------------------------------------------------
 @app.route("/dashboard/tickets", methods=["POST"])
+@login_required
 def deploy_ticket_panel():
     channel_id = int(request.form.get("channel_id", 0))
     category_id = int(request.form.get("category_id", 0)) if request.form.get("category_id") else None
@@ -172,7 +197,6 @@ def deploy_ticket_panel():
         flash("❌ Tickets cog not loaded.", "danger")
 
     return redirect("/")
-
 
 # ---------------------------------------------------------------------------
 # STARTUP & RUNNERS
