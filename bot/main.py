@@ -1,25 +1,48 @@
 import os
+import glob
 import asyncio
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
-from flask import Flask, render_template, request, redirect, flash, session
+from flask import Flask, render_template, request, redirect, flash, session, url_for, jsonify, send_from_directory
+from requests_oauthlib import OAuth2Session
+
+# Import your storage helpers
+from utils.storage import get_tickets_data, get_blacklist_data, remove_from_blacklist, TRANSCRIPTS_DIR
 
 # ---------------------------------------------------------------------------
-# INITIALIZATION & SETUP
+# INITIALIZATION & ENVIRONMENT SETUP
 # ---------------------------------------------------------------------------
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
+CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
+CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
+REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/callback")
+
+AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
+TOKEN_URL = 'https://discord.com/api/oauth2/token'
+
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 # Flask Setup
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-this")
+app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 
 # Discord Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+def make_oauth_session(state=None):
+    return OAuth2Session(
+        client_id=CLIENT_ID,
+        state=state,
+        scope=['identify', 'guilds.members.read'],
+        redirect_uri=REDIRECT_URI
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +56,14 @@ def home():
     roles = guild.roles if guild else []
 
     user_data = session.get("user", None)
+    
+    # Load dynamic data from utils/storage.py and directory logs
+    tickets_info = get_tickets_data()
+    blacklist_info = get_blacklist_data()
+    
+    transcripts = []
+    if os.path.exists(TRANSCRIPTS_DIR):
+        transcripts = [os.path.basename(f) for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")]
 
     return render_template(
         "dashboard.html",
@@ -40,13 +71,73 @@ def home():
         channels=channels,
         categories=categories,
         roles=roles,
-        total_tickets=0,
+        total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=[],
-        transcripts=[],
+        transcripts=transcripts,
         cooldowns=[],
-        blacklisted_users=[]
+        blacklisted_users=blacklist_info.get("blacklisted_users", [])
     )
 
+# ---------------------------------------------------------------------------
+# OAUTH2 LOGIN / CALLBACK / LOGOUT
+# ---------------------------------------------------------------------------
+@app.route("/login")
+def login():
+    discord_sess = make_oauth_session()
+    authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
+    session['oauth2_state'] = state
+    return redirect(authorization_url)
+
+@app.route("/callback")
+def callback():
+    if request.args.get('error'):
+        return request.args['error']
+    
+    discord_sess = make_oauth_session(state=session.get('oauth2_state'))
+    token = discord_sess.fetch_token(
+        TOKEN_URL,
+        client_secret=CLIENT_SECRET,
+        authorization_response=request.url
+    )
+    session['oauth2_token'] = token
+    
+    user_data = discord_sess.get('https://discord.com/api/users/@me').json()
+    user_id = user_data.get('id')
+    avatar_hash = user_data.get('avatar')
+    
+    avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png" if avatar_hash else "https://cdn.discordapp.com/embed/avatars/0.png"
+
+    session['user'] = {
+        'username': user_data.get('username'),
+        'id': user_id,
+        'avatar_url': avatar_url
+    }
+    return redirect(url_for('home'))
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for('home'))
+
+# ---------------------------------------------------------------------------
+# TRANSCRIPTS & API ENDPOINTS
+# ---------------------------------------------------------------------------
+@app.route("/transcripts/<path:filename>")
+def get_transcript(filename):
+    if not session.get("user"):
+        return "Unauthorized", 401
+    return send_from_directory(TRANSCRIPTS_DIR, filename)
+
+@app.route("/api/unblacklist/<user_id>", methods=["POST"])
+def api_unblacklist(user_id):
+    if not session.get("user"):
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+    remove_from_blacklist(user_id)
+    return jsonify({"success": True})
+
+# ---------------------------------------------------------------------------
+# DEPLOY PANEL ACTION
+# ---------------------------------------------------------------------------
 @app.route("/dashboard/tickets", methods=["POST"])
 def deploy_ticket_panel():
     channel_id = int(request.form.get("channel_id", 0))
@@ -56,7 +147,6 @@ def deploy_ticket_panel():
     title = request.form.get("title", "Request Carry")
     description = request.form.get("description", "Click below to request a carry ticket!")
 
-    # Retrieve the tickets cog
     cog = bot.get_cog("TicketsCog")
     if cog:
         future = asyncio.run_coroutine_threadsafe(
@@ -89,7 +179,6 @@ def deploy_ticket_panel():
 # ---------------------------------------------------------------------------
 @bot.event
 async def setup_hook():
-    # Automatically load cogs from the cogs directory
     if os.path.exists("cogs"):
         for filename in os.listdir("cogs"):
             if filename.endswith(".py"):
