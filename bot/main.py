@@ -214,18 +214,25 @@ class CarryPanelView(discord.ui.View):
 # ---------------------------------------------------------------------------
 @app.route("/")
 def home():
+    # Fetch Discord server data safely
     guild = bot.guilds[0] if bot.guilds else None
     channels = guild.text_channels if guild else []
     categories = guild.categories if guild else []
     roles = guild.roles if guild else []
 
+    # Get user session safely (or set default mock user if not logged in)
+    user_data = session.get("user", None)
+
     return render_template(
         "dashboard.html",
+        user=user_data,
         channels=channels,
         categories=categories,
-        roles=roles
+        roles=roles,
+        active_tickets=[],      # Ensures dashboard doesn't crash on missing active tickets
+        cooldowns=[],         # Ensures dashboard doesn't crash on missing cooldowns
+        blacklisted_users=[]  # Ensures dashboard doesn't crash on missing blacklisted users
     )
-
 @app.route("/dashboard/tickets", methods=["GET", "POST"])
 def ticket_panel_config():
     if request.method == "POST":
