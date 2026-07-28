@@ -73,3 +73,74 @@
     </div>
 </body>
 </html>
+
+<div class="card bg-dark text-white p-4 mb-4" style="border: 1px solid #2f3136; border-radius: 8px;">
+    <h3 class="mb-3">⚙️ Deploy Carry Ticket Panel</h3>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form action="/dashboard/tickets" method="POST">
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">📢 Target Text Channel</label>
+                <select name="channel_id" class="form-select bg-secondary text-white" required>
+                    {% for ch in channels %}
+                        <option value="{{ ch.id }}">#{{ ch.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-6 mb-3">
+                <label class="form-label">📂 Ticket Category (Optional)</label>
+                <select name="category_id" class="form-select bg-secondary text-white">
+                    <option value="">Default (CARRY TICKETS)</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">👥 Support Role (Optional)</label>
+                <select name="support_role_id" class="form-select bg-secondary text-white">
+                    <option value="">None</option>
+                    {% for role in roles %}
+                        <option value="{{ role.id }}">@{{ role.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-md-6 mb-3">
+                <label class="form-label">📜 Log Channel (Optional)</label>
+                <select name="log_channel_id" class="form-select bg-secondary text-white">
+                    <option value="">Default Logs</option>
+                    {% for ch in channels %}
+                        <option value="{{ ch.id }}">#{{ ch.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">✏️ Embed Title</label>
+            <input type="text" name="title" class="form-control bg-secondary text-white" value="Request Carry">
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">📝 Embed Description</label>
+            <textarea name="description" class="form-control bg-secondary text-white" rows="2">Click below to request a carry ticket!</textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100" style="background-color: #5865F2; border: none; font-weight: bold;">
+            🚀 Send Panel to Discord
+        </button>
+    </form>
+</div>
