@@ -3,25 +3,19 @@ import asyncio
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
-from discord import app_commands
 from flask import Flask, render_template, request, redirect, flash, session
-import chat_exporter
 
-# Load environment variables
+# ---------------------------------------------------------------------------
+# INITIALIZATION & SETUP
+# ---------------------------------------------------------------------------
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
-DASHBOARD_URL = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com").replace("/callback", "")
 
-# Directory setup for transcripts
-TRANSCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "transcripts")
-os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
-
-# Flask App Initialisation
+# Flask Setup
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-this")
 
-# Discord Bot Initialisation
+# Discord Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -29,7 +23,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 # ---------------------------------------------------------------------------
-# CARRY REQUEST MODAL
+# DISCORD: CARRY REQUEST MODAL
 # ---------------------------------------------------------------------------
 class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
     game_mode = discord.ui.TextInput(
@@ -42,7 +36,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
     additional_info = discord.ui.TextInput(
         label="Additional Information",
         style=discord.TextStyle.paragraph,
-        placeholder="Provide extra details (e.g. carry type, level, username)...",
+        placeholder="Provide extra details (e.g. carry type, username)...",
         required=False,
         max_length=500
     )
@@ -67,7 +61,7 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
             if not category:
                 category = await interaction.guild.create_category("CARRY TICKETS")
 
-        # Overwrites Setup
+        # Permissions Overwrites
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -104,11 +98,11 @@ class CarryRequestModal(discord.ui.Modal, title="Request Carry"):
                 ping_content += f" {role.mention}"
 
         await channel.send(content=ping_content, embed=ticket_embed, view=TicketControlView())
-        await interaction.followup.send(f"✅ Ticket created! Check out {channel.mention}", ephemeral=True)
+        await interaction.followup.send(f"✅ Ticket created! Head over to {channel.mention}", ephemeral=True)
 
 
 # ---------------------------------------------------------------------------
-# TICKET CHANNEL CONTROLS
+# DISCORD: TICKET TICKET CONTROL BUTTONS (Close/Claim)
 # ---------------------------------------------------------------------------
 class TicketControlView(discord.ui.View):
     def __init__(self):
@@ -140,7 +134,7 @@ class TicketControlView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# PUBLIC CARRY PANEL VIEW
+# DISCORD: PUBLIC CARRY PANEL BUTTON
 # ---------------------------------------------------------------------------
 class CarryPanelView(discord.ui.View):
     def __init__(self, category_id: int = 0, support_role_id: int = 0, log_channel_id: int = 0):
@@ -172,7 +166,7 @@ class CarryPanelView(discord.ui.View):
 
 
 # ---------------------------------------------------------------------------
-# FLASK DASHBOARD ROUTES
+# FLASK WEB DASHBOARD ROUTES
 # ---------------------------------------------------------------------------
 @app.route("/")
 def home():
@@ -230,7 +224,7 @@ def deploy_ticket_panel():
 
 
 # ---------------------------------------------------------------------------
-# BOT STARTUP & RUNNER
+# STARTUP & RUNNERS
 # ---------------------------------------------------------------------------
 @bot.event
 async def on_ready():
