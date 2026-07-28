@@ -9,11 +9,11 @@ from flask import Flask, render_template, request, redirect, flash, session
 # INITIALIZATION & SETUP
 # ---------------------------------------------------------------------------
 load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
 
 # Flask Setup
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "super-secret-key-change-this")
+app.secret_key = os.getenv("SECRET_KEY", "how")
 
 # Discord Bot Setup
 intents = discord.Intents.default()
