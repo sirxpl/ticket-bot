@@ -4,6 +4,7 @@ import json
 import asyncio
 from functools import wraps
 from dotenv import load_dotenv
+
 import discord
 from discord.ext import commands
 from flask import (
@@ -20,11 +21,16 @@ from flask import (
 from requests_oauthlib import OAuth2Session
 
 # Import storage helpers
-from utils.storage import get_tickets_data, get_blacklist_data, remove_from_blacklist, TRANSCRIPTS_DIR
+from utils.storage import (
+    get_tickets_data, 
+    get_blacklist_data, 
+    remove_from_blacklist, 
+    TRANSCRIPTS_DIR,
+    get_settings,
+    set_tickets_enabled
+)
 
-# ---------------------------------------------------------------------------
-# ENVIRONMENT SETUP
-# ---------------------------------------------------------------------------
+# Environment & OAuth Setup
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -37,11 +43,11 @@ TOKEN_URL = 'https://discord.com/api/oauth2/token'
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
-# Flask Setup
+# Flask App
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 
-# Discord Bot Setup
+# Discord Bot
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -56,9 +62,7 @@ def make_oauth_session(state=None):
         redirect_uri=REDIRECT_URI
     )
 
-# ---------------------------------------------------------------------------
-# AUTHENTICATION DECORATOR (LOGIN GATEKEEPER)
-# ---------------------------------------------------------------------------
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -69,14 +73,10 @@ def login_required(f):
     return decorated_function
 
 
-# ---------------------------------------------------------------------------
-# FLASK WEB DASHBOARD ROUTES
-# ---------------------------------------------------------------------------
+# --- FLASK ROUTES ---
 @app.route("/")
 def home():
     user_data = session.get("user", None)
-
-    # If user is not logged in, pass user=None to show login screen
     if not user_data:
         return render_template("dashboard.html", user=None)
 
@@ -85,10 +85,10 @@ def home():
     categories = guild.categories if guild else []
     roles = guild.roles if guild else []
     
-    # Load dynamic data from storage
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
-    
+    settings = get_settings()
+
     transcripts = []
     if os.path.exists(TRANSCRIPTS_DIR):
         transcripts = [os.path.basename(f) for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")]
@@ -99,6 +99,7 @@ def home():
         channels=channels,
         categories=categories,
         roles=roles,
+        tickets_enabled=settings.get("tickets_enabled", True),
         total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=tickets_info.get("active_tickets", []),
         transcripts=transcripts,
@@ -106,15 +107,14 @@ def home():
         blacklisted_users=blacklist_info.get("blacklisted_users", [])
     )
 
-# ---------------------------------------------------------------------------
-# OAUTH2 AUTHENTICATION ROUTES
-# ---------------------------------------------------------------------------
+
 @app.route("/login")
 def login():
     discord_sess = make_oauth_session()
     authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
     session['oauth2_state'] = state
     return redirect(authorization_url)
+
 
 @app.route("/callback")
 def callback():
@@ -129,7 +129,6 @@ def callback():
     )
     session['oauth2_token'] = token
     
-    # Fetch user data from Discord
     user_data = discord_sess.get('https://discord.com/api/users/@me').json()
     user_id = user_data.get('id')
     avatar_hash = user_data.get('avatar')
@@ -145,19 +144,30 @@ def callback():
     flash(f"👋 Welcome back, {user_data.get('username')}!", "success")
     return redirect(url_for('home'))
 
+
 @app.route("/logout")
 def logout():
     session.clear()
     flash("Logged out successfully.", "info")
     return redirect(url_for('home'))
 
-# ---------------------------------------------------------------------------
-# PROTECTED DASHBOARD ACTIONS
-# ---------------------------------------------------------------------------
+
+@app.route("/dashboard/toggle-tickets", methods=["POST"])
+@login_required
+def toggle_tickets():
+    is_enabled = request.form.get("tickets_enabled") in ["on", "true", "True"]
+    set_tickets_enabled(is_enabled)
+    
+    status_text = "enabled" if is_enabled else "disabled"
+    flash(f"⚙️ Ticket creation has been {status_text}.", "success" if is_enabled else "warning")
+    return redirect("/")
+
+
 @app.route("/transcripts/<path:filename>")
 @login_required
 def get_transcript(filename):
     return send_from_directory(TRANSCRIPTS_DIR, filename)
+
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])
 @login_required
@@ -165,14 +175,24 @@ def api_unblacklist(user_id):
     remove_from_blacklist(user_id)
     return jsonify({"success": True})
 
+
 @app.route("/dashboard/tickets", methods=["POST"])
 @login_required
 def deploy_ticket_panel():
-    channel_id = int(request.form.get("channel_id", 0))
-    category_id = int(request.form.get("category_id", 0)) if request.form.get("category_id") else None
-    support_role_id = int(request.form.get("support_role_id", 0)) if request.form.get("support_role_id") else None
-    
-    # Advanced Embed Options
+    def safe_int(val):
+        try:
+            return int(val) if val and str(val).strip() else None
+        except ValueError:
+            return None
+
+    channel_id = safe_int(request.form.get("channel_id"))
+    category_id = safe_int(request.form.get("category_id"))
+    support_role_id = safe_int(request.form.get("support_role_id"))
+
+    if not channel_id:
+        flash("❌ Please select a valid target channel.", "danger")
+        return redirect("/")
+
     title = request.form.get("title", "Request Carry")
     description = request.form.get("description", "Click below to request a carry ticket!")
     embed_color = request.form.get("embed_color", "#58b9ff")
@@ -180,14 +200,13 @@ def deploy_ticket_panel():
     thumbnail_url = request.form.get("thumbnail_url", "").strip() or None
     footer_text = request.form.get("footer_text", "").strip() or None
 
-    # Safe parsing for dynamic fields from JSON
     raw_fields_json = request.form.get("fields_json", "[]")
     try:
         fields = json.loads(raw_fields_json)
     except Exception:
         fields = []
 
-    cog = bot.get_cog("TicketsCog")
+    cog = bot.get_cog("TicketsCog") or bot.get_cog("Tickets")
     if cog:
         future = asyncio.run_coroutine_threadsafe(
             cog.deploy_panel_from_dashboard(
@@ -207,19 +226,18 @@ def deploy_ticket_panel():
         try:
             success, msg = future.result(timeout=10)
             if success:
-                flash("🎉 Advanced Carry Panel deployed successfully!", "success")
+                flash("🎉 Carry Panel deployed successfully!", "success")
             else:
                 flash(f"❌ {msg}", "danger")
         except Exception as e:
-            flash(f"❌ Failed to send panel: {e}", "danger")
+            flash(f"❌ Error deploying panel: {e}", "danger")
     else:
-        flash("❌ Tickets cog not loaded.", "danger")
+        flash("❌ Ticket cog not found.", "danger")
 
     return redirect("/")
 
-# ---------------------------------------------------------------------------
-# STARTUP & RUNNERS
-# ---------------------------------------------------------------------------
+
+# --- BOT EVENT HANDLERS & RUNNER ---
 @bot.event
 async def setup_hook():
     if os.path.exists("cogs"):
@@ -231,10 +249,9 @@ async def setup_hook():
 async def on_ready():
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} application commands.")
+        print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Failed to sync commands: {e}")
-
     print(f"✅ Bot logged in as {bot.user}")
 
 
