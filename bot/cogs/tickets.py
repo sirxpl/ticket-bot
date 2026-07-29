@@ -1,10 +1,11 @@
 import discord
 from discord.ext import commands
+from utils.storage import get_settings
 
 
 class TicketView(discord.ui.View):
     def __init__(self, bot):
-        super().__init__(timeout=None)  # Persistent view across bot restarts
+        super().__init__(timeout=None)  # Persistent view across restarts
         self.bot = bot
 
     @discord.ui.button(
@@ -14,7 +15,16 @@ class TicketView(discord.ui.View):
         emoji="🎫"
     )
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Ticket creation logic here
+        # 1. Global toggle check
+        settings = get_settings()
+        if not settings.get("tickets_enabled", True):
+            await interaction.response.send_message(
+                "🚫 Ticket creation is currently disabled by administrators.", 
+                ephemeral=True
+            )
+            return
+
+        # 2. Proceed with ticket creation
         await interaction.response.send_message(
             "🎫 Ticket creation initiated! A staff member will be with you shortly.", 
             ephemeral=True
@@ -42,30 +52,28 @@ class TicketsCog(commands.Cog):
         fields: list = None
     ):
         """
-        Callable method invoked directly by Flask's /dashboard/tickets route.
+        Invoked by Flask's /dashboard/tickets route.
         """
         channel = self.bot.get_channel(channel_id)
         if not channel:
             try:
                 channel = await self.bot.fetch_channel(channel_id)
             except Exception:
-                return False, f"Channel with ID {channel_id} could not be found."
+                return False, f"Channel ID {channel_id} could not be found."
 
-        # 1. Parse Hex Accent Color
+        # Parse hex color safely
         try:
             hex_val = color.lstrip("#")
             embed_color = discord.Color(int(hex_val, 16))
         except Exception:
             embed_color = discord.Color.blue()
 
-        # 2. Construct Embed Base
         embed = discord.Embed(
             title=title,
             description=description,
             color=embed_color
         )
 
-        # 3. Add Optional Custom Media & Footer
         if image_url:
             embed.set_image(url=image_url)
         if thumbnail_url:
@@ -73,7 +81,6 @@ class TicketsCog(commands.Cog):
         if footer_text:
             embed.set_footer(text=footer_text)
 
-        # 4. Process Dynamic JSON Fields
         if fields and isinstance(fields, list):
             for f in fields:
                 field_name = f.get("name", "").strip()
@@ -87,12 +94,11 @@ class TicketsCog(commands.Cog):
                         inline=is_inline
                     )
 
-        # 5. Send Panel to Discord
         try:
             await channel.send(embed=embed, view=self.get_ticket_view())
             return True, "Panel deployed successfully!"
         except discord.Forbidden:
-            return False, "Bot lacks permissions to send messages in that channel."
+            return False, "Bot lacks permission to send messages in that channel."
         except Exception as e:
             return False, f"Failed to send embed: {str(e)}"
 
