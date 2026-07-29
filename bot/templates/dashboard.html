@@ -109,7 +109,6 @@
             margin-top: 5px;
             border-radius: 4px;
         }
-        /* Custom styling for Pickr container */
         .pickr .pcr-button {
             width: 40px;
             height: 40px;
@@ -208,7 +207,7 @@
                 <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <h4 style="margin: 0;">Embed Fields</h4>
-                        <button type="button" onclick="addField()" style="background: #5865f2; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">+ Add Field</button>
+                        <button type="button" onclick="addField()" style="background: #5865f2; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">+ Add Field</button>
                     </div>
                     <div id="fieldsContainer"></div>
                 </div>
@@ -298,12 +297,14 @@ pickr.on('save', (color) => {
     pickr.hide();
 });
 
-// Dynamic Fields Script
+// Dynamic Fields Builder with JSON serialization
 let fieldCount = 0;
+
 function addField() {
     fieldCount++;
     const container = document.getElementById('fieldsContainer');
     const fieldDiv = document.createElement('div');
+    fieldDiv.className = 'embed-field-row';
     fieldDiv.id = `field_${fieldCount}`;
     fieldDiv.style.cssText = "background: #1e1f22; padding: 12px; border-radius: 6px; margin-bottom: 10px; border: 1px solid #4e5058;";
     
@@ -312,10 +313,10 @@ function addField() {
             <strong>Field #${fieldCount}</strong>
             <button type="button" onclick="removeField('field_${fieldCount}')" style="background: #da373c; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
         </div>
-        <input type="text" name="field_name[]" placeholder="Field Name (Title)" required style="margin-bottom: 6px;">
-        <textarea name="field_value[]" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px;"></textarea>
+        <input type="text" class="field-name" placeholder="Field Name (Title)" required style="margin-bottom: 6px; width: 100%; padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;">
+        <textarea class="field-value" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px; width: 100%; padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;"></textarea>
         <label style="display: inline-flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer;">
-            <input type="checkbox" name="field_inline_${fieldCount}" value="true" style="width: auto;"> Display Inline
+            <input type="checkbox" class="field-inline" style="width: auto;"> Display Inline
         </label>
     `;
     container.appendChild(fieldDiv);
@@ -326,21 +327,16 @@ function removeField(fieldId) {
     if (elem) elem.remove();
 }
 
-// Unblacklist API Call
-function unblacklistUser(userId) {
-    if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
-        fetch("/api/unblacklist/" + userId, { method: "POST" })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload();
-                } else {
-                    alert("Failed to unblacklist user.");
-                }
-            });
-    }
-}
-</script>
+// Convert fields into JSON string on submission
+document.getElementById('embedForm').addEventListener('submit', function(e) {
+    const fieldRows = document.querySelectorAll('.embed-field-row');
+    const fieldsData = [];
 
-</body>
-</html>
+    fieldRows.forEach(row => {
+        const name = row.querySelector('.field-name').value.trim();
+        const value = row.querySelector('.field-value').value.trim();
+        const inline = row.querySelector('.field-inline').checked;
+
+        if (name && value) {
+            fieldsData.push({ name, value, inline });
+        }
