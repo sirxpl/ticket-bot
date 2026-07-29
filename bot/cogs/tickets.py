@@ -15,7 +15,7 @@ class TicketView(discord.ui.View):
         emoji="🎫"
     )
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 1. Global toggle check
+        # 1. Check global toggle setting from dashboard
         settings = get_settings()
         if not settings.get("tickets_enabled", True):
             await interaction.response.send_message(
@@ -24,11 +24,69 @@ class TicketView(discord.ui.View):
             )
             return
 
-        # 2. Proceed with ticket creation
-        await interaction.response.send_message(
-            "🎫 Ticket creation initiated! A staff member will be with you shortly.", 
-            ephemeral=True
-        )
+        guild = interaction.guild
+        user = interaction.user
+
+        # Defer interaction response while creating channel
+        await interaction.response.defer(ephemeral=True)
+
+        # 2. Setup Private Permissions
+        # @everyone cannot see channel; User and Bot can see/send messages
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
+        }
+
+        # Grant view access to Support Role silently (without pinging them)
+        support_role_id = settings.get("support_role_id")
+        if support_role_id:
+            support_role = guild.get_role(int(support_role_id))
+            if support_role:
+                overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        # Retrieve selected category if configured
+        category_id = settings.get("default_category_id")
+        category = guild.get_channel(int(category_id)) if category_id else None
+
+        # 3. Create Channel Name (e.g. ticket-username)
+        channel_name = f"ticket-{user.name.lower().replace(' ', '-')}"
+
+        try:
+            # Create actual channel on Discord server
+            ticket_channel = await guild.create_text_channel(
+                name=channel_name,
+                category=category,
+                overwrites=overwrites,
+                reason=f"Ticket created by {user.name}"
+            )
+
+            # Send welcome message inside the new ticket channel (PING ONLY THE USER)
+            embed = discord.Embed(
+                title=f"🎫 Ticket Opened: {user.name}",
+                description="Thank you for contacting support! Please describe your request below.",
+                color=discord.Color.blue()
+            )
+            
+            # Mention ONLY the user who opened the ticket
+            await ticket_channel.send(content=f"{user.mention}", embed=embed)
+
+            # Notify user where their ticket channel is
+            await interaction.followup.send(
+                f"✅ Ticket created! Please head over to {ticket_channel.mention}.", 
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ I lack permissions to create channels or set permissions in this server.", 
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ Failed to create ticket channel: {str(e)}", 
+                ephemeral=True
+            )
 
 
 class TicketsCog(commands.Cog):
@@ -51,9 +109,6 @@ class TicketsCog(commands.Cog):
         footer_text: str = None,
         fields: list = None
     ):
-        """
-        Invoked by Flask's /dashboard/tickets route.
-        """
         channel = self.bot.get_channel(channel_id)
         if not channel:
             try:
@@ -61,7 +116,19 @@ class TicketsCog(commands.Cog):
             except Exception:
                 return False, f"Channel ID {channel_id} could not be found."
 
-        # Parse hex color safely
+        # Save active category & support role settings globally
+        settings = get_settings()
+        if category_id:
+            settings["default_category_id"] = category_id
+        if support_role_id:
+            settings["support_role_id"] = support_role_id
+        
+        # Save back to settings file
+        from utils.storage import SETTINGS_FILE
+        import json
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=4)
+
         try:
             hex_val = color.lstrip("#")
             embed_color = discord.Color(int(hex_val, 16))
