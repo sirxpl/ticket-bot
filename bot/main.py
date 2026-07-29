@@ -1,5 +1,6 @@
 import os
 import glob
+import json
 import asyncio
 from functools import wraps
 from dotenv import load_dotenv
@@ -22,7 +23,7 @@ from requests_oauthlib import OAuth2Session
 from utils.storage import get_tickets_data, get_blacklist_data, remove_from_blacklist, TRANSCRIPTS_DIR
 
 # ---------------------------------------------------------------------------
-# INITIALIZATION & ENVIRONMENT SETUP
+# ENVIRONMENT SETUP
 # ---------------------------------------------------------------------------
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
@@ -56,13 +57,13 @@ def make_oauth_session(state=None):
     )
 
 # ---------------------------------------------------------------------------
-# AUTHENTICATION DECORATOR (STRICT GATEKEEPER)
+# AUTHENTICATION DECORATOR (LOGIN GATEKEEPER)
 # ---------------------------------------------------------------------------
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get("user"):
-            flash("🔒 You must log in with Discord to access the dashboard.", "warning")
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated_function
@@ -75,6 +76,7 @@ def login_required(f):
 def home():
     user_data = session.get("user", None)
 
+    # If user is not logged in, pass user=None to show login screen
     if not user_data:
         return render_template("dashboard.html", user=None)
 
@@ -98,10 +100,10 @@ def home():
         categories=categories,
         roles=roles,
         total_tickets=tickets_info.get("ticket_counter", 0),
-        active_tickets=tickets_info.get("active_tickets", []), # 👈 Updated
+        active_tickets=tickets_info.get("active_tickets", []),
         transcripts=transcripts,
-        cooldowns=tickets_info.get("cooldowns", []),           # 👈 Updated
-        blacklisted_users=blacklist_info.get("blacklisted_users", []) # 👈 Updated
+        cooldowns=tickets_info.get("cooldowns", []),
+        blacklisted_users=blacklist_info.get("blacklisted_users", [])
     )
 
 # ---------------------------------------------------------------------------
@@ -127,6 +129,7 @@ def callback():
     )
     session['oauth2_token'] = token
     
+    # Fetch user data from Discord
     user_data = discord_sess.get('https://discord.com/api/users/@me').json()
     user_id = user_data.get('id')
     avatar_hash = user_data.get('avatar')
@@ -149,7 +152,7 @@ def logout():
     return redirect(url_for('home'))
 
 # ---------------------------------------------------------------------------
-# PROTECTED API & PANEL ROUTES
+# PROTECTED DASHBOARD ACTIONS
 # ---------------------------------------------------------------------------
 @app.route("/transcripts/<path:filename>")
 @login_required
@@ -168,9 +171,21 @@ def deploy_ticket_panel():
     channel_id = int(request.form.get("channel_id", 0))
     category_id = int(request.form.get("category_id", 0)) if request.form.get("category_id") else None
     support_role_id = int(request.form.get("support_role_id", 0)) if request.form.get("support_role_id") else None
-    log_channel_id = int(request.form.get("log_channel_id", 0)) if request.form.get("log_channel_id") else None
+    
+    # Advanced Embed Options
     title = request.form.get("title", "Request Carry")
     description = request.form.get("description", "Click below to request a carry ticket!")
+    embed_color = request.form.get("embed_color", "#58b9ff")
+    image_url = request.form.get("image_url", "").strip() or None
+    thumbnail_url = request.form.get("thumbnail_url", "").strip() or None
+    footer_text = request.form.get("footer_text", "").strip() or None
+
+    # Safe parsing for dynamic fields from JSON
+    raw_fields_json = request.form.get("fields_json", "[]")
+    try:
+        fields = json.loads(raw_fields_json)
+    except Exception:
+        fields = []
 
     cog = bot.get_cog("TicketsCog")
     if cog:
@@ -181,14 +196,18 @@ def deploy_ticket_panel():
                 description=description,
                 category_id=category_id,
                 support_role_id=support_role_id,
-                log_channel_id=log_channel_id
+                color=embed_color,
+                image_url=image_url,
+                thumbnail_url=thumbnail_url,
+                footer_text=footer_text,
+                fields=fields
             ),
             bot.loop
         )
         try:
             success, msg = future.result(timeout=10)
             if success:
-                flash("🎉 Carry panel successfully deployed to Discord!", "success")
+                flash("🎉 Advanced Carry Panel deployed successfully!", "success")
             else:
                 flash(f"❌ {msg}", "danger")
         except Exception as e:
