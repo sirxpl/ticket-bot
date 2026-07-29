@@ -1,79 +1,56 @@
-# utils/storage.py
 import os
-from pymongo import MongoClient
+import json
 
-MONGO_URI = os.getenv("MONGO_URI")
-client = None
-tickets_col = None
-blacklist_col = None
+DATA_DIR = "data"
+TICKETS_FILE = os.path.join(DATA_DIR, "tickets.json")
+BLACKLIST_FILE = os.path.join(DATA_DIR, "blacklist.json")
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+TRANSCRIPTS_DIR = os.path.join(DATA_DIR, "transcripts")
 
-if MONGO_URI:
-    try:
-        client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True, serverSelectionTimeoutMS=5000)
-        db = client["discord_bot"]
-        tickets_col = db["tickets"]
-        blacklist_col = db["blacklist"]
-        print("✅ MongoDB connected successfully!")
-    except Exception as e:
-        print(f"⚠️ MongoDB Connection Error: {e}")
-
-TRANSCRIPTS_DIR = "/tmp/transcripts"
+os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
-# --- TICKET COUNTER ---
+# --- SYSTEM SETTINGS ---
+def get_settings():
+    if not os.path.exists(SETTINGS_FILE):
+        return {"tickets_enabled": True}
+    try:
+        with open(SETTINGS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {"tickets_enabled": True}
+
+def set_tickets_enabled(status: bool):
+    settings = get_settings()
+    settings["tickets_enabled"] = status
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+# --- TICKETS DATA ---
 def get_tickets_data():
-    if tickets_col is None: return {"ticket_counter": 0}
+    if not os.path.exists(TICKETS_FILE):
+        return {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
     try:
-        data = tickets_col.find_one({"_id": "config"})
-        return data if data else {"ticket_counter": 0}
-    except Exception as e:
-        print(f"Error reading tickets: {e}")
-        return {"ticket_counter": 0}
+        with open(TICKETS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
 
-def save_tickets_data(data):
-    if tickets_col is not None:
-        try:
-            tickets_col.update_one({"_id": "config"}, {"$set": {"ticket_counter": data.get("ticket_counter", 0)}}, upsert=True)
-        except Exception as e:
-            print(f"Error saving tickets: {e}")
-
-def increment_ticket_counter() -> int:
-    data = get_tickets_data()
-    new_count = data.get("ticket_counter", 0) + 1
-    save_tickets_data({"ticket_counter": new_count})
-    return new_count
-
-# --- BLACKLIST ---
+# --- BLACKLIST DATA ---
 def get_blacklist_data():
-    if blacklist_col is None: return {"blacklisted_users": []}
+    if not os.path.exists(BLACKLIST_FILE):
+        return {"blacklisted_users": []}
     try:
-        data = blacklist_col.find_one({"_id": "config"})
-        return data if data else {"blacklisted_users": []}
-    except Exception as e:
-        print(f"Error reading blacklist: {e}")
+        with open(BLACKLIST_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
         return {"blacklisted_users": []}
 
-def save_blacklist_data(data):
-    if blacklist_col is not None:
-        try:
-            blacklist_col.update_one({"_id": "config"}, {"$set": {"blacklisted_users": data.get("blacklisted_users", [])}}, upsert=True)
-        except Exception as e:
-            print(f"Error saving blacklist: {e}")
-
-def is_blacklisted(user_id: int) -> bool:
+def remove_from_blacklist(user_id: str):
     data = get_blacklist_data()
-    return str(user_id) in data.get("blacklisted_users", [])
-
-def add_to_blacklist(user_id: int):
-    data = get_blacklist_data()
-    users = data.get("blacklisted_users", [])
-    if str(user_id) not in users:
-        users.append(str(user_id))
-        save_blacklist_data({"blacklisted_users": users})
-
-def remove_from_blacklist(user_id: int):
-    data = get_blacklist_data()
-    users = data.get("blacklisted_users", [])
-    if str(user_id) in users:
-        users.remove(str(user_id))
-        save_blacklist_data({"blacklisted_users": users})
+    if user_id in data["blacklisted_users"]:
+        data["blacklisted_users"].remove(user_id)
+        with open(BLACKLIST_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        return True
+    return False
