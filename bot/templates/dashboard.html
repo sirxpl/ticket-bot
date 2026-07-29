@@ -140,6 +140,25 @@
         {% endwith %}
 
         <div class="card">
+            <h3>⚙️ System Settings</h3>
+            <form action="/dashboard/toggle-tickets" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <strong>Enable Ticket Creation:</strong>
+                    <p style="margin: 4px 0 0 0; color: #b5bac1; font-size: 0.9em;">
+                        When toggled off, users cannot open new tickets from Discord.
+                    </p>
+                </div>
+                
+                <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 10px;">
+                    <input type="checkbox" name="tickets_enabled" value="true" onchange="this.form.submit()" {% if tickets_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer;">
+                    <span style="font-weight: bold; color: {% if tickets_enabled %}#23a55a{% else %}#da373c{% endif %};">
+                        {% if tickets_enabled %}ENABLED{% else %}DISABLED{% endif %}
+                    </span>
+                </label>
+            </form>
+        </div>
+
+        <div class="card">
             <h3>🚀 Advanced Carry Ticket Panel Builder</h3>
             <form action="/dashboard/tickets" method="POST" id="embedForm">
                 
@@ -271,7 +290,7 @@
 </div>
 
 <script>
-// --- GLOBAL FUNCTIONS (REGISTERED FIRST) ---
+// --- GLOBAL FUNCTIONS ---
 let fieldCount = 0;
 
 function addField() {
@@ -317,9 +336,8 @@ function unblacklistUser(userId) {
     }
 }
 
-// --- DOM READY INITIALIZATION ---
+// --- INITIALIZATION ON LOAD ---
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Setup Form Submission Listener to Serialize Fields
     const embedForm = document.getElementById('embedForm');
     if (embedForm) {
         embedForm.addEventListener('submit', function(e) {
@@ -354,7 +372,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 2. Safe Pickr Setup
     const pickerContainer = document.getElementById('color-picker-container');
     if (pickerContainer && typeof Pickr !== 'undefined') {
         try {
@@ -385,7 +402,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 pickr.hide();
             });
         } catch (err) {
-            console.warn("Pickr failed to load safely:", err);
+            console.warn("Pickr initialization skipped:", err);
         }
     }
 });
