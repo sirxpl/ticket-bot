@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carry Bot Control Panel</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -105,6 +109,12 @@
             margin-top: 5px;
             border-radius: 4px;
         }
+        /* Custom styling for Pickr container */
+        .pickr .pcr-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+        }
     </style>
 </head>
 <body>
@@ -131,38 +141,79 @@
         {% endwith %}
 
         <div class="card">
-            <h3>🚀 Deploy Carry Ticket Panel</h3>
-            <form action="/dashboard/tickets" method="POST">
-                <label>Select Target Channel:</label>
-                <select name="channel_id" required>
-                    {% for channel in channels %}
-                        <option value="{{ channel.id }}">#{{ channel.name }}</option>
-                    {% endfor %}
-                </select>
+            <h3>🚀 Advanced Carry Ticket Panel Builder</h3>
+            <form action="/dashboard/tickets" method="POST" id="embedForm">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Target Channel:</label>
+                        <select name="channel_id" required>
+                            {% for channel in channels %}
+                                <option value="{{ channel.id }}">#{{ channel.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Category for Opened Tickets:</label>
+                        <select name="category_id">
+                            <option value="">None</option>
+                            {% for cat in categories %}
+                                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
 
-                <label>Category for Opened Tickets:</label>
-                <select name="category_id">
-                    <option value="">None</option>
-                    {% for cat in categories %}
-                        <option value="{{ cat.id }}">{{ cat.name }}</option>
-                    {% endfor %}
-                </select>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Support Role:</label>
+                        <select name="support_role_id">
+                            <option value="">None</option>
+                            {% for role in roles %}
+                                <option value="{{ role.id }}">@{{ role.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Embed Accent Color:</label>
+                        <input type="hidden" name="embed_color" id="embed_color_input" value="#58b9ff">
+                        <div style="margin-top: 5px;" id="color-picker-container"></div>
+                    </div>
+                </div>
 
-                <label>Support Role:</label>
-                <select name="support_role_id">
-                    <option value="">None</option>
-                    {% for role in roles %}
-                        <option value="{{ role.id }}">@{{ role.name }}</option>
-                    {% endfor %}
-                </select>
+                <hr style="border: 0; border-top: 1px solid #4e5058; margin: 20px 0;">
 
                 <label>Panel Title:</label>
-                <input type="text" name="title" value="Request Carry">
+                <input type="text" name="title" value="Request Carry" placeholder="e.g. Carry Request Panel">
 
                 <label>Panel Description:</label>
-                <textarea name="description" rows="3">Click the button below to request a carry ticket!</textarea>
+                <textarea name="description" rows="3" placeholder="Description content...">Click the button below to request a carry ticket!</textarea>
 
-                <button type="submit" class="btn-submit">Send Panel to Discord</button>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Main Image URL (Optional):</label>
+                        <input type="url" name="image_url" placeholder="https://example.com/banner.png">
+                    </div>
+                    <div>
+                        <label>Thumbnail URL (Optional):</label>
+                        <input type="url" name="thumbnail_url" placeholder="https://example.com/logo.png">
+                    </div>
+                </div>
+
+                <label>Footer Text (Optional):</label>
+                <input type="text" name="footer_text" placeholder="e.g. Powered by Carry Bot">
+
+                <hr style="border: 0; border-top: 1px solid #4e5058; margin: 20px 0;">
+
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4 style="margin: 0;">Embed Fields</h4>
+                        <button type="button" onclick="addField()" style="background: #5865f2; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">+ Add Field</button>
+                    </div>
+                    <div id="fieldsContainer"></div>
+                </div>
+
+                <button type="submit" class="btn-submit">🚀 Deploy Custom Panel to Discord</button>
             </form>
         </div>
 
@@ -221,6 +272,61 @@
 </div>
 
 <script>
+// Pop-up Color Picker Setup (Pickr)
+const pickr = Pickr.create({
+    el: '#color-picker-container',
+    theme: 'nano',
+    default: '#58b9ff',
+    components: {
+        preview: true,
+        opacity: false,
+        hue: true,
+        interaction: {
+            hex: true,
+            input: true,
+            save: true
+        }
+    }
+});
+
+pickr.on('change', (color) => {
+    document.getElementById('embed_color_input').value = color.toHEXA().toString();
+});
+
+pickr.on('save', (color) => {
+    document.getElementById('embed_color_input').value = color.toHEXA().toString();
+    pickr.hide();
+});
+
+// Dynamic Fields Script
+let fieldCount = 0;
+function addField() {
+    fieldCount++;
+    const container = document.getElementById('fieldsContainer');
+    const fieldDiv = document.createElement('div');
+    fieldDiv.id = `field_${fieldCount}`;
+    fieldDiv.style.cssText = "background: #1e1f22; padding: 12px; border-radius: 6px; margin-bottom: 10px; border: 1px solid #4e5058;";
+    
+    fieldDiv.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <strong>Field #${fieldCount}</strong>
+            <button type="button" onclick="removeField('field_${fieldCount}')" style="background: #da373c; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
+        </div>
+        <input type="text" name="field_name[]" placeholder="Field Name (Title)" required style="margin-bottom: 6px;">
+        <textarea name="field_value[]" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px;"></textarea>
+        <label style="display: inline-flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer;">
+            <input type="checkbox" name="field_inline_${fieldCount}" value="true" style="width: auto;"> Display Inline
+        </label>
+    `;
+    container.appendChild(fieldDiv);
+}
+
+function removeField(fieldId) {
+    const elem = document.getElementById(fieldId);
+    if (elem) elem.remove();
+}
+
+// Unblacklist API Call
 function unblacklistUser(userId) {
     if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
         fetch("/api/unblacklist/" + userId, { method: "POST" })
