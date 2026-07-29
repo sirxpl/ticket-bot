@@ -271,38 +271,14 @@
 </div>
 
 <script>
-// Pop-up Color Picker Setup (Pickr)
-const pickr = Pickr.create({
-    el: '#color-picker-container',
-    theme: 'nano',
-    default: '#58b9ff',
-    components: {
-        preview: true,
-        opacity: false,
-        hue: true,
-        interaction: {
-            hex: true,
-            input: true,
-            save: true
-        }
-    }
-});
-
-pickr.on('change', (color) => {
-    document.getElementById('embed_color_input').value = color.toHEXA().toString();
-});
-
-pickr.on('save', (color) => {
-    document.getElementById('embed_color_input').value = color.toHEXA().toString();
-    pickr.hide();
-});
-
-// Dynamic Fields Builder with JSON serialization
+// --- GLOBAL FUNCTIONS (REGISTERED FIRST) ---
 let fieldCount = 0;
 
 function addField() {
     fieldCount++;
     const container = document.getElementById('fieldsContainer');
+    if (!container) return;
+
     const fieldDiv = document.createElement('div');
     fieldDiv.className = 'embed-field-row';
     fieldDiv.id = `field_${fieldCount}`;
@@ -327,16 +303,93 @@ function removeField(fieldId) {
     if (elem) elem.remove();
 }
 
-// Convert fields into JSON string on submission
-document.getElementById('embedForm').addEventListener('submit', function(e) {
-    const fieldRows = document.querySelectorAll('.embed-field-row');
-    const fieldsData = [];
+function unblacklistUser(userId) {
+    if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
+        fetch("/api/unblacklist/" + userId, { method: "POST" })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert("Failed to unblacklist user.");
+                }
+            });
+    }
+}
 
-    fieldRows.forEach(row => {
-        const name = row.querySelector('.field-name').value.trim();
-        const value = row.querySelector('.field-value').value.trim();
-        const inline = row.querySelector('.field-inline').checked;
+// --- DOM READY INITIALIZATION ---
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Setup Form Submission Listener to Serialize Fields
+    const embedForm = document.getElementById('embedForm');
+    if (embedForm) {
+        embedForm.addEventListener('submit', function(e) {
+            const fieldRows = document.querySelectorAll('.embed-field-row');
+            const fieldsData = [];
 
-        if (name && value) {
-            fieldsData.push({ name, value, inline });
+            fieldRows.forEach(row => {
+                const nameInput = row.querySelector('.field-name');
+                const valueInput = row.querySelector('.field-value');
+                const inlineCheckbox = row.querySelector('.field-inline');
+
+                if (nameInput && valueInput) {
+                    const name = nameInput.value.trim();
+                    const value = valueInput.value.trim();
+                    const inline = inlineCheckbox ? inlineCheckbox.checked : false;
+
+                    if (name && value) {
+                        fieldsData.push({ name, value, inline });
+                    }
+                }
+            });
+
+            let hiddenInput = document.getElementById('fields_json');
+            if (!hiddenInput) {
+                hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = 'fields_json';
+                hiddenInput.id = 'fields_json';
+                this.appendChild(hiddenInput);
+            }
+            hiddenInput.value = JSON.stringify(fieldsData);
+        });
+    }
+
+    // 2. Safe Pickr Setup
+    const pickerContainer = document.getElementById('color-picker-container');
+    if (pickerContainer && typeof Pickr !== 'undefined') {
+        try {
+            const pickr = Pickr.create({
+                el: '#color-picker-container',
+                theme: 'nano',
+                default: '#58b9ff',
+                components: {
+                    preview: true,
+                    opacity: false,
+                    hue: true,
+                    interaction: {
+                        hex: true,
+                        input: true,
+                        save: true
+                    }
+                }
+            });
+
+            pickr.on('change', (color) => {
+                const colorInput = document.getElementById('embed_color_input');
+                if (colorInput) colorInput.value = color.toHEXA().toString();
+            });
+
+            pickr.on('save', (color) => {
+                const colorInput = document.getElementById('embed_color_input');
+                if (colorInput) colorInput.value = color.toHEXA().toString();
+                pickr.hide();
+            });
+        } catch (err) {
+            console.warn("Pickr failed to load safely:", err);
         }
+    }
+});
+</script>
+
+</body>
+</html>
