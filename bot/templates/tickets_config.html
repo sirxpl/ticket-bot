@@ -1,1 +1,26 @@
+<form method="post" action="/dashboard/tickets/save">
+  <h3>Ticket Form Configuration</h3>
 
+  <label>
+    <input type="checkbox" name="include_timezones" checked /> Include Timezone field
+  </label>
+  <br />
+
+  <label>
+    <input type="checkbox" name="include_usernames" checked /> Include Usernames field
+  </label>
+  <br />
+
+  <label>
+    <input type="checkbox" name="include_can_join" checked /> Include "Can you join a private server?" field (Yes/No)
+  </label>
+  <br />
+
+  <p>Save defaults for the ticket panel (these values will be stored in settings):</p>
+  <label>Default timezone (optional): <input type="text" name="default_timezone" /></label>
+  <br />
+  <label>Default usernames (comma separated): <input type="text" name="default_usernames" /></label>
+  <br />
+
+  <button type="submit">Save</button>
+</form>
