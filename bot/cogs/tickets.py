@@ -114,6 +114,36 @@ class TicketView(discord.ui.View):
 
                     await ticket_channel.send(content=f"{user.mention}", embed=embed)
 
+                    # Log ticket creation to disk for dashboard viewing
+                    try:
+                        from utils.storage import append_ticket_log, get_tickets_data
+                        import datetime
+                        ticket_id = str(ticket_channel.id)
+                        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+                        # increment counter in tickets file (best effort)
+                        tickets_data = get_tickets_data()
+                        tickets_data["ticket_counter"] = tickets_data.get("ticket_counter", 0) + 1
+                        try:
+                            with open("data/tickets.json", "w") as tf:
+                                json.dump(tickets_data, tf, indent=2)
+                        except Exception:
+                            pass
+
+                        append_ticket_log({
+                            "ticket_id": ticket_id,
+                            "ticket_name": ticket_channel.name,
+                            "action": "created",
+                            "timestamp": timestamp,
+                            "creator": {"id": str(user.id), "name": str(user)} ,
+                            "fields": {
+                                "timezone": getattr(self, 'timezone', None) and getattr(self.timezone, 'value', None) or None,
+                                "display_name": getattr(self, 'display_name', None) and getattr(self.display_name, 'value', None) or None,
+                                "can_join": getattr(self, 'can_join', None) and getattr(self.can_join, 'value', None) or None
+                            }
+                        })
+                    except Exception:
+                        pass
+
                     await modal_interaction.followup.send(
                         f"✅ Ticket created! Please head over to {ticket_channel.mention}.",
                         ephemeral=True

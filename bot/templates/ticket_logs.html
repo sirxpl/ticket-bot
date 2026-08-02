@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Ticket Logs</h2>
+<p>Recent ticket events (created/closed/etc).</p>
+<ul>
+  {% for log in logs %}
+    <li style="margin-bottom:12px;">
+      <strong>{{ log.action|capitalize }}</strong> — {{ log.ticket_name or log.ticket_id }}<br/>
+      <small>{{ log.timestamp }}</small><br/>
+      Creator: {% if log.creator %}{{ log.creator.name }} ({{ log.creator.id }}){% endif %}<br/>
+      <a href="/tickets/{{ log.ticket_id }}">View ticket</a>
+    </li>
+  {% else %}
+    <li>No logs yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

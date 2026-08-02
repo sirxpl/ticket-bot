@@ -27,7 +27,9 @@ from utils.storage import (
     remove_from_blacklist, 
     TRANSCRIPTS_DIR,
     get_settings,
-    set_tickets_enabled
+    set_tickets_enabled,
+    get_ticket_logs,
+    get_logs_for_ticket
 )
 
 # Environment & OAuth Setup
@@ -167,6 +169,45 @@ def toggle_tickets():
 @login_required
 def get_transcript(filename):
     return send_from_directory(TRANSCRIPTS_DIR, filename)
+
+
+@app.route("/tickets/logs")
+@login_required
+def view_ticket_logs():
+    logs = get_ticket_logs()
+    # sort descending
+    logs = sorted(logs, key=lambda l: l.get("timestamp", ""), reverse=True)
+    return render_template("ticket_logs.html", logs=logs)
+
+
+@app.route("/tickets/<ticket_id>")
+@login_required
+def view_ticket(ticket_id):
+    logs = get_logs_for_ticket(ticket_id)
+    ticket = None
+    if logs:
+        # take earliest create log as ticket meta
+        ticket = logs[0]
+        created = next((l for l in logs if l.get("action") == "created"), None)
+    else:
+        ticket = {"ticket_id": ticket_id, "fields": {}, "ticket_name": None}
+        created = None
+
+    # try to find a transcript file containing the ticket name or id
+    transcript_url = None
+    try:
+        import glob
+        import os
+        for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html"):
+            name = os.path.basename(f)
+            if ticket_id in name or (ticket.get("ticket_name") and ticket.get("ticket_name") in name):
+                transcript_url = f"/transcripts/{name}"
+                break
+    except Exception:
+        transcript_url = None
+
+    created_at = created.get("timestamp") if created else None
+    return render_template("ticket_detail.html", ticket=ticket, logs=logs, transcript_url=transcript_url, created_at=created_at)
 
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])

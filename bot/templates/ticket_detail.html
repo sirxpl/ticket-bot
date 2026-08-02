@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Ticket: {{ ticket.ticket_name or ticket.ticket_id }}</h2>
+<p><strong>Ticket ID:</strong> {{ ticket.ticket_id }}</p>
+<p><strong>Created:</strong> {{ created_at }}</p>
+<h3>Fields</h3>
+<ul>
+  {% for k,v in ticket.fields.items() %}
+    <li><strong>{{ k }}:</strong> {{ v }}</li>
+  {% endfor %}
+</ul>
+
+<h3>Logs</h3>
+<ul>
+  {% for l in logs %}
+    <li>{{ l.timestamp }} — {{ l.action }}{% if l.executor %} by {{ l.executor.name }}{% endif %}</li>
+  {% else %}
+    <li>No logs available for this ticket.</li>
+  {% endfor %}
+</ul>
+
+{% if transcript_url %}
+  <h3>Transcript</h3>
+  <iframe src="{{ transcript_url }}" style="width:100%; height:600px; border:1px solid #222"></iframe>
+{% endif %}
+
+{% endblock %}
