@@ -8,85 +8,168 @@ class TicketView(discord.ui.View):
         super().__init__(timeout=None)  # Persistent view across restarts
         self.bot = bot
 
-    @discord.ui.button(
-        label="Create Ticket", 
-        style=discord.ButtonStyle.primary, 
-        custom_id="create_ticket_btn",
-        emoji="🎫"
+    @discord.ui.select(
+        placeholder="Choose ticket type...",
+        min_values=1,
+        max_values=1,
+        custom_id="create_ticket_select",
+        options=[
+            discord.SelectOption(label="General Support", description="General help or questions", emoji="❓"),
+            discord.SelectOption(label="Report a User", description="Report another user", emoji="⚠️"),
+            discord.SelectOption(label="Appeal / Ban Review", description="Appeal moderation action", emoji="📝"),
+        ]
     )
-    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def ticket_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         # 1. Check global toggle setting from dashboard
         settings = get_settings()
         if not settings.get("tickets_enabled", True):
             await interaction.response.send_message(
-                "🚫 Ticket creation is currently disabled by administrators.", 
+                "🚫 Ticket creation is currently disabled by administrators.",
                 ephemeral=True
             )
             return
 
-        guild = interaction.guild
-        user = interaction.user
+        selection = select.values[0] if select.values else "General Support"
 
-        # Defer interaction response while creating channel
-        await interaction.response.defer(ephemeral=True)
+        class TicketModal(discord.ui.Modal, title=f"Ticket - {selection}"):
+            def __init__(self, author, selection):
+                super().__init__()
+                self.author = author
+                self.selection = selection
 
-        # 2. Setup Private Permissions
-        # @everyone cannot see channel; User and Bot can see/send messages
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
-        }
+                # Form fields requested by user (no can_join here; it'll be a select step after)
+                self.timezone = discord.ui.TextInput(
+                    label="Timezone(s)",
+                    placeholder="e.g. UTC, PST, CET",
+                    required=False,
+                    style=discord.TextStyle.short
+                )
 
-        # Grant view access to Support Role silently (without pinging them)
-        support_role_id = settings.get("support_role_id")
-        if support_role_id:
-            support_role = guild.get_role(int(support_role_id))
-            if support_role:
-                overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                self.usernames = discord.ui.TextInput(
+                    label="Username(s) (comma separated)",
+                    placeholder="user1, user2",
+                    required=False,
+                    style=discord.TextStyle.short
+                )
 
-        # Retrieve selected category if configured
-        category_id = settings.get("default_category_id")
-        category = guild.get_channel(int(category_id)) if category_id else None
+                self.details = discord.ui.TextInput(
+                    label="Details",
+                    style=discord.TextStyle.paragraph,
+                    required=True,
+                    placeholder="Describe your request or the issue in detail"
+                )
 
-        # 3. Create Channel Name (e.g. ticket-username)
-        channel_name = f"ticket-{user.name.lower().replace(' ', '-')}"
+                self.add_item(self.timezone)
+                self.add_item(self.usernames)
+                self.add_item(self.details)
 
-        try:
-            # Create actual channel on Discord server
-            ticket_channel = await guild.create_text_channel(
-                name=channel_name,
-                category=category,
-                overwrites=overwrites,
-                reason=f"Ticket created by {user.name}"
-            )
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                # After modal submit, ask a Yes/No select for `Can you join a private server?`
+                author = self.author
+                selection = self.selection
+                modal_values = {
+                    "timezone": self.timezone.value,
+                    "usernames": self.usernames.value,
+                    "details": self.details.value
+                }
 
-            # Send welcome message inside the new ticket channel (PING ONLY THE USER)
-            embed = discord.Embed(
-                title=f"🎫 Ticket Opened: {user.name}",
-                description="Thank you for contacting support! Please describe your request below.",
-                color=discord.Color.blue()
-            )
-            
-            # Mention ONLY the user who opened the ticket
-            await ticket_channel.send(content=f"{user.mention}", embed=embed)
+                class CanJoinView(discord.ui.View):
+                    def __init__(self, author, modal_values, selection):
+                        super().__init__(timeout=120)
+                        self.author = author
+                        self.modal_values = modal_values
+                        self.selection = selection
 
-            # Notify user where their ticket channel is
-            await interaction.followup.send(
-                f"✅ Ticket created! Please head over to {ticket_channel.mention}.", 
-                ephemeral=True
-            )
+                    @discord.ui.select(
+                        placeholder="Can you join a private server?",
+                        min_values=1,
+                        max_values=1,
+                        options=[
+                            discord.SelectOption(label="Yes", value="Yes", description="I can join a private server", emoji="✅"),
+                            discord.SelectOption(label="No", value="No", description="I cannot join a private server", emoji="❌"),
+                        ]
+                    )
+                    async def can_join_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+                        if interaction.user.id != self.author.id:
+                            await interaction.response.send_message("This select is for the person who opened the modal.", ephemeral=True)
+                            return
 
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "❌ I lack permissions to create channels or set permissions in this server.", 
-                ephemeral=True
-            )
-        except Exception as e:
-            await interaction.followup.send(
-                f"❌ Failed to create ticket channel: {str(e)}", 
-                ephemeral=True
-            )
+                        can_join_value = select.values[0]
+                        await interaction.response.defer(ephemeral=True)
+
+                        # Create channel using collected modal values + can_join_value
+                        settings = get_settings()
+                        guild = interaction.guild
+                        user = self.author
+
+                        overwrites = {
+                            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                            user: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
+                            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
+                        }
+
+                        support_role_id = settings.get("support_role_id")
+                        if support_role_id:
+                            support_role = guild.get_role(int(support_role_id))
+                            if support_role:
+                                overwrites[support_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+                        category_id = settings.get("default_category_id")
+                        category = guild.get_channel(int(category_id)) if category_id else None
+
+                        channel_name = f"ticket-{user.name.lower().replace(' ', '-') }"
+
+                        try:
+                            ticket_channel = await guild.create_text_channel(
+                                name=channel_name,
+                                category=category,
+                                overwrites=overwrites,
+                                reason=f"Ticket created by {user.name}"
+                            )
+
+                            embed = discord.Embed(
+                                title=f"🎫 {self.selection} - {user.name}",
+                                description=self.modal_values.get("details", ""),
+                                color=discord.Color.blue()
+                            )
+
+                            if self.modal_values.get("timezone"):
+                                embed.add_field(name="Timezones", value=self.modal_values.get("timezone"), inline=False)
+                            if self.modal_values.get("usernames"):
+                                embed.add_field(name="Usernames", value=self.modal_values.get("usernames"), inline=False)
+                            embed.add_field(name="Can join private server?", value=can_join_value, inline=False)
+
+                            await ticket_channel.send(content=f"{user.mention}", embed=embed)
+
+                            await interaction.followup.send(
+                                f"✅ Ticket created! Please head over to {ticket_channel.mention}.",
+                                ephemeral=True
+                            )
+
+                        except discord.Forbidden:
+                            await interaction.followup.send(
+                                "❌ I lack permissions to create channels or set permissions in this server.", 
+                                ephemeral=True
+                            )
+                        except Exception as e:
+                            await interaction.followup.send(
+                                f"❌ Failed to create ticket channel: {str(e)}", 
+                                ephemeral=True
+                            )
+
+                        # disable the view to prevent reuse
+                        for child in self.children:
+                            child.disabled = True
+                        try:
+                            await interaction.message.edit(view=self)
+                        except Exception:
+                            pass
+
+                view = CanJoinView(author, modal_values, selection)
+                await modal_interaction.response.send_message("Please choose: Can you join a private server?", view=view, ephemeral=True)
+
+        modal = TicketModal(interaction.user, selection)
+        await interaction.response.send_modal(modal)
 
 
 class TicketsCog(commands.Cog):
