@@ -246,111 +246,120 @@ class TicketsCog(commands.Cog):
 
 
 
-    @commands.command(name="close")
-    @commands.has_guild_permissions(manage_channels=True)
-    async def close_ticket(self, ctx, *, reason: str = "No reason provided."):
-        """Close the current ticket, generate a transcript HTML file, log the close, DM the creator with the transcript link, and archive the channel."""
-        channel = ctx.channel
-        # expect channel name like ticket-<something>
-        if not channel.name.startswith("ticket-"):
-            await ctx.send("❌ This command can only be used inside a ticket channel.")
-            return
+        # Register a slash command /close that mirrors the previous close behavior
+        from discord import app_commands
+        async def _close_callback(interaction: discord.Interaction, reason: str = 'No reason provided.'):
+            # reuse logic from previous close implementation but adapted for interaction
+            channel = interaction.channel
+            if not channel or not channel.name.startswith('ticket-'):
+                await interaction.response.send_message('❌ This command can only be used inside a ticket channel.', ephemeral=True)
+                return
 
-        # find creator from logs by ticket_name or ticket_id
-        from utils.storage import get_logs_for_ticket, append_ticket_log
-        logs = []
-        try:
-            # ticket id is channel.id
-            logs = get_logs_for_ticket(str(channel.id))
-            if not logs:
-                # try search by channel name
-                all_logs = __import__('utils.storage', fromlist=['get_ticket_logs']).get_ticket_logs()
-                for l in all_logs:
-                    if l.get('ticket_name') == channel.name:
-                        logs.append(l)
-                        break
-        except Exception:
+            # Permission check
+            perms = interaction.user.guild_permissions
+            if not perms.manage_channels:
+                await interaction.response.send_message('❌ You do not have permission to run this command.', ephemeral=True)
+                return
+
+            from utils.storage import get_logs_for_ticket, append_ticket_log
             logs = []
+            try:
+                logs = get_logs_for_ticket(str(channel.id))
+                if not logs:
+                    all_logs = __import__('utils.storage', fromlist=['get_ticket_logs']).get_ticket_logs()
+                    for l in all_logs:
+                        if l.get('ticket_name') == channel.name:
+                            logs.append(l)
+                            break
+            except Exception:
+                logs = []
 
-        creator_id = None
-        creator_name = None
-        created_log = next((l for l in logs if l.get('action') == 'created'), None)
-        if created_log:
-            creator = created_log.get('creator')
-            if creator:
-                creator_id = creator.get('id')
-                creator_name = creator.get('name')
+            creator_id = None
+            created_log = next((l for l in logs if l.get('action') == 'created'), None)
+            if created_log:
+                creator = created_log.get('creator')
+                if creator:
+                    creator_id = creator.get('id')
 
-        # Generate transcript HTML
-        try:
-            messages = []
-            async for m in channel.history(limit=1000, oldest_first=True):
-                ts = m.created_at.isoformat()
-                author = f"{m.author}"
-                content = (m.content or "")
-                attachments = ' '.join(a.url for a in m.attachments) if m.attachments else ''
-                messages.append({'ts': ts, 'author': author, 'content': content, 'attachments': attachments})
+            await interaction.response.defer(ephemeral=True)
 
-            import html, os, datetime, json
-            transcript_html = ['<html><head><meta charset="utf-8"><title>Transcript</title></head><body>']
-            transcript_html.append(f"<h2>Transcript for {channel.name} ({channel.id})</h2>")
-            transcript_html.append(f"<p>Generated at {datetime.datetime.utcnow().isoformat()}Z</p>")
-            transcript_html.append('<div style="font-family: monospace;">')
-            for m in messages:
-                escaped_author = html.escape(m['author'])
-                escaped_ts = html.escape(m['ts'])
-                escaped_content = html.escape(m['content']).replace('\n', '<br/>')
-                transcript_html.append(f"<div style=\"margin-bottom:8px;\"><strong>{escaped_author}</strong> <em>{escaped_ts}</em><div>{escaped_content}</div>")
-                if m['attachments']:
-                    transcript_html.append(f"<div>Attachments: {html.escape(m['attachments'])}</div>")
-                transcript_html.append("</div>")
-            transcript_html.append('</div></body></html>')
+            try:
+                messages = []
+                async for m in channel.history(limit=1000, oldest_first=True):
+                    ts = m.created_at.isoformat()
+                    author = f"{m.author}"
+                    content = (m.content or "")
+                    attachments = ' '.join(a.url for a in m.attachments) if m.attachments else ''
+                    messages.append({'ts': ts, 'author': author, 'content': content, 'attachments': attachments})
 
-            filename = f"ticket-{channel.id}.html"
-            transcripts_dir = __import__('utils.storage', fromlist=['TRANSCRIPTS_DIR']).TRANSCRIPTS_DIR
-            os.makedirs(transcripts_dir, exist_ok=True)
-            path = os.path.join(transcripts_dir, filename)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write('\n'.join(transcript_html))
+                import html, os, datetime
+                transcript_html = ['<html><head><meta charset="utf-8"><title>Transcript</title></head><body>']
+                transcript_html.append(f"<h2>Transcript for {channel.name} ({channel.id})</h2>")
+                transcript_html.append(f"<p>Generated at {datetime.datetime.utcnow().isoformat()}Z</p>")
+                transcript_html.append('<div style="font-family: monospace;">')
+                for m in messages:
+                    escaped_author = html.escape(m['author'])
+                    escaped_ts = html.escape(m['ts'])
+                    escaped_content = html.escape(m['content']).replace('\n', '<br/>')
+                    transcript_html.append(f'<div style="margin-bottom:8px;"><strong>{escaped_author}</strong> <em>{escaped_ts}</em><div>{escaped_content}</div>')
+                    if m['attachments']:
+                        transcript_html.append(f"<div>Attachments: {html.escape(m['attachments'])}</div>")
+                    transcript_html.append("</div>")
+                transcript_html.append('</div></body></html>')
 
-            # log the close event with transcript file and allowed user
-            timestamp = datetime.datetime.utcnow().isoformat() + 'Z'
-            append_ticket_log({
-                'ticket_id': str(channel.id),
-                'ticket_name': channel.name,
-                'action': 'closed',
-                'timestamp': timestamp,
-                'executor': {'id': str(ctx.author.id), 'name': str(ctx.author)},
-                'reason': reason,
-                'transcript_file': filename,
-                'allowed_user_id': creator_id
-            })
+                filename = f"ticket-{channel.id}.html"
+                transcripts_dir = __import__('utils.storage', fromlist=['TRANSCRIPTS_DIR']).TRANSCRIPTS_DIR
+                os.makedirs(transcripts_dir, exist_ok=True)
+                path = os.path.join(transcripts_dir, filename)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write('\n'.join(transcript_html))
 
-            # DM the creator with the transcript link if available
-            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'http://localhost:5000'
-            # ensure no trailing path
-            if base_url.endswith('/callback'):
-                base_url = base_url.rsplit('/callback',1)[0]
-            transcript_url = f"{base_url}/transcripts/{filename}"
+                timestamp = datetime.datetime.utcnow().isoformat() + 'Z'
+                append_ticket_log({
+                    'ticket_id': str(channel.id),
+                    'ticket_name': channel.name,
+                    'action': 'closed',
+                    'timestamp': timestamp,
+                    'executor': {'id': str(interaction.user.id), 'name': str(interaction.user)},
+                    'reason': reason,
+                    'transcript_file': filename,
+                    'allowed_user_id': creator_id
+                })
 
-            if creator_id:
+                base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'http://localhost:5000'
+                if base_url.endswith('/callback'):
+                    base_url = base_url.rsplit('/callback',1)[0]
+                transcript_url = f"{base_url}/transcripts/{filename}"
+
+                if creator_id:
+                    try:
+                        user = await self.bot.fetch_user(int(creator_id))
+                        await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {transcript_url}")
+                    except Exception:
+                        pass
+
                 try:
-                    user = await self.bot.fetch_user(int(creator_id))
-                    await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {transcript_url}")
+                    await channel.set_permissions(interaction.guild.default_role, read_messages=False)
+                    await channel.edit(name=f"closed-{channel.name}")
                 except Exception:
                     pass
 
-            # archive or delete the channel - here we will rename and lock it
-            try:
-                await channel.set_permissions(ctx.guild.default_role, read_messages=False)
-                await channel.edit(name=f"closed-{channel.name}")
-            except Exception:
-                pass
+                await interaction.followup.send(f"✅ Ticket closed and transcript generated. {('DM sent to creator.' if creator_id else '')}", ephemeral=True)
 
-            await ctx.send(f"✅ Ticket closed and transcript generated. {('DM sent to creator.' if creator_id else '')}")
+            except Exception as e:
+                await interaction.followup.send(f"❌ Failed to generate transcript: {e}", ephemeral=True)
 
-        except Exception as e:
-            await ctx.send(f"❌ Failed to generate transcript: {e}")
+        # create and add app command
+        from discord import app_commands
+        cmd = app_commands.Command(name='close', description='Close the current ticket and generate transcript', callback=_close_callback)
+        try:
+            self.bot.tree.add_command(cmd)
+        except Exception:
+            pass
+
+
+async def setup(bot):
+    await bot.add_cog(TicketsCog(bot))
 
 
 async def setup(bot):
