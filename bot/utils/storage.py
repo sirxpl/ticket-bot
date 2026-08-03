@@ -60,17 +60,20 @@ def _save_tickets_data(data: dict):
         return False
 
 
-def add_active_ticket(ticket_id: str, channel_id: str, user_id: str):
+def add_active_ticket(ticket_id: str, channel_id: str, user_id: str, ticket_number: int = None):
     data = get_tickets_data()
     # ensure no duplicate
     exists = any(t.get('ticket_id') == str(ticket_id) for t in data.get('active_tickets', []))
     if not exists:
-        data['active_tickets'].append({
+        entry = {
             'ticket_id': str(ticket_id),
             'channel_id': str(channel_id),
             'user_id': str(user_id),
             'created_at': __import__('time').time()
-        })
+        }
+        if ticket_number is not None:
+            entry['ticket_number'] = int(ticket_number)
+        data['active_tickets'].append(entry)
     data['ticket_counter'] = int(data.get('ticket_counter', 0))
     _save_tickets_data(data)
 

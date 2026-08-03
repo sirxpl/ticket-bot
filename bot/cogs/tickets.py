@@ -103,7 +103,13 @@ class TicketView(discord.ui.View):
             bl = get_blacklist_data()
             blacklisted = [str(u) for u in bl.get('blacklisted_users', [])]
             if str(interaction.user.id) in blacklisted:
-                await interaction.response.send_message('❌ You are blacklisted from creating tickets.', ephemeral=True)
+                # send embed explaining blocked role
+                guild = interaction.guild
+                role = discord.utils.get(guild.roles, name='Ticket Blacklist') if guild else None
+                role_mention = role.mention if role else '@Ticket Blacklist'
+                emb = discord.Embed(title='❌ Blocked Role', description=f'You cannot create tickets on this panel because you have the {role_mention} role.', color=discord.Color.red())
+                emb.set_footer(text='Tickety | Tickety.top')
+                await interaction.response.send_message(embed=emb, ephemeral=True)
                 return
         except Exception:
             pass
@@ -305,10 +311,10 @@ class TicketView(discord.ui.View):
                             }
                         })
 
-                        # mark active ticket and apply cooldown
+                        # mark active ticket (ticket number set from tickets_data)
                         try:
-                            add_active_ticket(str(ticket_channel.id), str(ticket_channel.id), str(user.id))
-                            add_cooldown(str(user.id), hours=8)
+                            ticket_number = tickets_data.get("ticket_counter")
+                            add_active_ticket(str(ticket_channel.id), str(ticket_channel.id), str(user.id), ticket_number)
                         except Exception:
                             pass
 
@@ -485,6 +491,13 @@ class TicketsCog(commands.Cog):
                 'transcript_file': filename,
                 'allowed_user_id': creator_id
             })
+
+            # apply cooldown when the ticket is closed (start cooldown now)
+            try:
+                if creator_id:
+                    add_cooldown(str(creator_id), hours=8)
+            except Exception:
+                pass
 
             # remove from active tickets
             try:
@@ -663,38 +676,29 @@ class TicketsCog(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Failed to generate transcript: {e}", ephemeral=True)
 
-    # Ticket management group commands
-    ticket_group = discord.app_commands.Group(name='ticket', description='Ticket management')
+    # Ticket management group commands (legacy blacklist command still present)
+    # simple admin commands: /ticket_last and /ticket_set
+    @discord.app_commands.command(name='ticket_last', description='Show the last ticket number used')
+    async def ticket_last(self, interaction: discord.Interaction):
+        tickets = __import__('utils.storage', fromlist=['get_tickets_data']).get_tickets_data()
+        num = tickets.get('ticket_counter', 0)
+        await interaction.response.send_message(f'📌 Last ticket number: {num}', ephemeral=True)
 
-    @ticket_group.command(name='blacklist', description='Blacklist a user from creating tickets and assign blacklist role')
-    @discord.app_commands.describe(user='User to blacklist', reason='Optional reason')
-    async def blacklist(self, interaction: discord.Interaction, user: discord.Member, reason: str = None):
-        # permission check
+    @discord.app_commands.command(name='ticket_set', description='Set the last ticket number (admin only)')
+    @discord.app_commands.describe(number='Ticket number to set')
+    async def ticket_set(self, interaction: discord.Interaction, number: int):
         perms = interaction.user.guild_permissions
         if not perms.manage_guild and not perms.manage_roles:
-            await interaction.response.send_message('❌ You do not have permission to manage blacklists.', ephemeral=True)
+            await interaction.response.send_message('❌ You do not have permission to set ticket number.', ephemeral=True)
             return
-
-        # add to storage
         try:
-            added = add_to_blacklist(str(user.id))
-        except Exception:
-            added = False
-
-        # find or create role
-        guild = interaction.guild
-        role = None
-        if guild:
-            role = discord.utils.get(guild.roles, name='Ticket Blacklist')
-            try:
-                if not role:
-                    role = await guild.create_role(name='Ticket Blacklist', reason='Role for ticket blacklist')
-                await user.add_roles(role, reason=f'Blacklisted by {interaction.user}')
-            except Exception:
-                pass
-
-        msg = '✅ User blacklisted.' if added else '⚠️ User already blacklisted or failed.'
-        await interaction.response.send_message(msg, ephemeral=True)
+            from utils.storage import get_tickets_data, _save_tickets_data
+            data = get_tickets_data()
+            data['ticket_counter'] = int(number)
+            _save_tickets_data(data)
+            await interaction.response.send_message(f'✅ Ticket counter set to {number}', ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f'❌ Failed to set ticket number: {e}', ephemeral=True)
 
 
 async def setup(bot):
