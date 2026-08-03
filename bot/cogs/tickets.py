@@ -2,6 +2,71 @@ import discord
 from discord.ext import commands
 from utils.storage import get_settings
 
+import html
+import datetime
+import os
+
+
+def build_discord_like_transcript(messages, channel_name, ticket_meta, generated_at_iso, filename):
+    """Render a dark-themed Discord-like HTML transcript.
+    messages: list of dicts with keys: ts, author_name, author_id, avatar_url, content, attachments, is_bot
+    ticket_meta: dict with fields like timezone, display_name, can_join, creator (dict)
+    """
+    safe = html.escape
+    parts = []
+    parts.append('<!doctype html>')
+    parts.append('<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">')
+    parts.append(f'<title>Transcript - {safe(channel_name)}</title>')
+    parts.append('<style>body{background:#0f1114;color:#e6eef8;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;margin:0} .container{max-width:900px;margin:20px auto;padding:18px} .embed{background:#2f3136;border-left:4px solid #2a9df4;padding:12px;border-radius:6px;margin-bottom:16px} .embed h2{margin:0 0 6px 0} .field{margin:6px 0;padding:6px 10px;background:#222326;border-radius:6px} .msg{display:flex;gap:12px;padding:10px;border-radius:8px;background:linear-gradient(180deg,#0f1114,#0f1114);margin-bottom:6px} .avatar{width:42px;height:42px;border-radius:50%;flex:0 0 42px} .msg-body{flex:1} .meta{color:#9aa5b1;font-size:13px;margin-bottom:6px} .content{white-space:pre-wrap;color:#dbe7ef} .attachments{margin-top:6px} .footer{margin-top:18px;padding:10px;color:#9aa5b1;font-size:13px;border-top:1px solid #1b1d20}</style>')
+    parts.append('</head><body>')
+    parts.append('<div class="container">')
+    # ticket embed
+    parts.append('<div class="embed">')
+    parts.append(f'<h2>🎫 {safe(channel_name)}</h2>')
+    creator = ticket_meta.get('creator') if ticket_meta else None
+    if creator:
+        parts.append(f'<div style="font-size:14px;color:#9aa5b1">Created by: {safe(creator.get("name",""))}</div>')
+    parts.append('<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">')
+    fields = ticket_meta.get('fields') if ticket_meta else {}
+    if fields:
+        for k in ('timezone','display_name','can_join'):
+            v = fields.get(k)
+            if v:
+                parts.append(f'<div class="field"><strong>{safe(k.replace("_"," ").title())}:</strong> {safe(v)}</div>')
+    parts.append('</div>')
+    parts.append('</div>')
+
+    # messages
+    parts.append('<div>')
+    for m in messages:
+        parts.append('<div class="msg">')
+        parts.append(f'<img class="avatar" src="{safe(m.get("avatar_url") or "https://cdn.discordapp.com/embed/avatars/0.png")}" alt="avatar"/>')
+        parts.append('<div class="msg-body">')
+        parts.append(f'<div class="meta"><strong>{safe(m.get("author_name","Unknown"))}</strong> <span style="margin-left:8px">{safe(m.get("ts",""))}</span></div>')
+        parts.append(f'<div class="content">{safe(m.get("content",""))}</div>')
+        if m.get('attachments'):
+            parts.append('<div class="attachments">')
+            # attachments is a space-separated list of URLs
+            for a in str(m.get('attachments')).split():
+                if a.lower().endswith(('.png','.jpg','.jpeg','.gif','.webp')):
+                    parts.append(f'<div><img src="{safe(a)}" style="max-width:360px;border-radius:6px;margin-top:6px"/></div>')
+                else:
+                    parts.append(f'<div><a href="{safe(a)}" target="_blank">{safe(a)}</a></div>')
+            parts.append('</div>')
+        parts.append('</div>')
+        parts.append('</div>')
+    parts.append('</div>')
+
+    # footer with generated time and download link
+    parts.append('<div class="footer">')
+    parts.append(f'Transcript generated on {safe(generated_at_iso)}')
+    # download link
+    parts.append(f'&nbsp; • &nbsp;<a href="{safe(filename)}" download>Download HTML</a>')
+    parts.append('</div>')
+
+    parts.append('</div></body></html>')
+    return '\n'.join(parts)
+
 
 class TicketView(discord.ui.View):
     def __init__(self, bot):
@@ -324,32 +389,45 @@ class TicketsCog(commands.Cog):
             messages = []
             async for m in channel.history(limit=1000, oldest_first=True):
                 ts = m.created_at.isoformat()
-                author = f"{m.author}"
+                author_name = str(m.author)
+                author_id = getattr(m.author, 'id', None)
+                # avatar fallback
+                try:
+                    avatar_url = m.author.display_avatar.url
+                except Exception:
+                    avatar_url = getattr(m.author, 'avatar_url', None) or "https://cdn.discordapp.com/embed/avatars/0.png"
                 content = (m.content or "")
                 attachments = ' '.join(a.url for a in m.attachments) if m.attachments else ''
-                messages.append({'ts': ts, 'author': author, 'content': content, 'attachments': attachments})
+                messages.append({
+                    'ts': ts,
+                    'author_name': author_name,
+                    'author_id': str(author_id) if author_id else None,
+                    'avatar_url': avatar_url,
+                    'content': content,
+                    'attachments': attachments,
+                    'is_bot': getattr(m.author, 'bot', False)
+                })
 
-            import html, os, datetime, asyncio
-            transcript_html = ['<html><head><meta charset="utf-8"><title>Transcript</title></head><body>']
-            transcript_html.append(f"<h2>Transcript for {channel.name} ({channel.id})</h2>")
-            transcript_html.append(f"<p>Generated at {datetime.datetime.utcnow().isoformat()}Z</p>")
-            transcript_html.append('<div style="font-family: monospace;">')
-            for m in messages:
-                escaped_author = html.escape(m['author'])
-                escaped_ts = html.escape(m['ts'])
-                escaped_content = html.escape(m['content']).replace('\n', '<br/>')
-                transcript_html.append(f'<div style="margin-bottom:8px;"><strong>{escaped_author}</strong> <em>{escaped_ts}</em><div>{escaped_content}</div>')
-                if m['attachments']:
-                    transcript_html.append(f"<div>Attachments: {html.escape(m['attachments'])}</div>")
-                transcript_html.append("</div>")
-            transcript_html.append('</div></body></html>')
-
-            filename = f"ticket-{channel.id}.html"
+            # build transcript HTML (Discord-like)
             transcripts_dir = __import__('utils.storage', fromlist=['TRANSCRIPTS_DIR']).TRANSCRIPTS_DIR
             os.makedirs(transcripts_dir, exist_ok=True)
+            filename = f"ticket-{channel.id}.html"
+            generated_at = datetime.datetime.utcnow().isoformat() + 'Z'
+            # try to find ticket meta from logs
+            ticket_meta = {}
+            try:
+                from utils.storage import get_logs_for_ticket
+                logs = get_logs_for_ticket(str(channel.id))
+                created = next((l for l in logs if l.get('action') == 'created'), None)
+                if created:
+                    ticket_meta = created
+            except Exception:
+                ticket_meta = {}
+
+            html_out = build_discord_like_transcript(messages, channel.name, ticket_meta, generated_at, filename)
             path = os.path.join(transcripts_dir, filename)
             with open(path, "w", encoding="utf-8") as f:
-                f.write('\n'.join(transcript_html))
+                f.write(html_out)
 
             # append log
             timestamp = datetime.datetime.utcnow().isoformat() + 'Z'
@@ -458,35 +536,46 @@ class TicketsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
+            # collect messages
             messages = []
             async for m in channel.history(limit=1000, oldest_first=True):
                 ts = m.created_at.isoformat()
-                author = f"{m.author}"
+                author_name = str(m.author)
+                author_id = getattr(m.author, 'id', None)
+                try:
+                    avatar_url = m.author.display_avatar.url
+                except Exception:
+                    avatar_url = getattr(m.author, 'avatar_url', None) or "https://cdn.discordapp.com/embed/avatars/0.png"
                 content = (m.content or "")
                 attachments = ' '.join(a.url for a in m.attachments) if m.attachments else ''
-                messages.append({'ts': ts, 'author': author, 'content': content, 'attachments': attachments})
+                messages.append({
+                    'ts': ts,
+                    'author_name': author_name,
+                    'author_id': str(author_id) if author_id else None,
+                    'avatar_url': avatar_url,
+                    'content': content,
+                    'attachments': attachments,
+                    'is_bot': getattr(m.author, 'bot', False)
+                })
 
-            import html, os, datetime
-            transcript_html = ['<html><head><meta charset="utf-8"><title>Transcript</title></head><body>']
-            transcript_html.append(f"<h2>Transcript for {channel.name} ({channel.id})</h2>")
-            transcript_html.append(f"<p>Generated at {datetime.datetime.utcnow().isoformat()}Z</p>")
-            transcript_html.append('<div style="font-family: monospace;">')
-            for m in messages:
-                escaped_author = html.escape(m['author'])
-                escaped_ts = html.escape(m['ts'])
-                escaped_content = html.escape(m['content']).replace('\n', '<br/>')
-                transcript_html.append(f'<div style="margin-bottom:8px;"><strong>{escaped_author}</strong> <em>{escaped_ts}</em><div>{escaped_content}</div>')
-                if m['attachments']:
-                    transcript_html.append(f"<div>Attachments: {html.escape(m['attachments'])}</div>")
-                transcript_html.append("</div>")
-            transcript_html.append('</div></body></html>')
-
-            filename = f"ticket-{channel.id}.html"
             transcripts_dir = __import__('utils.storage', fromlist=['TRANSCRIPTS_DIR']).TRANSCRIPTS_DIR
             os.makedirs(transcripts_dir, exist_ok=True)
+            filename = f"ticket-{channel.id}.html"
+            generated_at = datetime.datetime.utcnow().isoformat() + 'Z'
+            ticket_meta = {}
+            try:
+                from utils.storage import get_logs_for_ticket
+                logs = get_logs_for_ticket(str(channel.id))
+                created = next((l for l in logs if l.get('action') == 'created'), None)
+                if created:
+                    ticket_meta = created
+            except Exception:
+                ticket_meta = {}
+
+            html_out = build_discord_like_transcript(messages, channel.name, ticket_meta, generated_at, filename)
             path = os.path.join(transcripts_dir, filename)
             with open(path, "w", encoding="utf-8") as f:
-                f.write('\n'.join(transcript_html))
+                f.write(html_out)
 
             timestamp = datetime.datetime.utcnow().isoformat() + 'Z'
             append_ticket_log({
