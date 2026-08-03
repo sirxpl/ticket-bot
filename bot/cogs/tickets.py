@@ -245,18 +245,22 @@ class TicketView(discord.ui.View):
 
                             # send a confirmation prompt with Confirm/Cancel buttons
                             class ConfirmView(discord.ui.View):
-                                def __init__(self, cog):
+                                def __init__(self, cog, target_channel):
                                     super().__init__(timeout=60)
                                     self.cog = cog
+                                    self.target_channel = target_channel
 
                                 @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
                                 async def confirm(self, inter: discord.Interaction, btn: discord.ui.Button):
                                     await inter.response.defer(ephemeral=True)
-                                    # proceed to close
+                                    # proceed to close using the target channel (ticket channel)
                                     try:
-                                        await self.cog.do_close(inter.channel, inter.user, "Closed via button")
-                                    except Exception:
-                                        await inter.followup.send("❌ Failed to close ticket.", ephemeral=True)
+                                        await self.cog.do_close(self.target_channel, inter.user, "Closed via button")
+                                    except Exception as e:
+                                        try:
+                                            await inter.followup.send(f"❌ Failed to close ticket: {e}", ephemeral=True)
+                                        except Exception:
+                                            pass
                                     # disable buttons
                                     for child in self.children:
                                         child.disabled = True
@@ -274,7 +278,7 @@ class TicketView(discord.ui.View):
                                 await interaction.response.send_message("❌ Close functionality is not available right now.", ephemeral=True)
                                 return
 
-                            await interaction.response.send_message("Are you sure you want to close this ticket?", view=ConfirmView(self.cog), ephemeral=True)
+                            await interaction.response.send_message("Are you sure you want to close this ticket?", view=ConfirmView(self.cog, interaction.channel), ephemeral=True)
 
                     # attach the close button view message in the ticket channel for staff
                     tickets_cog = outer_view.bot.get_cog('TicketsCog')
@@ -524,15 +528,48 @@ class TicketsCog(commands.Cog):
                 except Exception:
                     pass
 
-            # announce and wait 5 seconds before deleting
+            # announce and wait 5 seconds before deleting (if possible)
             try:
                 await channel.send("This ticket will be deleted in 5 seconds.")
             except Exception:
                 pass
-            await asyncio.sleep(5)
+
+            # check bot permissions to delete
             try:
-                await channel.delete(reason=f"Ticket closed: {reason}")
+                me = channel.guild.me if channel.guild else None
+                can_delete = False
+                if me:
+                    perms = channel.permissions_for(me)
+                    can_delete = perms.manage_channels
+                # wait then delete if allowed
+                await asyncio.sleep(5)
+                if can_delete:
+                    try:
+                        await channel.delete(reason=f"Ticket closed: {reason}")
+                    except Exception as e:
+                        # fallback: try to archive by revoking default role and renaming
+                        try:
+                            await channel.send("⚠️ Failed to delete channel; archiving instead.")
+                        except Exception:
+                            pass
+                        try:
+                            await channel.set_permissions(channel.guild.default_role, read_messages=False)
+                            await channel.edit(name=f"closed-{channel.name}")
+                        except Exception:
+                            pass
+                else:
+                    # can't delete: archive channel (hide from @everyone) and rename
+                    try:
+                        await channel.send("⚠️ I lack permission to delete this channel; archiving instead.")
+                    except Exception:
+                        pass
+                    try:
+                        await channel.set_permissions(channel.guild.default_role, read_messages=False)
+                        await channel.edit(name=f"closed-{channel.name}")
+                    except Exception:
+                        pass
             except Exception:
+                # final fallback: do nothing
                 pass
 
         except Exception:
@@ -546,9 +583,11 @@ class TicketsCog(commands.Cog):
         channel = interaction.channel
         settings = get_settings()
         allowed_category = settings.get('default_category_id')
-        if not channel or not channel.category or str(channel.category.id) != str(allowed_category):
-            await interaction.response.send_message('❌ This command can only be used inside a ticket channel (ticket category).', ephemeral=True)
-            return
+        # Only enforce ticket-category restriction if configured
+        if allowed_category:
+            if not channel or not channel.category or str(channel.category.id) != str(allowed_category):
+                await interaction.response.send_message('❌ This command can only be used inside a ticket channel (ticket category).', ephemeral=True)
+                return
 
         # permission check: manager or ticket creator
         perms = interaction.user.guild_permissions
