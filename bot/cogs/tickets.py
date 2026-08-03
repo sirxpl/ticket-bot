@@ -112,7 +112,67 @@ class TicketView(discord.ui.View):
                         embed.add_field(name="Display name", value=self.display_name.value, inline=False)
                     embed.add_field(name="Can join private server?", value=self.can_join.value, inline=False)
 
+                    # Send ticket embed and a Close button that prompts for confirmation
                     await ticket_channel.send(content=f"{user.mention}", embed=embed)
+
+                    # create a close button view attached to a message in the ticket channel
+                    class CloseConfirmView(discord.ui.View):
+                        def __init__(self, cog):
+                            super().__init__(timeout=None)
+                            self.cog = cog
+
+                        @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, custom_id="ticket_close_btn")
+                        async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                            # only allow users with manage_channels or the ticket creator to confirm
+                            settings = get_settings()
+                            allowed_category = settings.get("default_category_id")
+                            if allowed_category and interaction.channel.category and str(interaction.channel.category.id) != str(allowed_category):
+                                await interaction.response.send_message("❌ This command only works in ticket channels.", ephemeral=True)
+                                return
+
+                            perms = interaction.user.guild_permissions
+                            # find creator id from logs
+                            from utils.storage import get_logs_for_ticket
+                            creator_id = None
+                            try:
+                                logs = get_logs_for_ticket(str(interaction.channel.id))
+                                created = next((l for l in logs if l.get('action') == 'created'), None)
+                                if created and created.get('creator'):
+                                    creator_id = created.get('creator').get('id')
+                            except Exception:
+                                creator_id = None
+
+                            if not (perms.manage_channels or (creator_id and str(interaction.user.id) == str(creator_id))):
+                                await interaction.response.send_message("❌ You don't have permission to close this ticket.", ephemeral=True)
+                                return
+
+                            # send a confirmation prompt with Confirm/Cancel buttons
+                            class ConfirmView(discord.ui.View):
+                                def __init__(self, cog):
+                                    super().__init__(timeout=60)
+                                    self.cog = cog
+
+                                @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+                                async def confirm(self, inter: discord.Interaction, btn: discord.ui.Button):
+                                    await inter.response.defer(ephemeral=True)
+                                    # proceed to close
+                                    await self.cog.do_close(inter.channel, inter.user, "Closed via button")
+                                    # disable buttons
+                                    for child in self.children:
+                                        child.disabled = True
+                                    try:
+                                        await inter.message.edit(view=self)
+                                    except Exception:
+                                        pass
+
+                                @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+                                async def cancel(self, inter: discord.Interaction, btn: discord.ui.Button):
+                                    await inter.response.edit_message(content="Cancelled.", view=None, ephemeral=True)
+
+                            await interaction.response.send_message("Are you sure you want to close this ticket?", view=ConfirmView(self.cog), ephemeral=True)
+
+                    # attach the close button view message in the ticket channel for staff
+                    await ticket_channel.send(content=None, embed=None, view=CloseConfirmView(self.bot.get_cog('TicketsCog') or self))
 
                     # Log ticket creation to disk for dashboard viewing
                     try:
@@ -244,21 +304,117 @@ class TicketsCog(commands.Cog):
         except Exception as e:
             return False, f"Failed to send embed: {str(e)}"
 
+    async def do_close(self, channel: discord.abc.GuildChannel, executor: discord.abc.Snowflake, reason: str = 'No reason provided.'):
+        """Generate transcript, log close, DM creator, then delete the channel after 5 seconds."""
+        try:
+            # collect messages
+            messages = []
+            async for m in channel.history(limit=1000, oldest_first=True):
+                ts = m.created_at.isoformat()
+                author = f"{m.author}"
+                content = (m.content or "")
+                attachments = ' '.join(a.url for a in m.attachments) if m.attachments else ''
+                messages.append({'ts': ts, 'author': author, 'content': content, 'attachments': attachments})
+
+            import html, os, datetime, asyncio
+            transcript_html = ['<html><head><meta charset="utf-8"><title>Transcript</title></head><body>']
+            transcript_html.append(f"<h2>Transcript for {channel.name} ({channel.id})</h2>")
+            transcript_html.append(f"<p>Generated at {datetime.datetime.utcnow().isoformat()}Z</p>")
+            transcript_html.append('<div style="font-family: monospace;">')
+            for m in messages:
+                escaped_author = html.escape(m['author'])
+                escaped_ts = html.escape(m['ts'])
+                escaped_content = html.escape(m['content']).replace('\n', '<br/>')
+                transcript_html.append(f'<div style="margin-bottom:8px;"><strong>{escaped_author}</strong> <em>{escaped_ts}</em><div>{escaped_content}</div>')
+                if m['attachments']:
+                    transcript_html.append(f"<div>Attachments: {html.escape(m['attachments'])}</div>")
+                transcript_html.append("</div>")
+            transcript_html.append('</div></body></html>')
+
+            filename = f"ticket-{channel.id}.html"
+            transcripts_dir = __import__('utils.storage', fromlist=['TRANSCRIPTS_DIR']).TRANSCRIPTS_DIR
+            os.makedirs(transcripts_dir, exist_ok=True)
+            path = os.path.join(transcripts_dir, filename)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('\n'.join(transcript_html))
+
+            # append log
+            timestamp = datetime.datetime.utcnow().isoformat() + 'Z'
+            from utils.storage import append_ticket_log, get_logs_for_ticket
+            # find creator id from logs
+            creator_id = None
+            try:
+                logs = get_logs_for_ticket(str(channel.id))
+                created = next((l for l in logs if l.get('action') == 'created'), None)
+                if created and created.get('creator'):
+                    creator_id = created.get('creator').get('id')
+            except Exception:
+                pass
+
+            append_ticket_log({
+                'ticket_id': str(channel.id),
+                'ticket_name': channel.name,
+                'action': 'closed',
+                'timestamp': timestamp,
+                'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)},
+                'reason': reason,
+                'transcript_file': filename,
+                'allowed_user_id': creator_id
+            })
+
+            # DM creator with transcript
+            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'http://localhost:5000'
+            if base_url.endswith('/callback'):
+                base_url = base_url.rsplit('/callback',1)[0]
+            transcript_url = f"{base_url}/transcripts/{filename}"
+
+            if creator_id:
+                try:
+                    user = await self.bot.fetch_user(int(creator_id))
+                    await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {transcript_url}")
+                except Exception:
+                    pass
+
+            # announce and wait 5 seconds before deleting
+            try:
+                await channel.send("This ticket will be deleted in 5 seconds.")
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+            try:
+                await channel.delete(reason=f"Ticket closed: {reason}")
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
     @discord.app_commands.command(name='close', description='Close the current ticket and generate transcript')
     @discord.app_commands.describe(reason='Optional reason for closing the ticket')
     async def close(self, interaction: discord.Interaction, reason: str = 'No reason provided.'):
         """Slash command to close a ticket, generate transcript, log it, DM the creator, and archive channel."""
         # ensure this is used inside a ticket channel
         channel = interaction.channel
-        if not channel or not channel.name.startswith('ticket-'):
-            await interaction.response.send_message('❌ This command can only be used inside a ticket channel.', ephemeral=True)
+        settings = get_settings()
+        allowed_category = settings.get('default_category_id')
+        if not channel or not channel.category or str(channel.category.id) != str(allowed_category):
+            await interaction.response.send_message('❌ This command can only be used inside a ticket channel (ticket category).', ephemeral=True)
             return
 
-        # permission check
+        # permission check: manager or ticket creator
         perms = interaction.user.guild_permissions
         if not perms.manage_channels:
-            await interaction.response.send_message('❌ You do not have permission to run this command.', ephemeral=True)
-            return
+            # check creator
+            from utils.storage import get_logs_for_ticket
+            try:
+                logs = get_logs_for_ticket(str(channel.id))
+                created = next((l for l in logs if l.get('action') == 'created'), None)
+                creator_id = created.get('creator').get('id') if created and created.get('creator') else None
+            except Exception:
+                creator_id = None
+            if not (creator_id and str(interaction.user.id) == str(creator_id)):
+                await interaction.response.send_message('❌ You do not have permission to run this command.', ephemeral=True)
+                return
 
         from utils.storage import get_logs_for_ticket, append_ticket_log
         logs = []
