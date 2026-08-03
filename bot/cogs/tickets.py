@@ -112,7 +112,12 @@ class TicketView(discord.ui.View):
         try:
             on_cd, cd = is_on_cooldown(str(interaction.user.id))
             if on_cd and cd:
-                await interaction.response.send_message(f"⏳ You are on cooldown until {cd.get('expires_at')}.", ephemeral=True)
+                try:
+                    expires_ts = int(cd.get('expires_ts'))
+                    # Discord dynamic timestamps render in each user's timezone and show relative time
+                    await interaction.response.send_message(f"⏳ You are on cooldown until <t:{expires_ts}:F> (<t:{expires_ts}:R>).", ephemeral=True)
+                except Exception:
+                    await interaction.response.send_message(f"⏳ You are on cooldown until {cd.get('expires_at')}.", ephemeral=True)
                 return
         except Exception:
             pass

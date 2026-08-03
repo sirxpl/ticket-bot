@@ -239,7 +239,10 @@
             <h3>🎫 Live Active Tickets (Total Lifetime: {{ total_tickets }})</h3>
             {% for ticket in active_tickets %}
                 <div class="list-item">
-                    <span><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User ID:</strong> {{ ticket.user_id }}</span>
+                    <div>
+                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User ID:</strong> {{ ticket.user_id }}</div>
+                        <div style="color:#b5bac1;font-size:0.9em;">Opened: <span class="local-time" data-ts="{{ ticket.created_at }}">{{ ticket.created_at }}</span> • <span class="age" data-ts="{{ ticket.created_at }}">...</span></div>
+                    </div>
                 </div>
             {% else %}
                 <p style="color: #b5bac1;">No active carry tickets open right now.</p>
@@ -250,7 +253,10 @@
             <h3>⏳ Active Service Cooldowns</h3>
             {% for cd in cooldowns %}
                 <div class="list-item">
-                    <span><strong>User ID:</strong> {{ cd.user_id }} | <strong>Expires:</strong> {{ cd.expires_at }}</span>
+                    <div>
+                        <div><strong>User ID:</strong> {{ cd.user_id }}</div>
+                        <div style="color:#b5bac1;font-size:0.9em;">Expires: <span class="local-time" data-ts="{{ cd.expires_ts }}">{{ cd.expires_at }}</span> • <span class="countdown" data-ts="{{ cd.expires_ts }}">...</span></div>
+                    </div>
                     <button onclick="removeCooldown('{{ cd.user_id }}')" class="btn-danger">Remove Cooldown</button>
                 </div>
             {% else %}
@@ -350,6 +356,50 @@ function removeCooldown(userId) {
             });
     }
 }
+
+// --- Local time formatting and countdowns ---
+function pad(n) { return n<10? '0'+n : n }
+function formatDuration(secs){
+    if(secs<=0) return '0s';
+    let days = Math.floor(secs/86400); secs%=86400;
+    let hrs = Math.floor(secs/3600); secs%=3600;
+    let mins = Math.floor(secs/60); let s = Math.floor(secs%60);
+    let parts = [];
+    if(days) parts.push(days+'d');
+    if(hrs) parts.push(hrs+'h');
+    if(mins) parts.push(mins+'m');
+    if(!parts.length) parts.push(s+'s');
+    return parts.join(' ');
+}
+
+function updateTimes(){
+    const now = Date.now();
+    document.querySelectorAll('.local-time').forEach(el=>{
+        const ts = parseFloat(el.dataset.ts);
+        if(isNaN(ts)) return;
+        // ts might be seconds or float epoch; normalize to ms
+        const ms = ts>1e12? ts : ts*1000;
+        const d = new Date(ms);
+        try{ el.textContent = d.toLocaleString(); }catch(e){}
+    });
+    document.querySelectorAll('.countdown').forEach(el=>{
+        const ts = parseFloat(el.dataset.ts);
+        if(isNaN(ts)) return;
+        const expires = (ts>1e12? ts : ts*1000);
+        let diff = Math.floor((expires - now)/1000);
+        if(diff<0){ el.textContent = 'expired'; return; }
+        el.textContent = formatDuration(diff);
+    });
+    document.querySelectorAll('.age').forEach(el=>{
+        const ts = parseFloat(el.dataset.ts);
+        if(isNaN(ts)) return;
+        const started = (ts>1e12? ts : ts*1000);
+        let diff = Math.floor((now - started)/1000);
+        el.textContent = formatDuration(diff);
+    });
+}
+setInterval(updateTimes, 1000);
+updateTimes();
 
 // --- INITIALIZATION ON LOAD ---
 document.addEventListener('DOMContentLoaded', () => {
