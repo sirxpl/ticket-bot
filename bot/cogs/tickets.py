@@ -376,10 +376,15 @@ class TicketsCog(commands.Cog):
             })
 
             # DM creator with transcript
-            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'http://localhost:5000'
+            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com'
             if base_url.endswith('/callback'):
                 base_url = base_url.rsplit('/callback',1)[0]
-            transcript_url = f"{base_url}/transcripts/{filename}"
+            # ensure scheme and prefer HTTPS
+            if not base_url.startswith('http'):
+                base_url = 'https://' + base_url
+            if base_url.startswith('http://'):
+                base_url = 'https://' + base_url[len('http://'):]
+            transcript_url = f"{base_url.rstrip('/')}/transcripts/{filename}"
 
             if creator_id:
                 try:
@@ -494,10 +499,15 @@ class TicketsCog(commands.Cog):
                 'allowed_user_id': creator_id
             })
 
-            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'http://localhost:5000'
+            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com'
             if base_url.endswith('/callback'):
                 base_url = base_url.rsplit('/callback',1)[0]
-            transcript_url = f"{base_url}/transcripts/{filename}"
+            # ensure scheme and prefer HTTPS
+            if not base_url.startswith('http'):
+                base_url = 'https://' + base_url
+            if base_url.startswith('http://'):
+                base_url = 'https://' + base_url[len('http://'):]
+            transcript_url = f"{base_url.rstrip('/')}/transcripts/{filename}"
 
             if creator_id:
                 try:
