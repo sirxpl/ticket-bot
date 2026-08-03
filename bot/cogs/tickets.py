@@ -30,6 +30,7 @@ class TicketView(discord.ui.View):
             return
 
         selection = select.values[0] if select.values else "General Support"
+        outer_view = self
 
         class TicketModal(discord.ui.Modal, title=f"{selection}"):
             def __init__(self, author, selection):
@@ -156,7 +157,10 @@ class TicketView(discord.ui.View):
                                 async def confirm(self, inter: discord.Interaction, btn: discord.ui.Button):
                                     await inter.response.defer(ephemeral=True)
                                     # proceed to close
-                                    await self.cog.do_close(inter.channel, inter.user, "Closed via button")
+                                    try:
+                                        await self.cog.do_close(inter.channel, inter.user, "Closed via button")
+                                    except Exception:
+                                        await inter.followup.send("❌ Failed to close ticket.", ephemeral=True)
                                     # disable buttons
                                     for child in self.children:
                                         child.disabled = True
@@ -169,10 +173,19 @@ class TicketView(discord.ui.View):
                                 async def cancel(self, inter: discord.Interaction, btn: discord.ui.Button):
                                     await inter.response.edit_message(content="Cancelled.", view=None, ephemeral=True)
 
+                            # if cog missing, notify the user
+                            if not self.cog:
+                                await interaction.response.send_message("❌ Close functionality is not available right now.", ephemeral=True)
+                                return
+
                             await interaction.response.send_message("Are you sure you want to close this ticket?", view=ConfirmView(self.cog), ephemeral=True)
 
                     # attach the close button view message in the ticket channel for staff
-                    await ticket_channel.send(content=None, embed=None, view=CloseConfirmView(self.bot.get_cog('TicketsCog') or self))
+                    tickets_cog = outer_view.bot.get_cog('TicketsCog')
+                    if not tickets_cog:
+                        await ticket_channel.send("⚠️ Close button unavailable (Tickets cog missing).")
+                    else:
+                        await ticket_channel.send(content=None, embed=None, view=CloseConfirmView(tickets_cog))
 
                     # Log ticket creation to disk for dashboard viewing
                     try:
