@@ -251,6 +251,7 @@
             {% for cd in cooldowns %}
                 <div class="list-item">
                     <span><strong>User ID:</strong> {{ cd.user_id }} | <strong>Expires:</strong> {{ cd.expires_at }}</span>
+                    <button onclick="removeCooldown('{{ cd.user_id }}')" class="btn-danger">Remove Cooldown</button>
                 </div>
             {% else %}
                 <p style="color: #b5bac1;">No active user cooldowns.</p>
@@ -331,6 +332,20 @@ function unblacklistUser(userId) {
                     location.reload();
                 } else {
                     alert("Failed to unblacklist user.");
+                }
+            });
+    }
+}
+
+function removeCooldown(userId) {
+    if (confirm("Are you sure you want to remove a cooldown for " + userId + "?")) {
+        fetch("/api/remove-cooldown/" + userId, { method: "POST" })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert("Failed to remove cooldown.");
                 }
             });
     }

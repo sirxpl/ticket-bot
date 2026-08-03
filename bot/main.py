@@ -230,6 +230,14 @@ def api_unblacklist(user_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/remove-cooldown/<user_id>", methods=["POST"])
+@login_required
+def api_remove_cooldown(user_id):
+    from utils.storage import remove_cooldown
+    ok = remove_cooldown(user_id)
+    return jsonify({"success": ok})
+
+
 @app.route("/dashboard/tickets", methods=["POST"])
 @login_required
 def deploy_ticket_panel():

@@ -35,12 +35,95 @@ def set_tickets_enabled(status: bool):
 # --- TICKETS DATA ---
 def get_tickets_data():
     if not os.path.exists(TICKETS_FILE):
-        return {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
+        data = {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
+        with open(TICKETS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+        return data
     try:
         with open(TICKETS_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+        # ensure keys
+        data.setdefault("ticket_counter", 0)
+        data.setdefault("active_tickets", [])
+        data.setdefault("cooldowns", [])
+        return data
     except Exception:
         return {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
+
+
+def _save_tickets_data(data: dict):
+    try:
+        with open(TICKETS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def add_active_ticket(ticket_id: str, channel_id: str, user_id: str):
+    data = get_tickets_data()
+    # ensure no duplicate
+    exists = any(t.get('ticket_id') == str(ticket_id) for t in data.get('active_tickets', []))
+    if not exists:
+        data['active_tickets'].append({
+            'ticket_id': str(ticket_id),
+            'channel_id': str(channel_id),
+            'user_id': str(user_id),
+            'created_at': __import__('time').time()
+        })
+    data['ticket_counter'] = int(data.get('ticket_counter', 0))
+    _save_tickets_data(data)
+
+
+def remove_active_ticket(ticket_id: str):
+    data = get_tickets_data()
+    data['active_tickets'] = [t for t in data.get('active_tickets', []) if str(t.get('ticket_id')) != str(ticket_id)]
+    _save_tickets_data(data)
+
+
+def add_cooldown(user_id: str, hours: int = 8):
+    data = get_tickets_data()
+    now = int(__import__('time').time())
+    expires = now + int(hours) * 3600
+    # remove existing for user
+    data['cooldowns'] = [c for c in data.get('cooldowns', []) if str(c.get('user_id')) != str(user_id)]
+    data['cooldowns'].append({'user_id': str(user_id), 'expires_at': __import__('datetime').datetime.utcfromtimestamp(expires).isoformat() + 'Z', 'expires_ts': expires})
+    _save_tickets_data(data)
+
+
+def remove_cooldown(user_id: str):
+    data = get_tickets_data()
+    before = len(data.get('cooldowns', []))
+    data['cooldowns'] = [c for c in data.get('cooldowns', []) if str(c.get('user_id')) != str(user_id)]
+    _save_tickets_data(data)
+    return len(data.get('cooldowns', [])) < before
+
+
+def get_cooldowns():
+    data = get_tickets_data()
+    return data.get('cooldowns', [])
+
+
+def is_on_cooldown(user_id: str):
+    try:
+        now = int(__import__('time').time())
+        for c in get_cooldowns():
+            if str(c.get('user_id')) == str(user_id):
+                if int(c.get('expires_ts', 0)) > now:
+                    return True, c
+        return False, None
+    except Exception:
+        return False, None
+
+
+def add_to_blacklist(user_id: str):
+    data = get_blacklist_data()
+    if user_id not in data.get('blacklisted_users', []):
+        data['blacklisted_users'].append(str(user_id))
+        with open(BLACKLIST_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+        return True
+    return False
 
 
 # --- TICKET LOGS ---
