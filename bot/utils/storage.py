@@ -91,3 +91,59 @@ def remove_from_blacklist(user_id: str):
             json.dump(data, f, indent=4)
         return True
     return False
+
+# --- Signed short-lived transcript URLs ---
+import hmac
+import hashlib
+import base64
+import time
+
+
+def _get_secret_key():
+    # prefer environment SECRET_KEY, fall back to a static default (not recommended for production)
+    return os.getenv('SECRET_KEY') or 'supersecretkey123'
+
+
+def generate_transcript_token(filename: str, expires_seconds: int = 3600) -> str:
+    """Return a URL-safe token encoding filename and expiry signed with SECRET_KEY."""
+    expiry = int(time.time()) + int(expires_seconds)
+    payload = f"{filename}|{expiry}".encode('utf-8')
+    key = _get_secret_key().encode('utf-8')
+    sig = hmac.new(key, payload, hashlib.sha256).digest()
+    token = base64.urlsafe_b64encode(payload + b"|" + sig).decode('utf-8')
+    return token
+
+
+def verify_transcript_token(token: str) -> dict:
+    """Verify token and return dict {filename, expires} if valid, else None."""
+    try:
+        raw = base64.urlsafe_b64decode(token.encode('utf-8'))
+        parts = raw.split(b"|")
+        if len(parts) < 3:
+            return None
+        filename = parts[0].decode('utf-8')
+        expires = int(parts[1].decode('utf-8'))
+        sig = b"|".join(parts[2:])
+        payload = f"{filename}|{expires}".encode('utf-8')
+        key = _get_secret_key().encode('utf-8')
+        expected = hmac.new(key, payload, hashlib.sha256).digest()
+        if not hmac.compare_digest(expected, sig):
+            return None
+        if int(time.time()) > expires:
+            return None
+        return {"filename": filename, "expires": expires}
+    except Exception:
+        return None
+
+
+def generate_transcript_url(filename: str, expires_seconds: int = 3600) -> str:
+    """Build a full absolute HTTPS URL to the transcripts route with a short-lived token."""
+    token = generate_transcript_token(filename, expires_seconds=expires_seconds)
+    base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com'
+    if base_url.endswith('/callback'):
+        base_url = base_url.rsplit('/callback', 1)[0]
+    if not base_url.startswith('http'):
+        base_url = 'https://' + base_url
+    if base_url.startswith('http://'):
+        base_url = 'https://' + base_url[len('http://'):]
+    return f"{base_url.rstrip('/')}/transcripts/{filename}?token={token}"

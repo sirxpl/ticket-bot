@@ -375,21 +375,22 @@ class TicketsCog(commands.Cog):
                 'allowed_user_id': creator_id
             })
 
-            # DM creator with transcript
-            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com'
-            if base_url.endswith('/callback'):
-                base_url = base_url.rsplit('/callback',1)[0]
-            # ensure scheme and prefer HTTPS
-            if not base_url.startswith('http'):
-                base_url = 'https://' + base_url
-            if base_url.startswith('http://'):
-                base_url = 'https://' + base_url[len('http://'):]
-            transcript_url = f"{base_url.rstrip('/')}/transcripts/{filename}"
+            # DM creator with a short-lived signed transcript URL and a link button
+            from utils.storage import generate_transcript_url
+            signed_url = generate_transcript_url(filename, expires_seconds=3600)
 
             if creator_id:
                 try:
                     user = await self.bot.fetch_user(int(creator_id))
-                    await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {transcript_url}")
+                    try:
+                        # send a message with a link button
+                        class LinkView(discord.ui.View):
+                            def __init__(self, url):
+                                super().__init__(timeout=None)
+                                self.add_item(discord.ui.Button(label="View Transcript", url=url))
+                        await user.send(content=f"Your ticket '{channel.name}' has been closed. The transcript is available for 1 hour.", view=LinkView(signed_url))
+                    except Exception:
+                        await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {signed_url}")
                 except Exception:
                     pass
 
@@ -499,20 +500,21 @@ class TicketsCog(commands.Cog):
                 'allowed_user_id': creator_id
             })
 
-            base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com'
-            if base_url.endswith('/callback'):
-                base_url = base_url.rsplit('/callback',1)[0]
-            # ensure scheme and prefer HTTPS
-            if not base_url.startswith('http'):
-                base_url = 'https://' + base_url
-            if base_url.startswith('http://'):
-                base_url = 'https://' + base_url[len('http://'):]
-            transcript_url = f"{base_url.rstrip('/')}/transcripts/{filename}"
+            # DM creator with a short-lived signed transcript URL and a link button
+            from utils.storage import generate_transcript_url
+            signed_url = generate_transcript_url(filename, expires_seconds=3600)
 
             if creator_id:
                 try:
                     user = await self.bot.fetch_user(int(creator_id))
-                    await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {transcript_url}")
+                    try:
+                        class LinkView(discord.ui.View):
+                            def __init__(self, url):
+                                super().__init__(timeout=None)
+                                self.add_item(discord.ui.Button(label="View Transcript", url=url))
+                        await user.send(content=f"Your ticket '{channel.name}' has been closed. The transcript is available for 1 hour.", view=LinkView(signed_url))
+                    except Exception:
+                        await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {signed_url}")
                 except Exception:
                     pass
 

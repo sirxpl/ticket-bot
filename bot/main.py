@@ -166,8 +166,21 @@ def toggle_tickets():
 
 
 @app.route("/transcripts/<path:filename>")
-@login_required
 def get_transcript(filename):
+    # Allow access with a valid short-lived token (for DMed links); otherwise require login
+    from flask import request, abort
+    token = request.args.get('token')
+    if token:
+        from utils.storage import verify_transcript_token
+        info = verify_transcript_token(token)
+        if not info or info.get('filename') != filename:
+            abort(403)
+        return send_from_directory(TRANSCRIPTS_DIR, filename)
+
+    # no token, require logged-in session
+    if not session.get('user'):
+        flash("🔒 Please log in with Discord to access the transcript.", "warning")
+        return redirect(url_for('login'))
     return send_from_directory(TRANSCRIPTS_DIR, filename)
 
 
