@@ -543,10 +543,36 @@ class TicketsCog(commands.Cog):
                     can_delete = perms.manage_channels
                 # wait then delete if allowed
                 await asyncio.sleep(5)
+                # helper timestamp for logs
+                import datetime as _dt
+                ts_now = _dt.datetime.utcnow().isoformat() + 'Z'
                 if can_delete:
                     try:
                         await channel.delete(reason=f"Ticket closed: {reason}")
+                        # log successful deletion
+                        try:
+                            append_ticket_log({
+                                'ticket_id': str(channel.id),
+                                'ticket_name': channel.name,
+                                'action': 'deleted',
+                                'timestamp': ts_now,
+                                'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)}
+                            })
+                        except Exception:
+                            pass
                     except Exception as e:
+                        # log delete failure
+                        try:
+                            append_ticket_log({
+                                'ticket_id': str(channel.id),
+                                'ticket_name': channel.name,
+                                'action': 'delete_failed',
+                                'timestamp': ts_now,
+                                'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)},
+                                'error': str(e)
+                            })
+                        except Exception:
+                            pass
                         # fallback: try to archive by revoking default role and renaming
                         try:
                             await channel.send("⚠️ Failed to delete channel; archiving instead.")
@@ -555,10 +581,37 @@ class TicketsCog(commands.Cog):
                         try:
                             await channel.set_permissions(channel.guild.default_role, read_messages=False)
                             await channel.edit(name=f"closed-{channel.name}")
-                        except Exception:
-                            pass
+                            try:
+                                append_ticket_log({
+                                    'ticket_id': str(channel.id),
+                                    'ticket_name': channel.name,
+                                    'action': 'archived',
+                                    'timestamp': ts_now
+                                })
+                            except Exception:
+                                pass
+                        except Exception as e2:
+                            try:
+                                append_ticket_log({
+                                    'ticket_id': str(channel.id),
+                                    'ticket_name': channel.name,
+                                    'action': 'archive_failed',
+                                    'timestamp': ts_now,
+                                    'error': str(e2)
+                                })
+                            except Exception:
+                                pass
                 else:
                     # can't delete: archive channel (hide from @everyone) and rename
+                    try:
+                        append_ticket_log({
+                            'ticket_id': str(channel.id),
+                            'ticket_name': channel.name,
+                            'action': 'no_delete_permission',
+                            'timestamp': ts_now
+                        })
+                    except Exception:
+                        pass
                     try:
                         await channel.send("⚠️ I lack permission to delete this channel; archiving instead.")
                     except Exception:
@@ -566,11 +619,37 @@ class TicketsCog(commands.Cog):
                     try:
                         await channel.set_permissions(channel.guild.default_role, read_messages=False)
                         await channel.edit(name=f"closed-{channel.name}")
-                    except Exception:
-                        pass
+                        try:
+                            append_ticket_log({
+                                'ticket_id': str(channel.id),
+                                'ticket_name': channel.name,
+                                'action': 'archived',
+                                'timestamp': ts_now
+                            })
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        try:
+                            append_ticket_log({
+                                'ticket_id': str(channel.id),
+                                'ticket_name': channel.name,
+                                'action': 'archive_failed',
+                                'timestamp': ts_now,
+                                'error': str(e)
+                            })
+                        except Exception:
+                            pass
             except Exception:
-                # final fallback: do nothing
-                pass
+                # final fallback: do nothing (but try to log)
+                try:
+                    append_ticket_log({
+                        'ticket_id': str(channel.id),
+                        'ticket_name': getattr(channel, 'name', ''),
+                        'action': 'close_flow_failed',
+                        'timestamp': _dt.datetime.utcnow().isoformat() + 'Z'
+                    })
+                except Exception:
+                    pass
 
         except Exception:
             pass
