@@ -6,6 +6,17 @@ from utils.storage import add_active_ticket, remove_active_ticket, add_cooldown,
 import html
 import datetime
 import os
+import logging
+
+# logger for Render stdout/stderr so platform logs capture ticket close/delete events
+logger = logging.getLogger('tickets')
+if not logger.handlers:
+    # ensure a simple handler is present in case app didn't configure logging
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(name)s: %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 
 def build_discord_like_transcript(messages, channel_name, ticket_meta, generated_at_iso, filename):
