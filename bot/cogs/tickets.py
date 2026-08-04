@@ -439,6 +439,11 @@ class TicketsCog(commands.Cog):
     async def do_close(self, channel: discord.abc.GuildChannel, executor: discord.abc.Snowflake, reason: str = 'No reason provided.'):
         """Generate transcript, log close, DM creator, then delete the channel after 5 seconds."""
         try:
+            try:
+                logger.info(f"do_close invoked for channel={getattr(channel,'id',None)} by executor={getattr(executor,'id',executor)} reason={reason}")
+            except Exception:
+                pass
+
             # collect messages
             messages = []
             async for m in channel.history(limit=1000, oldest_first=True):
@@ -483,6 +488,11 @@ class TicketsCog(commands.Cog):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(html_out)
 
+            try:
+                logger.info(f"Transcript written: {path} (messages={len(messages)})")
+            except Exception:
+                pass
+
             # append log
             timestamp = datetime.datetime.utcnow().isoformat() + 'Z'
             from utils.storage import append_ticket_log, get_logs_for_ticket
@@ -506,6 +516,11 @@ class TicketsCog(commands.Cog):
                 'transcript_file': filename,
                 'allowed_user_id': creator_id
             })
+
+            try:
+                logger.info(f"Appended close log for ticket={channel.id}")
+            except Exception:
+                pass
 
             # apply cooldown when the ticket is closed (start cooldown now)
             try:
@@ -534,10 +549,21 @@ class TicketsCog(commands.Cog):
                                 super().__init__(timeout=None)
                                 self.add_item(discord.ui.Button(label="View Transcript", url=url))
                         await user.send(content=f"Your ticket '{channel.name}' has been closed. The transcript is available for 1 hour.", view=LinkView(signed_url))
-                    except Exception:
+                        try:
+                            logger.info(f"DM transcript link sent to user={creator_id}")
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        try:
+                            logger.exception(f"Failed to send DM with link to user={creator_id}: {e}")
+                        except Exception:
+                            pass
                         await user.send(f"Your ticket '{channel.name}' has been closed. You can view the transcript here: {signed_url}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    try:
+                        logger.exception(f"Failed to fetch or DM user={creator_id}: {e}")
+                    except Exception:
+                        pass
 
             # announce and wait 5 seconds before deleting (if possible)
             try:
@@ -552,6 +578,10 @@ class TicketsCog(commands.Cog):
                 if me:
                     perms = channel.permissions_for(me)
                     can_delete = perms.manage_channels
+                try:
+                    logger.info(f"can_delete={can_delete} for channel={channel.id}")
+                except Exception:
+                    pass
                 # wait then delete if allowed
                 await asyncio.sleep(5)
                 # helper timestamp for logs
@@ -571,6 +601,10 @@ class TicketsCog(commands.Cog):
                             })
                         except Exception:
                             pass
+                        try:
+                            logger.info(f"Channel deleted: {channel.id}")
+                        except Exception:
+                            pass
                     except Exception as e:
                         # log delete failure
                         try:
@@ -582,6 +616,10 @@ class TicketsCog(commands.Cog):
                                 'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)},
                                 'error': str(e)
                             })
+                        except Exception:
+                            pass
+                        try:
+                            logger.exception(f"Failed to delete channel={channel.id}: {e}")
                         except Exception:
                             pass
                         # fallback: try to archive by revoking default role and renaming
@@ -601,6 +639,10 @@ class TicketsCog(commands.Cog):
                                 })
                             except Exception:
                                 pass
+                            try:
+                                logger.info(f"Channel archived after delete failure: {channel.id}")
+                            except Exception:
+                                pass
                         except Exception as e2:
                             try:
                                 append_ticket_log({
@@ -610,6 +652,10 @@ class TicketsCog(commands.Cog):
                                     'timestamp': ts_now,
                                     'error': str(e2)
                                 })
+                            except Exception:
+                                pass
+                            try:
+                                logger.exception(f"Failed to archive channel={channel.id}: {e2}")
                             except Exception:
                                 pass
                 else:
@@ -639,6 +685,10 @@ class TicketsCog(commands.Cog):
                             })
                         except Exception:
                             pass
+                        try:
+                            logger.info(f"Channel archived due to missing delete permission: {channel.id}")
+                        except Exception:
+                            pass
                     except Exception as e:
                         try:
                             append_ticket_log({
@@ -650,7 +700,11 @@ class TicketsCog(commands.Cog):
                             })
                         except Exception:
                             pass
-            except Exception:
+                        try:
+                            logger.exception(f"Failed to archive channel={channel.id}: {e}")
+                        except Exception:
+                            pass
+            except Exception as e:
                 # final fallback: do nothing (but try to log)
                 try:
                     append_ticket_log({
@@ -661,9 +715,16 @@ class TicketsCog(commands.Cog):
                     })
                 except Exception:
                     pass
+                try:
+                    logger.exception(f"Unexpected error in close flow for channel={getattr(channel,'id',None)}: {e}")
+                except Exception:
+                    pass
 
         except Exception:
-            pass
+            try:
+                logger.exception("Unhandled exception in do_close")
+            except Exception:
+                pass
 
     @discord.app_commands.command(name='close', description='Close the current ticket and generate transcript')
     @discord.app_commands.describe(reason='Optional reason for closing the ticket')
