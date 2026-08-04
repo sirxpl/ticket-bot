@@ -605,90 +605,44 @@ class TicketsCog(commands.Cog):
                 # helper timestamp for logs
                 import datetime as _dt
                 ts_now = _dt.datetime.utcnow().isoformat() + 'Z'
-                if can_delete:
-                    try:
-                        await channel.delete(reason=f"Ticket closed: {reason}")
-                        # log successful deletion
-                        try:
-                            append_ticket_log({
-                                'ticket_id': str(channel.id),
-                                'ticket_name': channel.name,
-                                'action': 'deleted',
-                                'timestamp': ts_now,
-                                'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)}
-                            })
-                        except Exception:
-                            pass
-                        try:
-                            logger.info(f"Channel deleted: {channel.id}")
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        # log delete failure
-                        try:
-                            append_ticket_log({
-                                'ticket_id': str(channel.id),
-                                'ticket_name': channel.name,
-                                'action': 'delete_failed',
-                                'timestamp': ts_now,
-                                'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)},
-                                'error': str(e)
-                            })
-                        except Exception:
-                            pass
-                        try:
-                            logger.exception(f"Failed to delete channel={channel.id}: {e}")
-                        except Exception:
-                            pass
-                        # fallback: try to archive by revoking default role and renaming
-                        try:
-                            await channel.send("⚠️ Failed to delete channel; archiving instead.")
-                        except Exception:
-                            pass
-                        try:
-                            await channel.set_permissions(channel.guild.default_role, read_messages=False)
-                            await channel.edit(name=f"closed-{channel.name}")
-                            try:
-                                append_ticket_log({
-                                    'ticket_id': str(channel.id),
-                                    'ticket_name': channel.name,
-                                    'action': 'archived',
-                                    'timestamp': ts_now
-                                })
-                            except Exception:
-                                pass
-                            try:
-                                logger.info(f"Channel archived after delete failure: {channel.id}")
-                            except Exception:
-                                pass
-                        except Exception as e2:
-                            try:
-                                append_ticket_log({
-                                    'ticket_id': str(channel.id),
-                                    'ticket_name': channel.name,
-                                    'action': 'archive_failed',
-                                    'timestamp': ts_now,
-                                    'error': str(e2)
-                                })
-                            except Exception:
-                                pass
-                            try:
-                                logger.exception(f"Failed to archive channel={channel.id}: {e2}")
-                            except Exception:
-                                pass
-                else:
-                    # can't delete: archive channel (hide from @everyone) and rename
+                # Attempt deletion regardless of permission-check result; catch exceptions and fallback to archiving
+                try:
+                    await channel.delete(reason=f"Ticket closed: {reason}")
+                    # log successful deletion
                     try:
                         append_ticket_log({
                             'ticket_id': str(channel.id),
                             'ticket_name': channel.name,
-                            'action': 'no_delete_permission',
-                            'timestamp': ts_now
+                            'action': 'deleted',
+                            'timestamp': ts_now,
+                            'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)}
                         })
                     except Exception:
                         pass
                     try:
-                        await channel.send("⚠️ I lack permission to delete this channel; archiving instead.")
+                        logger.info(f"Channel deleted: {channel.id}")
+                    except Exception:
+                        pass
+                except Exception as e:
+                    # log delete failure
+                    try:
+                        append_ticket_log({
+                            'ticket_id': str(channel.id),
+                            'ticket_name': channel.name,
+                            'action': 'delete_failed',
+                            'timestamp': ts_now,
+                            'executor': {'id': str(getattr(executor, 'id', executor)), 'name': str(executor)},
+                            'error': str(e)
+                        })
+                    except Exception:
+                        pass
+                    try:
+                        logger.exception(f"Failed to delete channel={channel.id}: {e}")
+                    except Exception:
+                        pass
+                    # fallback: try to archive by revoking default role and renaming
+                    try:
+                        await channel.send("⚠️ Failed to delete channel; archiving instead.")
                     except Exception:
                         pass
                     try:
@@ -704,22 +658,22 @@ class TicketsCog(commands.Cog):
                         except Exception:
                             pass
                         try:
-                            logger.info(f"Channel archived due to missing delete permission: {channel.id}")
+                            logger.info(f"Channel archived after delete failure: {channel.id}")
                         except Exception:
                             pass
-                    except Exception as e:
+                    except Exception as e2:
                         try:
                             append_ticket_log({
                                 'ticket_id': str(channel.id),
                                 'ticket_name': channel.name,
                                 'action': 'archive_failed',
                                 'timestamp': ts_now,
-                                'error': str(e)
+                                'error': str(e2)
                             })
                         except Exception:
                             pass
                         try:
-                            logger.exception(f"Failed to archive channel={channel.id}: {e}")
+                            logger.exception(f"Failed to archive channel={channel.id}: {e2}")
                         except Exception:
                             pass
             except Exception as e:
