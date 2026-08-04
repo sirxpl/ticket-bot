@@ -193,6 +193,18 @@ def view_ticket_logs():
     return render_template("ticket_logs.html", logs=logs)
 
 
+# Temporary unauthenticated debug endpoint to inspect ticket logs quickly
+@app.route("/debug/ticket-logs")
+def debug_ticket_logs():
+    try:
+        logs = get_ticket_logs()
+        # return last 100 entries
+        last = sorted(logs, key=lambda l: l.get("timestamp", ""), reverse=True)[:100]
+        return jsonify({"ok": True, "count": len(last), "logs": last})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @app.route("/tickets/<ticket_id>")
 @login_required
 def view_ticket(ticket_id):
