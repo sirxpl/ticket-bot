@@ -573,15 +573,33 @@ class TicketsCog(commands.Cog):
 
             # check bot permissions to delete
             try:
-                me = channel.guild.me if channel.guild else None
+                # Resolve the bot member robustly; channel.guild.me can be None in some contexts
+                me = None
+                if channel.guild:
+                    try:
+                        me = channel.guild.get_member(self.bot.user.id)
+                    except Exception:
+                        me = None
+                    if not me:
+                        try:
+                            me = await channel.guild.fetch_member(self.bot.user.id)
+                        except Exception:
+                            me = None
+
                 can_delete = False
                 if me:
-                    perms = channel.permissions_for(me)
-                    can_delete = perms.manage_channels
+                    try:
+                        perms = channel.permissions_for(me)
+                        guild_perms = getattr(me, 'guild_permissions', None)
+                        # allow if either guild-level or channel-level manage_channels is granted
+                        can_delete = bool((guild_perms and guild_perms.manage_channels) or (perms and perms.manage_channels))
+                    except Exception:
+                        can_delete = False
                 try:
-                    logger.info(f"can_delete={can_delete} for channel={channel.id}")
+                    logger.info(f"can_delete={can_delete} for channel={channel.id} (member_resolved={bool(me)})")
                 except Exception:
                     pass
+
                 # wait then delete if allowed
                 await asyncio.sleep(5)
                 # helper timestamp for logs
