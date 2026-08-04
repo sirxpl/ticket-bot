@@ -1,5 +1,14 @@
 import os
 import json
+import logging
+
+# logger emits to stdout so platform (Render) captures ticket events
+logger = logging.getLogger('ticket_storage')
+if not logger.handlers:
+    h = logging.StreamHandler()
+    h.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)s] %(name)s: %(message)s'))
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
 
 DATA_DIR = "data"
 TICKETS_FILE = os.path.join(DATA_DIR, "tickets.json")
@@ -133,6 +142,7 @@ def add_to_blacklist(user_id: str):
 def append_ticket_log(entry: dict):
     """Append a log entry dict to ticket_logs.json. Entry should include at least:
     {"ticket_id": str, "action": str, "timestamp": iso, "payload": {...}}
+    This also logs to stdout so platform logs capture the event for debugging.
     """
     try:
         logs = []
@@ -142,8 +152,16 @@ def append_ticket_log(entry: dict):
         logs.append(entry)
         with open(TICKET_LOGS_FILE, "w") as f:
             json.dump(logs, f, indent=2)
+        try:
+            logger.info(f"ticket_log appended: action={entry.get('action')} ticket_id={entry.get('ticket_id')} payload_keys={list(entry.keys())}")
+        except Exception:
+            pass
         return True
-    except Exception:
+    except Exception as e:
+        try:
+            logger.exception(f"Failed to append ticket_log: {e}")
+        except Exception:
+            pass
         return False
 
 
