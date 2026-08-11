@@ -177,6 +177,31 @@ def get_logs_for_ticket(ticket_id: str):
     logs = get_ticket_logs()
     return [l for l in logs if str(l.get("ticket_id")) == str(ticket_id)]
 
+def get_transcript_info(filename: str):
+    """Given a transcript filename like 'ticket-123456789.html', return the
+    ticket's creator username and ticket number for a cleaner dashboard display."""
+    ticket_id = filename
+    if ticket_id.startswith("ticket-"):
+        ticket_id = ticket_id[len("ticket-"):]
+    if ticket_id.endswith(".html"):
+        ticket_id = ticket_id[: -len(".html")]
+
+    username = "Unknown User"
+    ticket_number = None
+
+    logs = get_logs_for_ticket(ticket_id)
+    created = next((l for l in logs if l.get("action") == "created"), None)
+    if created:
+        creator = created.get("creator") or {}
+        username = creator.get("name") or username
+        ticket_number = created.get("ticket_number")
+
+    return {
+        "filename": filename,
+        "username": username,
+        "ticket_number": ticket_number,
+    }
+
 # --- BLACKLIST DATA ---
 def get_blacklist_data():
     if not os.path.exists(BLACKLIST_FILE):
