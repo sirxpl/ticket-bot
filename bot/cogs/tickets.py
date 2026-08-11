@@ -437,6 +437,7 @@ class TicketView(discord.ui.View):
                         tickets_data["ticket_counter"] = (
                             tickets_data.get("ticket_counter", 0) + 1
                         )
+                        ticket_number = tickets_data["ticket_counter"]
                         try:
                             with open("data/tickets.json", "w") as tf:
                                 json.dump(tickets_data, tf, indent=2)
@@ -448,6 +449,7 @@ class TicketView(discord.ui.View):
                             "ticket_name": ticket_channel.name,
                             "action": "created",
                             "timestamp": timestamp,
+                            "ticket_number": ticket_number,
                             "creator": {
                                 "id": str(user.id),
                                 "name": str(user),
@@ -459,7 +461,6 @@ class TicketView(discord.ui.View):
                             },
                         })
 
-                        ticket_number = tickets_data.get("ticket_counter")
                         add_active_ticket(
                             str(ticket_channel.id),
                             str(ticket_channel.id),
