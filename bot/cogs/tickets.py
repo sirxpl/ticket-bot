@@ -532,7 +532,7 @@ class TicketsCog(commands.Cog):
                         getattr(m.author, "avatar_url", None)
                         or "https://cdn.discordapp.com/embed/avatars/0.png"
                     )
-                    content = m.content or ""
+                content = m.content or ""
 
                 attachments_data = []
                 for a in m.attachments:
