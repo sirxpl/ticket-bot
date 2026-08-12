@@ -17,7 +17,7 @@
             padding: 20px;
         }
         .container {
-            max-width: 900px;
+            max-width: 1100px;
             margin: 0 auto;
             background: #2b2d31;
             padding: 25px;
@@ -125,6 +125,88 @@
             height: 40px;
             border-radius: 6px;
         }
+        .layout {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            width: 230px;
+            flex-shrink: 0;
+            background: #232428;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: transparent;
+            border: none;
+            color: #b5bac1;
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 600;
+            text-align: left;
+            width: 100%;
+            font-family: inherit;
+        }
+        .nav-item:hover {
+            background: #2b2d31;
+            color: #f2f3f5;
+        }
+        .nav-item.active {
+            background: #404249;
+            color: #ffffff;
+        }
+        .nav-icon {
+            font-size: 1.15em;
+            width: 20px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .pages {
+            flex: 1;
+            min-width: 0;
+        }
+        .page {
+            display: none;
+        }
+        .page.active {
+            display: block;
+        }
+        .access-form {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        .access-form > div {
+            flex: 1;
+        }
+        .access-form button {
+            height: 42px;
+            white-space: nowrap;
+        }
+        @media (max-width: 720px) {
+            .layout {
+                flex-direction: column;
+            }
+            .sidebar {
+                flex-direction: row;
+                overflow-x: auto;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            .nav-item {
+                flex-shrink: 0;
+                width: auto;
+            }
+        }
     </style>
 </head>
 <body>
@@ -150,6 +232,59 @@
           {% endif %}
         {% endwith %}
 
+        <div class="layout">
+            <nav class="sidebar">
+                <button type="button" class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
+                    <span class="nav-icon">📊</span><span class="nav-text">Overview</span>
+                </button>
+                <button type="button" class="nav-item" data-page="carry-settings" onclick="showPage('carry-settings', this)">
+                    <span class="nav-icon">⚙️</span><span class="nav-text">Carry Manager Settings</span>
+                </button>
+                <button type="button" class="nav-item" data-page="blacklist" onclick="showPage('blacklist', this)">
+                    <span class="nav-icon">🚫</span><span class="nav-text">Blacklist</span>
+                </button>
+                <button type="button" class="nav-item" data-page="transcripts" onclick="showPage('transcripts', this)">
+                    <span class="nav-icon">📜</span><span class="nav-text">Transcripts</span>
+                </button>
+                <button type="button" class="nav-item" data-page="access" onclick="showPage('access', this)">
+                    <span class="nav-icon">🔐</span><span class="nav-text">Access Control</span>
+                </button>
+            </nav>
+
+            <div class="pages">
+
+        <section class="page active" id="page-overview">
+        <div class="card">
+            <h3>🎫 Live Active Tickets (Total Lifetime: {{ total_tickets }})</h3>
+            {% for ticket in active_tickets %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User ID:</strong> {{ ticket.user_id }}</div>
+                        <div style="color:#b5bac1;font-size:0.9em;">Opened: <span class="local-time" data-ts="{{ ticket.created_at }}">{{ ticket.created_at }}</span> • <span class="age" data-ts="{{ ticket.created_at }}">...</span></div>
+                    </div>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No active carry tickets open right now.</p>
+            {% endfor %}
+        </div>
+
+        <div class="card">
+            <h3>⏳ Active Service Cooldowns</h3>
+            {% for cd in cooldowns %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>User ID:</strong> {{ cd.user_id }}</div>
+                        <div style="color:#b5bac1;font-size:0.9em;">Expires: <span class="local-time" data-ts="{{ cd.expires_ts }}">{{ cd.expires_at }}</span> • <span class="countdown" data-ts="{{ cd.expires_ts }}">...</span></div>
+                    </div>
+                    <button onclick="removeCooldown('{{ cd.user_id }}')" class="btn-danger">Remove Cooldown</button>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No active user cooldowns.</p>
+            {% endfor %}
+        </div>
+        </section>
+
+        <section class="page" id="page-carry-settings">
         <div class="card">
             <h3>⚙️ System Settings</h3>
             <form action="/dashboard/toggle-tickets" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
@@ -245,36 +380,9 @@
                 <button type="submit" class="btn-submit">🚀 Deploy Custom Panel to Discord</button>
             </form>
         </div>
+        </section>
 
-        <div class="card">
-            <h3>🎫 Live Active Tickets (Total Lifetime: {{ total_tickets }})</h3>
-            {% for ticket in active_tickets %}
-                <div class="list-item">
-                    <div>
-                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User ID:</strong> {{ ticket.user_id }}</div>
-                        <div style="color:#b5bac1;font-size:0.9em;">Opened: <span class="local-time" data-ts="{{ ticket.created_at }}">{{ ticket.created_at }}</span> • <span class="age" data-ts="{{ ticket.created_at }}">...</span></div>
-                    </div>
-                </div>
-            {% else %}
-                <p style="color: #b5bac1;">No active carry tickets open right now.</p>
-            {% endfor %}
-        </div>
-
-        <div class="card">
-            <h3>⏳ Active Service Cooldowns</h3>
-            {% for cd in cooldowns %}
-                <div class="list-item">
-                    <div>
-                        <div><strong>User ID:</strong> {{ cd.user_id }}</div>
-                        <div style="color:#b5bac1;font-size:0.9em;">Expires: <span class="local-time" data-ts="{{ cd.expires_ts }}">{{ cd.expires_at }}</span> • <span class="countdown" data-ts="{{ cd.expires_ts }}">...</span></div>
-                    </div>
-                    <button onclick="removeCooldown('{{ cd.user_id }}')" class="btn-danger">Remove Cooldown</button>
-                </div>
-            {% else %}
-                <p style="color: #b5bac1;">No active user cooldowns.</p>
-            {% endfor %}
-        </div>
-
+        <section class="page" id="page-blacklist">
         <div class="card">
             <h3>🚫 Blacklisted Users</h3>
             {% for b_user in blacklisted_users %}
@@ -286,7 +394,9 @@
                 <p style="color: #b5bac1;">No blacklisted users.</p>
             {% endfor %}
         </div>
+        </section>
 
+        <section class="page" id="page-transcripts">
         <div class="card">
             <h3>📜 Saved Transcripts</h3>
            {% for transcript in transcripts %}
@@ -300,6 +410,77 @@
                 <p style="color: #b5bac1;">No transcripts saved yet.</p>
             {% endfor %}
         </div>
+        </section>
+
+        <section class="page" id="page-access">
+        <div class="card">
+            <h3>🔐 Access Control</h3>
+            <p style="color: #b5bac1; margin-top: -6px;">
+                Add a user ID or role below to let them view this dashboard. While this list is empty, anyone who logs in with Discord can see it — once you add someone, only matching users/roles get in.
+            </p>
+
+            <h4 style="margin-top: 20px;">Allowed Users</h4>
+            <form action="/dashboard/access/add-user" method="POST" class="access-form">
+                <div>
+                    <label>Discord User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for u in allowed_users %}
+                <div class="list-item">
+                    <span><strong>{{ u.name or 'Unknown user' }}</strong> ({{ u.id }})</span>
+                    <form action="/dashboard/access/remove-user/{{ u.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No users added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Allowed Roles</h4>
+            <form action="/dashboard/access/add-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in allowed_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
+            <p style="color: #b5bac1; margin-top: -6px; font-size: 0.9em;">Opened and closed tickets get posted here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if log_channel_id and log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+        </div>
+        </section>
+
+            </div>
+        </div>
 
     {% else %}
         <div class="gatekeeper">
@@ -311,6 +492,15 @@
 </div>
 
 <script>
+// --- SIDEBAR NAVIGATION ---
+function showPage(pageId, btn) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const page = document.getElementById('page-' + pageId);
+    if (page) page.classList.add('active');
+    if (btn) btn.classList.add('active');
+}
+
 // --- GLOBAL FUNCTIONS ---
 let fieldCount = 0;
 
