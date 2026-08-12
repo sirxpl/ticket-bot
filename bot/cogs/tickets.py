@@ -30,88 +30,6 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 
-def build_discord_like_transcript(
-    messages, channel_name, ticket_meta, generated_at_iso, filename
-):
-    """Render a dark-themed Discord-like HTML transcript."""
-    safe = html.escape
-    parts = []
-    parts.append("<!doctype html>")
-    parts.append(
-        '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-    )
-    parts.append(f"<title>Transcript - {safe(channel_name)}</title>")
-    parts.append(
-        "<style>body{background:#0f1114;color:#e6eef8;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;margin:0} .container{max-width:900px;margin:20px auto;padding:18px} .embed{background:#2f3136;border-left:4px solid #2a9df4;padding:12px;border-radius:6px;margin-bottom:16px} .embed h2{margin:0 0 6px 0} .field{margin:6px 0;padding:6px 10px;background:#222326;border-radius:6px} .msg{display:flex;gap:12px;padding:10px;border-radius:8px;background:linear-gradient(180deg,#0f1114,#0f1114);margin-bottom:6px} .avatar{width:42px;height:42px;border-radius:50%;flex:0 0 42px} .msg-body{flex:1} .meta{color:#9aa5b1;font-size:13px;margin-bottom:6px} .content{white-space:pre-wrap;color:#dbe7ef} .attachments{margin-top:6px} .footer{margin-top:18px;padding:10px;color:#9aa5b1;font-size:13px;border-top:1px solid #1b1d20}</style>"
-    )
-    parts.append("</head><body>")
-    parts.append('<div class="container">')
-
-    # ticket embed
-    parts.append('<div class="embed">')
-    parts.append(f"<h2>🎫 {safe(channel_name)}</h2>")
-    creator = ticket_meta.get("creator") if ticket_meta else None
-    if creator:
-        parts.append(
-            f'<div style="font-size:14px;color:#9aa5b1">Created by: {safe(creator.get("name",""))}</div>'
-        )
-    parts.append(
-        '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">'
-    )
-    fields = ticket_meta.get("fields") if ticket_meta else {}
-    if fields:
-        for k in ("timezone", "display_name", "can_join"):
-            v = fields.get(k)
-            if v:
-                parts.append(
-                    f'<div class="field"><strong>{safe(k.replace("_"," ").title())}:</strong> {safe(v)}</div>'
-                )
-    parts.append("</div>")
-    parts.append("</div>")
-
-    # messages
-    parts.append("<div>")
-    for m in messages:
-        parts.append('<div class="msg">')
-        parts.append(
-            f'<img class="avatar" src="{safe(m.get("avatar_url") or "https://cdn.discordapp.com/embed/avatars/0.png")}" alt="avatar"/>'
-        )
-        parts.append('<div class="msg-body">')
-        parts.append(
-            f'<div class="meta"><strong>{safe(m.get("author_name","Unknown"))}</strong> <span style="margin-left:8px">{safe(m.get("ts",""))}</span></div>'
-        )
-        parts.append(
-            f'<div class="content">{safe(m.get("content",""))}</div>'
-        )
-        if m.get("attachments"):
-            parts.append('<div class="attachments">')
-            for a in str(m.get("attachments")).split():
-                if a.lower().endswith(
-                    (".png", ".jpg", ".jpeg", ".gif", ".webp")
-                ):
-                    parts.append(
-                        f'<div><img src="{safe(a)}" style="max-width:360px;border-radius:6px;margin-top:6px"/></div>'
-                    )
-                else:
-                    parts.append(
-                        f'<div><a href="{safe(a)}" target="_blank">{safe(a)}</a></div>'
-                    )
-            parts.append("</div>")
-        parts.append("</div>")
-        parts.append("</div>")
-    parts.append("</div>")
-
-    # footer
-    parts.append('<div class="footer">')
-    parts.append(f"Transcript generated on {safe(generated_at_iso)}")
-    parts.append(
-        f'&nbsp; • &nbsp;<a href="{safe(filename)}" download>Download HTML</a>'
-    )
-    parts.append("</div>")
-
-    parts.append("</div></body></html>")
-    return "\n".join(parts)
-
 
 # --- PERSISTENT CLOSE BUTTON & CONFIRMATION ---
 class ConfirmView(discord.ui.View):
@@ -614,19 +532,67 @@ class TicketsCog(commands.Cog):
                         getattr(m.author, "avatar_url", None)
                         or "https://cdn.discordapp.com/embed/avatars/0.png"
                     )
-                content = m.content or ""
-                attachments = (
-                    " ".join(a.url for a in m.attachments)
-                    if m.attachments
-                    else ""
-                )
+                    content = m.content or ""
+
+                attachments_data = []
+                for a in m.attachments:
+                    is_image = bool(
+                        a.content_type and a.content_type.startswith("image/")
+                    ) or a.filename.lower().endswith(
+                        (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                    )
+                    attachments_data.append({
+                        "url": a.url,
+                        "filename": a.filename,
+                        "is_image": is_image,
+                    })
+
+                embeds_data = []
+                for e in m.embeds:
+                    embeds_data.append({
+                        "title": e.title,
+                        "description": e.description,
+                        "url": e.url if e.url else None,
+                        "color": e.color.value if e.color else None,
+                        "author_name": e.author.name if e.author else None,
+                        "author_icon": e.author.icon_url if e.author else None,
+                        "thumbnail_url": e.thumbnail.url if e.thumbnail else None,
+                        "image_url": e.image.url if e.image else None,
+                        "footer_text": e.footer.text if e.footer else None,
+                        "footer_icon": e.footer.icon_url if e.footer else None,
+                        "fields": [
+                            {
+                                "name": f.name,
+                                "value": f.value,
+                                "inline": f.inline,
+                            }
+                            for f in e.fields
+                        ],
+                    })
+
+                components_data = []
+                for row in m.components:
+                    row_buttons = []
+                    for child in getattr(row, "children", []):
+                        if isinstance(child, discord.Button):
+                            row_buttons.append({
+                                "label": child.label,
+                                "style": str(child.style).split(".")[-1],
+                                "emoji": str(child.emoji) if child.emoji else None,
+                                "url": child.url,
+                            })
+                    if row_buttons:
+                        components_data.append(row_buttons)
+
                 messages.append({
                     "ts": ts,
                     "author_name": author_name,
                     "author_id": str(author_id) if author_id else None,
                     "avatar_url": avatar_url,
                     "content": content,
-                    "attachments": attachments,
+                    "attachments": attachments_data,
+                    "embeds": embeds_data,
+                    "components": components_data,
                     "is_bot": getattr(m.author, "bot", False),
                 })
 
