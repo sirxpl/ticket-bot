@@ -462,6 +462,33 @@
                 <p style="color: #b5bac1;">No roles added yet.</p>
             {% endfor %}
 
+            <h4 style="margin-top: 20px;">Ticket Blacklist Role</h4>
+            <p style="color: #b5bac1; margin-top: -6px; font-size: 0.9em;">
+                Members holding any of these roles are blocked from creating new tickets. Add another role below to blacklist more than one.
+            </p>
+            <form action="/dashboard/access/add-blacklist-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in blacklist_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-blacklist-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No ticket blacklist roles added yet.</p>
+            {% endfor %}
+
             <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
             <p style="color: #b5bac1; margin-top: -6px; font-size: 0.9em;">Opened and closed tickets get posted here. Leave unset to disable.</p>
             <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
