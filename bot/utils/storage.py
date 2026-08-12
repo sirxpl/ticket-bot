@@ -1,6 +1,12 @@
 import os
 import json
 import logging
+import time
+import glob
+
+from pymongo import ReturnDocument
+
+from utils.db import get_db
 
 # logger emits to stdout so platform (Render) captures ticket events
 logger = logging.getLogger('ticket_storage')
@@ -41,8 +47,19 @@ def set_tickets_enabled(status: bool):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
-# --- TICKETS DATA ---
+# --- TICKETS DATA (counter, active tickets, cooldowns) ---
 def get_tickets_data():
+    db = get_db()
+    if db is not None:
+        doc = db.tickets_data.find_one({"_id": "singleton"})
+        if not doc:
+            doc = {"_id": "singleton", "ticket_counter": 0, "active_tickets": [], "cooldowns": []}
+            db.tickets_data.insert_one(dict(doc))
+        doc.setdefault("ticket_counter", 0)
+        doc.setdefault("active_tickets", [])
+        doc.setdefault("cooldowns", [])
+        return doc
+
     if not os.path.exists(TICKETS_FILE):
         data = {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
         with open(TICKETS_FILE, "w") as f:
@@ -61,12 +78,41 @@ def get_tickets_data():
 
 
 def _save_tickets_data(data: dict):
+    db = get_db()
+    if db is not None:
+        try:
+            data = dict(data)
+            data["_id"] = "singleton"
+            db.tickets_data.replace_one({"_id": "singleton"}, data, upsert=True)
+            return True
+        except Exception:
+            return False
     try:
         with open(TICKETS_FILE, "w") as f:
             json.dump(data, f, indent=2)
         return True
     except Exception:
         return False
+
+
+def increment_ticket_counter():
+    """Atomically increment and return the new lifetime ticket counter."""
+    db = get_db()
+    if db is not None:
+        try:
+            doc = db.tickets_data.find_one_and_update(
+                {"_id": "singleton"},
+                {"$inc": {"ticket_counter": 1}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+            return doc.get("ticket_counter", 1)
+        except Exception:
+            logger.exception("Failed to increment ticket counter in MongoDB")
+    data = get_tickets_data()
+    data["ticket_counter"] = data.get("ticket_counter", 0) + 1
+    _save_tickets_data(data)
+    return data["ticket_counter"]
 
 
 def add_active_ticket(ticket_id: str, channel_id: str, user_id: str, ticket_number: int = None):
@@ -140,10 +186,24 @@ def add_to_blacklist(user_id: str):
 
 # --- TICKET LOGS ---
 def append_ticket_log(entry: dict):
-    """Append a log entry dict to ticket_logs.json. Entry should include at least:
+    """Append a log entry dict. Entry should include at least:
     {"ticket_id": str, "action": str, "timestamp": iso, "payload": {...}}
-    This also logs to stdout so platform logs capture the event for debugging.
+    Writes to MongoDB when configured, otherwise to ticket_logs.json.
+    Also logs to stdout so platform logs capture the event for debugging.
     """
+    db = get_db()
+    if db is not None:
+        try:
+            db.ticket_logs.insert_one(dict(entry))
+            try:
+                logger.info(f"ticket_log appended: action={entry.get('action')} ticket_id={entry.get('ticket_id')} payload_keys={list(entry.keys())}")
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to append ticket_log to MongoDB: {e}")
+            return False
+
     try:
         logs = []
         if os.path.exists(TICKET_LOGS_FILE):
@@ -166,6 +226,13 @@ def append_ticket_log(entry: dict):
 
 
 def get_ticket_logs():
+    db = get_db()
+    if db is not None:
+        try:
+            return list(db.ticket_logs.find({}, {"_id": 0}))
+        except Exception:
+            logger.exception("Failed to read ticket_logs from MongoDB")
+            return []
     try:
         with open(TICKET_LOGS_FILE, "r") as f:
             return json.load(f)
@@ -201,6 +268,69 @@ def get_transcript_info(filename: str):
         "username": username,
         "ticket_number": ticket_number,
     }
+
+
+# --- TRANSCRIPT HTML STORAGE ---
+def save_transcript_html(filename: str, html: str):
+    """Save a rendered transcript's HTML. Stored in MongoDB when configured,
+    otherwise written to the local transcripts folder."""
+    db = get_db()
+    if db is not None:
+        try:
+            db.transcripts.replace_one(
+                {"_id": filename},
+                {"_id": filename, "html": html, "saved_at": time.time()},
+                upsert=True,
+            )
+            return True
+        except Exception:
+            logger.exception(f"Failed to save transcript '{filename}' to MongoDB")
+            return False
+
+    try:
+        os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
+        with open(os.path.join(TRANSCRIPTS_DIR, filename), "w", encoding="utf-8") as f:
+            f.write(html)
+        return True
+    except Exception:
+        logger.exception(f"Failed to save transcript '{filename}' to disk")
+        return False
+
+
+def get_transcript_html(filename: str):
+    """Return a transcript's HTML content, or None if it doesn't exist."""
+    db = get_db()
+    if db is not None:
+        try:
+            doc = db.transcripts.find_one({"_id": filename})
+            return doc["html"] if doc else None
+        except Exception:
+            logger.exception(f"Failed to read transcript '{filename}' from MongoDB")
+            return None
+
+    path = os.path.join(TRANSCRIPTS_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return None
+
+
+def list_transcript_filenames():
+    """Return the filenames of every saved transcript."""
+    db = get_db()
+    if db is not None:
+        try:
+            return [doc["_id"] for doc in db.transcripts.find({}, {"_id": 1})]
+        except Exception:
+            logger.exception("Failed to list transcripts from MongoDB")
+            return []
+
+    if not os.path.exists(TRANSCRIPTS_DIR):
+        return []
+    return [os.path.basename(f) for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")]
 
 # --- BLACKLIST DATA ---
 def get_blacklist_data():
