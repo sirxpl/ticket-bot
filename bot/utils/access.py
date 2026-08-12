@@ -1,17 +1,32 @@
 import os
 import json
 
+from utils.db import get_db
+
 DATA_DIR = "data"
 ACCESS_FILE = os.path.join(DATA_DIR, "access.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
+_DEFAULTS = {"allowed_users": [], "allowed_roles": [], "log_channel_id": None}
+
 
 def get_access_settings():
     """Return the access-control config: allowed viewer users/roles and the
-    channel ticket activity gets logged to."""
+    channel ticket activity gets logged to. Reads from MongoDB when
+    MONGODB_URI is configured, otherwise from the local access.json file."""
+    db = get_db()
+    if db is not None:
+        doc = db.access_control.find_one({"_id": "singleton"})
+        if not doc:
+            return dict(_DEFAULTS)
+        doc.setdefault("allowed_users", [])
+        doc.setdefault("allowed_roles", [])
+        doc.setdefault("log_channel_id", None)
+        return doc
+
     if not os.path.exists(ACCESS_FILE):
-        return {"allowed_users": [], "allowed_roles": [], "log_channel_id": None}
+        return dict(_DEFAULTS)
     try:
         with open(ACCESS_FILE, "r") as f:
             data = json.load(f)
@@ -20,10 +35,16 @@ def get_access_settings():
         data.setdefault("log_channel_id", None)
         return data
     except Exception:
-        return {"allowed_users": [], "allowed_roles": [], "log_channel_id": None}
+        return dict(_DEFAULTS)
 
 
 def _save(data: dict):
+    db = get_db()
+    if db is not None:
+        data = dict(data)
+        data["_id"] = "singleton"
+        db.access_control.replace_one({"_id": "singleton"}, data, upsert=True)
+        return
     with open(ACCESS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
