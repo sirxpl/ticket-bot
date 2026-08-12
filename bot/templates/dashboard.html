@@ -87,6 +87,17 @@
             font-weight: bold;
             width: 100%;
         }
+        .btn-view {
+            background: #5865f2;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
         .btn-danger {
             background: #da373c;
             color: white;
@@ -278,13 +289,16 @@
 
         <div class="card">
             <h3>📜 Saved Transcripts</h3>
-            <ul>
-                {% for transcript in transcripts %}
-                    <li><a href="/transcripts/{{ transcript }}" target="_blank" style="color: #00a8fc;">{{ transcript }}</a></li>
-                {% else %}
-                    <li>No transcripts saved yet.</li>
-                {% endfor %}
-            </ul>
+           {% for transcript in transcripts %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>Ticket #{{ transcript.ticket_number or '—' }}</strong> • {{ transcript.username }}</div>
+                    </div>
+                    <a href="/transcripts/{{ transcript.filename }}" target="_blank" class="btn-view">View Transcript</a>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No transcripts saved yet.</p>
+            {% endfor %}
         </div>
 
     {% else %}
