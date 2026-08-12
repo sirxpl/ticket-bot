@@ -29,7 +29,8 @@ from utils.storage import (
     get_settings,
     set_tickets_enabled,
     get_ticket_logs,
-    get_logs_for_ticket
+    get_logs_for_ticket,
+    get_transcript_info
 )
 
 # Environment & OAuth Setup
@@ -93,7 +94,10 @@ def home():
 
     transcripts = []
     if os.path.exists(TRANSCRIPTS_DIR):
-        transcripts = [os.path.basename(f) for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")]
+        transcripts = [
+            get_transcript_info(os.path.basename(f))
+            for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")
+        ]
 
     return render_template(
         "dashboard.html",
