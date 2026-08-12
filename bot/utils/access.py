@@ -8,13 +8,14 @@ ACCESS_FILE = os.path.join(DATA_DIR, "access.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-_DEFAULTS = {"allowed_users": [], "allowed_roles": [], "log_channel_id": None}
+_DEFAULTS = {"allowed_users": [], "allowed_roles": [], "log_channel_id": None, "blacklist_roles": []}
 
 
 def get_access_settings():
-    """Return the access-control config: allowed viewer users/roles and the
-    channel ticket activity gets logged to. Reads from MongoDB when
-    MONGODB_URI is configured, otherwise from the local access.json file."""
+    """Return the access-control config: allowed viewer users/roles, the
+    channel ticket activity gets logged to, and roles that are blocked from
+    creating tickets. Reads from MongoDB when MONGODB_URI is configured,
+    otherwise from the local access.json file."""
     db = get_db()
     if db is not None:
         doc = db.access_control.find_one({"_id": "singleton"})
@@ -23,6 +24,7 @@ def get_access_settings():
         doc.setdefault("allowed_users", [])
         doc.setdefault("allowed_roles", [])
         doc.setdefault("log_channel_id", None)
+        doc.setdefault("blacklist_roles", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -33,6 +35,7 @@ def get_access_settings():
         data.setdefault("allowed_users", [])
         data.setdefault("allowed_roles", [])
         data.setdefault("log_channel_id", None)
+        data.setdefault("blacklist_roles", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -87,6 +90,42 @@ def remove_allowed_role(role_id: str) -> bool:
         _save(data)
         return True
     return False
+
+
+def add_blacklist_role(role_id: str) -> bool:
+    """Add a role to the Ticket Blacklist Role list. Any member holding one
+    of these roles is blocked from creating new tickets."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["blacklist_roles"]:
+        data["blacklist_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_blacklist_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["blacklist_roles"]:
+        data["blacklist_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_blacklist_role_ids():
+    return get_access_settings().get("blacklist_roles", [])
+
+
+def is_role_blacklisted(member_role_ids) -> bool:
+    """Return True if any of the given role IDs is on the Ticket Blacklist
+    Role list."""
+    if not member_role_ids:
+        return False
+    blacklist_roles = {str(r) for r in get_blacklist_role_ids()}
+    role_ids = {str(r) for r in member_role_ids}
+    return bool(role_ids.intersection(blacklist_roles))
 
 
 def set_log_channel(channel_id):
