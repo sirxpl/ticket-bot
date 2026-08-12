@@ -29,6 +29,46 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
+
+async def send_ticket_log(bot, action, **fields):
+    """Post a ticket-activity embed to the configured Access Control log
+    channel, if one is set. Silently does nothing if no channel is configured
+    or the bot can't find/post to it."""
+    try:
+        from utils.access import get_log_channel_id
+
+        channel_id = get_log_channel_id()
+        if not channel_id:
+            return
+        channel = bot.get_channel(int(channel_id))
+        if not channel:
+            return
+
+        colors = {
+            "opened": discord.Color.green(),
+            "closed": discord.Color.red(),
+        }
+        titles = {
+            "opened": "🎫 Ticket Opened",
+            "closed": "🔒 Ticket Closed",
+        }
+
+        embed = discord.Embed(
+            title=titles.get(action, action.title()),
+            color=colors.get(action, discord.Color.greyple()),
+            timestamp=datetime.datetime.utcnow(),
+        )
+        for key, value in fields.items():
+            if value is not None:
+                embed.add_field(
+                    name=key.replace("_", " ").title(), value=str(value), inline=True
+                )
+
+        await channel.send(embed=embed)
+    except Exception:
+        logger.exception(f"Failed to send ticket log embed for action={action}")
+
+
 def build_discord_like_transcript(
     messages, channel_name, ticket_meta, generated_at_iso, filename
 ):
@@ -592,6 +632,14 @@ class TicketView(discord.ui.View):
                         ephemeral=True,
                     )
 
+                    await send_ticket_log(
+                        outer_view.bot,
+                        "opened",
+                        ticket=ticket_channel.mention,
+                        opened_by=f"{user} ({user.id})",
+                        type=self.selection,
+                    )
+
                 except discord.Forbidden:
                     await modal_interaction.followup.send(
                         "❌ I lack permissions to create channels or set permissions in this server.",
@@ -856,6 +904,14 @@ class TicketsCog(commands.Cog):
                     add_cooldown(str(creator_id), hours=8)
             except Exception:
                 pass
+
+            await send_ticket_log(
+                self.bot,
+                "closed",
+                ticket=f"#{channel.name}",
+                closed_by=f"{executor} ({getattr(executor, 'id', executor)})",
+                reason=reason,
+            )
 
             try:
                 remove_active_ticket(str(channel.id))
