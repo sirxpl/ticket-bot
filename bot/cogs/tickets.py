@@ -32,7 +32,7 @@ if not logger.handlers:
 def build_discord_like_transcript(
     messages, channel_name, ticket_meta, generated_at_iso, filename
 ):
-"""Render a dark-themed Discord-like HTML transcript, including embeds,
+    """Render a dark-themed Discord-like HTML transcript, including embeds,
     buttons, and image/file attachments styled to match Discord's real UI."""
     safe = html.escape
 
