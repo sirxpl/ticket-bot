@@ -42,6 +42,8 @@ from utils.access import (
     remove_allowed_user,
     add_allowed_role,
     remove_allowed_role,
+    add_blacklist_role,
+    remove_blacklist_role,
     set_log_channel,
     has_dashboard_access,
 )
@@ -151,6 +153,11 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         allowed_roles.append({"id": rid, "name": role.name if role else None})
 
+    blacklist_roles = []
+    for rid in access_settings.get("blacklist_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        blacklist_roles.append({"id": rid, "name": role.name if role else None})
+
     transcripts = [
         get_transcript_info(fn) for fn in list_transcript_filenames()
     ]
@@ -169,6 +176,7 @@ def home():
         blacklisted_users=blacklist_info.get("blacklisted_users", []),
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
+        blacklist_roles=blacklist_roles,
         log_channel_id=access_settings.get("log_channel_id")
     )
 
@@ -418,6 +426,26 @@ def access_add_role():
 def access_remove_role(role_id):
     remove_allowed_role(role_id)
     flash("🗑️ Role removed from the allow-list.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-blacklist-role", methods=["POST"])
+@access_required
+def access_add_blacklist_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_blacklist_role(role_id)
+        flash("✅ Role added to the Ticket Blacklist.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-blacklist-role/<role_id>", methods=["POST"])
+@access_required
+def access_remove_blacklist_role(role_id):
+    remove_blacklist_role(role_id)
+    flash("🗑️ Role removed from the Ticket Blacklist.", "info")
     return redirect(url_for("home"))
 
 
