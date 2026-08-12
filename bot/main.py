@@ -33,6 +33,17 @@ from utils.storage import (
     get_transcript_info
 )
 
+# Import access-control helpers
+from utils.access import (
+    get_access_settings,
+    add_allowed_user,
+    remove_allowed_user,
+    add_allowed_role,
+    remove_allowed_role,
+    set_log_channel,
+    has_dashboard_access,
+)
+
 # Environment & OAuth Setup
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
@@ -76,12 +87,47 @@ def login_required(f):
     return decorated_function
 
 
+def get_member_role_ids(user_id):
+    """Look up a logged-in user's role IDs in the bot's guild, used to check
+    access-control role matches. Returns [] if the guild/member isn't found."""
+    guild = bot.guilds[0] if bot.guilds else None
+    if not guild:
+        return []
+    member = guild.get_member(int(user_id))
+    if not member:
+        return []
+    return [str(r.id) for r in member.roles]
+
+
+def access_required(f):
+    """Like login_required, but also enforces the Access Control allow-list."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 # --- FLASK ROUTES ---
 @app.route("/")
 def home():
     user_data = session.get("user", None)
     if not user_data:
         return render_template("dashboard.html", user=None)
+
+    role_ids = get_member_role_ids(user_data["id"])
+    if not has_dashboard_access(user_data["id"], role_ids):
+        flash("⛔ You don't have permission to view this dashboard. Ask an admin to add your user ID or role in Access Control.", "danger")
+        session.pop("user", None)
+        return redirect(url_for("home"))
 
     guild = bot.guilds[0] if bot.guilds else None
     channels = guild.text_channels if guild else []
@@ -91,6 +137,17 @@ def home():
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
     settings = get_settings()
+    access_settings = get_access_settings()
+
+    allowed_users = []
+    for uid in access_settings.get("allowed_users", []):
+        member = guild.get_member(int(uid)) if guild else None
+        allowed_users.append({"id": uid, "name": str(member) if member else None})
+
+    allowed_roles = []
+    for rid in access_settings.get("allowed_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        allowed_roles.append({"id": rid, "name": role.name if role else None})
 
     transcripts = []
     if os.path.exists(TRANSCRIPTS_DIR):
@@ -110,7 +167,10 @@ def home():
         active_tickets=tickets_info.get("active_tickets", []),
         transcripts=transcripts,
         cooldowns=tickets_info.get("cooldowns", []),
-        blacklisted_users=blacklist_info.get("blacklisted_users", [])
+        blacklisted_users=blacklist_info.get("blacklisted_users", []),
+        allowed_users=allowed_users,
+        allowed_roles=allowed_roles,
+        log_channel_id=access_settings.get("log_channel_id")
     )
 
 
@@ -159,7 +219,7 @@ def logout():
 
 
 @app.route("/dashboard/toggle-tickets", methods=["POST"])
-@login_required
+@access_required
 def toggle_tickets():
     is_enabled = request.form.get("tickets_enabled") in ["on", "true", "True"]
     set_tickets_enabled(is_enabled)
@@ -189,7 +249,7 @@ def get_transcript(filename):
 
 
 @app.route("/tickets/logs")
-@login_required
+@access_required
 def view_ticket_logs():
     logs = get_ticket_logs()
     # sort descending
@@ -210,7 +270,7 @@ def debug_ticket_logs():
 
 
 @app.route("/tickets/<ticket_id>")
-@login_required
+@access_required
 def view_ticket(ticket_id):
     logs = get_logs_for_ticket(ticket_id)
     ticket = None
@@ -240,14 +300,14 @@ def view_ticket(ticket_id):
 
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@login_required
+@access_required
 def api_unblacklist(user_id):
     remove_from_blacklist(user_id)
     return jsonify({"success": True})
 
 
 @app.route("/api/remove-cooldown/<user_id>", methods=["POST"])
-@login_required
+@access_required
 def api_remove_cooldown(user_id):
     from utils.storage import remove_cooldown
     ok = remove_cooldown(user_id)
@@ -255,7 +315,7 @@ def api_remove_cooldown(user_id):
 
 
 @app.route("/dashboard/tickets", methods=["POST"])
-@login_required
+@access_required
 def deploy_ticket_panel():
     def safe_int(val):
         try:
@@ -313,6 +373,55 @@ def deploy_ticket_panel():
         flash("❌ Ticket cog not found.", "danger")
 
     return redirect("/")
+
+
+@app.route("/dashboard/access/add-user", methods=["POST"])
+@access_required
+def access_add_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_allowed_user(user_id)
+        flash("✅ User added to the dashboard allow-list.", "success")
+    else:
+        flash("❌ Please enter a valid numeric Discord user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-user/<user_id>", methods=["POST"])
+@access_required
+def access_remove_user(user_id):
+    remove_allowed_user(user_id)
+    flash("🗑️ User removed from the allow-list.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-role", methods=["POST"])
+@access_required
+def access_add_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_allowed_role(role_id)
+        flash("✅ Role added to the dashboard allow-list.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-role/<role_id>", methods=["POST"])
+@access_required
+def access_remove_role(role_id):
+    remove_allowed_role(role_id)
+    flash("🗑️ Role removed from the allow-list.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/set-log-channel", methods=["POST"])
+@access_required
+def access_set_log_channel():
+    channel_id = request.form.get("log_channel_id", "").strip()
+    set_log_channel(channel_id or None)
+    flash("✅ Ticket activity log channel updated.", "success")
+    return redirect(url_for("home"))
 
 
 # --- BOT EVENT HANDLERS & RUNNER ---
