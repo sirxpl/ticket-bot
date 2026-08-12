@@ -30,7 +30,9 @@ from utils.storage import (
     set_tickets_enabled,
     get_ticket_logs,
     get_logs_for_ticket,
-    get_transcript_info
+    get_transcript_info,
+    get_transcript_html,
+    list_transcript_filenames
 )
 
 # Import access-control helpers
@@ -149,12 +151,9 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         allowed_roles.append({"id": rid, "name": role.name if role else None})
 
-    transcripts = []
-    if os.path.exists(TRANSCRIPTS_DIR):
-        transcripts = [
-            get_transcript_info(os.path.basename(f))
-            for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")
-        ]
+    transcripts = [
+        get_transcript_info(fn) for fn in list_transcript_filenames()
+    ]
 
     return render_template(
         "dashboard.html",
@@ -232,20 +231,27 @@ def toggle_tickets():
 @app.route("/transcripts/<path:filename>")
 def get_transcript(filename):
     # Allow access with a valid short-lived token (for DMed links); otherwise require login
-    from flask import request, abort
+    from flask import request, abort, Response
+
+    def _serve():
+        html = get_transcript_html(filename)
+        if html is None:
+            abort(404)
+        return Response(html, mimetype="text/html")
+
     token = request.args.get('token')
     if token:
         from utils.storage import verify_transcript_token
         info = verify_transcript_token(token)
         if not info or info.get('filename') != filename:
             abort(403)
-        return send_from_directory(TRANSCRIPTS_DIR, filename)
+        return _serve()
 
     # no token, require logged-in session
     if not session.get('user'):
         flash("🔒 Please log in with Discord to access the transcript.", "warning")
         return redirect(url_for('login'))
-    return send_from_directory(TRANSCRIPTS_DIR, filename)
+    return _serve()
 
 
 @app.route("/tickets/logs")
