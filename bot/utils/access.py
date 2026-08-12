@@ -102,12 +102,22 @@ def get_log_channel_id():
 def has_dashboard_access(user_id: str, member_role_ids=None) -> bool:
     """Return True if this Discord user is allowed to view the dashboard.
 
-    Access is opt-in: until at least one user or role has been added to the
-    allow-list, everyone who logs in with Discord can view the dashboard
-    (this is the existing behavior, kept as the default so nobody gets
-    locked out before setting the allow-list up). Once at least one entry
-    exists, only matching users/roles are let in.
+    An ADMIN_USER_IDS env var (comma-separated Discord user IDs) always
+    passes, regardless of the allow-list below — this exists so a bad
+    Access Control entry can never fully lock every admin out.
+
+    Otherwise, access is opt-in: until at least one user or role has been
+    added to the allow-list, everyone who logs in with Discord can view the
+    dashboard (this is the original behavior, kept as the default so nobody
+    gets locked out before setting the allow-list up). Once at least one
+    entry exists, only matching users/roles/admins are let in.
     """
+    admin_ids = {
+        uid.strip() for uid in os.getenv("ADMIN_USER_IDS", "").split(",") if uid.strip()
+    }
+    if str(user_id) in admin_ids:
+        return True
+
     data = get_access_settings()
     allowed_users = data.get("allowed_users", [])
     allowed_roles = data.get("allowed_roles", [])
