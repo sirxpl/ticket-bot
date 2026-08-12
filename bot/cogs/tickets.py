@@ -419,7 +419,7 @@ class TicketView(discord.ui.View):
         selection = select.values[0] if select.values else "General Support"
         outer_view = self
 
-        # check blacklist
+        # check blacklist (individually-blacklisted user IDs)
         try:
             bl = get_blacklist_data()
             blacklisted = [str(u) for u in bl.get("blacklisted_users", [])]
@@ -441,6 +441,39 @@ class TicketView(discord.ui.View):
                     embed=emb, ephemeral=True
                 )
                 return
+        except Exception:
+            pass
+
+        # check ticket blacklist roles (set from the dashboard's Access Control page)
+        try:
+            from utils.access import get_blacklist_role_ids
+
+            blacklist_role_ids = {str(r) for r in get_blacklist_role_ids()}
+            if blacklist_role_ids:
+                member_role_ids = {
+                    str(r.id) for r in getattr(interaction.user, "roles", [])
+                }
+                matched_ids = member_role_ids.intersection(blacklist_role_ids)
+                if matched_ids:
+                    guild = interaction.guild
+                    matched_role = (
+                        guild.get_role(int(next(iter(matched_ids))))
+                        if guild
+                        else None
+                    )
+                    role_mention = (
+                        matched_role.mention if matched_role else "a blacklisted role"
+                    )
+                    emb = discord.Embed(
+                        title="❌ Blocked Role",
+                        description=f"You cannot create tickets on this panel because you have the {role_mention} role.",
+                        color=discord.Color.red(),
+                    )
+                    emb.set_footer(text="Tickety | Tickety.top")
+                    await interaction.response.send_message(
+                        embed=emb, ephemeral=True
+                    )
+                    return
         except Exception:
             pass
 
