@@ -29,7 +29,206 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
+def build_discord_like_transcript(
+    messages, channel_name, ticket_meta, generated_at_iso, filename
+):
+"""Render a dark-themed Discord-like HTML transcript, including embeds,
+    buttons, and image/file attachments styled to match Discord's real UI."""
+    safe = html.escape
 
+    def render_embed(embed):
+        color_hex = "#5865f2"
+        if embed.get("color") is not None:
+            try:
+                color_hex = f"#{int(embed['color']):06x}"
+            except Exception:
+                pass
+
+        out = [f'<div class="discord-embed" style="border-left-color:{color_hex}">']
+
+        if embed.get("thumbnail_url"):
+            out.append(f'<img class="embed-thumb" src="{safe(embed["thumbnail_url"])}"/>')
+
+        if embed.get("author_name"):
+            out.append('<div class="embed-author">')
+            if embed.get("author_icon"):
+                out.append(f'<img src="{safe(embed["author_icon"])}"/>')
+            out.append(f'<span>{safe(embed["author_name"])}</span>')
+            out.append("</div>")
+
+        if embed.get("title"):
+            title_html = safe(embed["title"])
+            if embed.get("url"):
+                title_html = f'<a href="{safe(embed["url"])}" target="_blank">{title_html}</a>'
+            out.append(f'<div class="embed-title">{title_html}</div>')
+
+        if embed.get("description"):
+            out.append(f'<div class="embed-desc">{safe(embed["description"])}</div>')
+
+        fields = embed.get("fields") or []
+        if fields:
+            out.append('<div class="embed-fields">')
+            for f in fields:
+                cls = "embed-field" if f.get("inline") else "embed-field full"
+                out.append(f'<div class="{cls}">')
+                out.append(f'<div class="embed-field-name">{safe(f.get("name",""))}</div>')
+                out.append(f'<div class="embed-field-value">{safe(f.get("value",""))}</div>')
+                out.append("</div>")
+            out.append("</div>")
+
+        if embed.get("image_url"):
+            out.append(f'<img class="embed-image" src="{safe(embed["image_url"])}"/>')
+
+        if embed.get("footer_text"):
+            out.append('<div class="embed-footer">')
+            if embed.get("footer_icon"):
+                out.append(f'<img src="{safe(embed["footer_icon"])}"/>')
+            out.append(f'<span>{safe(embed["footer_text"])}</span>')
+            out.append("</div>")
+
+        out.append("</div>")
+        return "".join(out)
+
+    def render_buttons(rows):
+        out = []
+        for row in rows:
+            out.append('<div class="discord-buttons">')
+            for btn in row:
+                style = btn.get("style") or "secondary"
+                label = safe(btn.get("label") or "")
+                emoji = btn.get("emoji")
+                prefix = f"{safe(emoji)} " if emoji else ""
+                link_icon = " ↗" if style == "link" else ""
+                out.append(
+                    f'<span class="discord-btn style-{safe(style)}">{prefix}{label}{link_icon}</span>'
+                )
+            out.append("</div>")
+        return "".join(out)
+
+    parts = []
+    parts.append("<!doctype html>")
+    parts.append(
+        '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    )
+    parts.append(f"<title>Transcript - {safe(channel_name)}</title>")
+    parts.append(
+        "<style>"
+        "body{background:#0f1114;color:#e6eef8;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;margin:0}"
+        ".container{max-width:900px;margin:20px auto;padding:18px}"
+        ".embed{background:#2f3136;border-left:4px solid #2a9df4;padding:12px;border-radius:6px;margin-bottom:16px}"
+        ".embed h2{margin:0 0 6px 0}"
+        ".field{margin:6px 0;padding:6px 10px;background:#222326;border-radius:6px}"
+        ".msg{display:flex;gap:12px;padding:10px;border-radius:8px;background:linear-gradient(180deg,#0f1114,#0f1114);margin-bottom:6px}"
+        ".avatar{width:42px;height:42px;border-radius:50%;flex:0 0 42px}"
+        ".msg-body{flex:1}"
+        ".meta{color:#9aa5b1;font-size:13px;margin-bottom:6px}"
+        ".content{white-space:pre-wrap;color:#dbe7ef}"
+        ".attachments{margin-top:6px}"
+        ".file-card{display:flex;align-items:center;gap:8px;background:#2b2d31;border:1px solid #3a3c42;border-radius:6px;padding:8px 12px;margin-top:6px;max-width:360px}"
+        ".file-card a{color:#00a8fc;text-decoration:none;font-weight:600}"
+        ".footer{margin-top:18px;padding:10px;color:#9aa5b1;font-size:13px;border-top:1px solid #1b1d20}"
+        ".discord-embed{background:#2b2d31;border-left:4px solid #5865f2;border-radius:4px;padding:12px 16px;margin:6px 0 6px 0;max-width:520px}"
+        ".discord-embed .embed-author{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;margin-bottom:6px}"
+        ".discord-embed .embed-author img{width:20px;height:20px;border-radius:50%}"
+        ".discord-embed .embed-title{font-weight:700;font-size:15px;margin-bottom:4px;color:#fff}"
+        ".discord-embed .embed-title a{color:#00a8fc;text-decoration:none}"
+        ".discord-embed .embed-desc{font-size:14px;color:#dbdee1;white-space:pre-wrap;margin-bottom:8px}"
+        ".discord-embed .embed-fields{display:flex;flex-wrap:wrap;gap:8px}"
+        ".discord-embed .embed-field{flex:1 1 auto;min-width:100px}"
+        ".discord-embed .embed-field.full{flex-basis:100%}"
+        ".discord-embed .embed-field-name{font-weight:600;font-size:13px;color:#fff;margin-bottom:2px}"
+        ".discord-embed .embed-field-value{font-size:13px;color:#dbdee1;white-space:pre-wrap}"
+        ".discord-embed .embed-thumb{float:right;width:80px;height:80px;border-radius:4px;margin-left:12px;object-fit:cover}"
+        ".discord-embed .embed-image{max-width:100%;border-radius:4px;margin-top:8px;display:block}"
+        ".discord-embed .embed-footer{display:flex;align-items:center;gap:6px;font-size:12px;color:#949ba4;margin-top:8px}"
+        ".discord-embed .embed-footer img{width:16px;height:16px;border-radius:50%}"
+        ".discord-buttons{display:flex;gap:8px;margin:8px 0 4px 0;flex-wrap:wrap}"
+        ".discord-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:3px;font-size:14px;font-weight:500;color:#fff;cursor:default}"
+        ".discord-btn.style-primary{background:#5865f2}"
+        ".discord-btn.style-secondary{background:#4e5058}"
+        ".discord-btn.style-success{background:#248046}"
+        ".discord-btn.style-danger{background:#da373c}"
+        ".discord-btn.style-link{background:#4e5058}"
+        "</style>"
+    )
+    parts.append("</head><body>")
+    parts.append('<div class="container">')
+
+    # ticket embed
+    parts.append('<div class="embed">')
+    parts.append(f"<h2>🎫 {safe(channel_name)}</h2>")
+    creator = ticket_meta.get("creator") if ticket_meta else None
+    if creator:
+        parts.append(
+            f'<div style="font-size:14px;color:#9aa5b1">Created by: {safe(creator.get("name",""))}</div>'
+        )
+    parts.append(
+        '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">'
+    )
+    fields = ticket_meta.get("fields") if ticket_meta else {}
+    if fields:
+        for k in ("timezone", "display_name", "can_join"):
+            v = fields.get(k)
+            if v:
+                parts.append(
+                    f'<div class="field"><strong>{safe(k.replace("_"," ").title())}:</strong> {safe(v)}</div>'
+                )
+    parts.append("</div>")
+    parts.append("</div>")
+
+    # messages
+    parts.append("<div>")
+    for m in messages:
+        parts.append('<div class="msg">')
+        parts.append(
+            f'<img class="avatar" src="{safe(m.get("avatar_url") or "https://cdn.discordapp.com/embed/avatars/0.png")}" alt="avatar"/>'
+        )
+        parts.append('<div class="msg-body">')
+        parts.append(
+            f'<div class="meta"><strong>{safe(m.get("author_name","Unknown"))}</strong> <span style="margin-left:8px">{safe(m.get("ts",""))}</span></div>'
+        )
+        if m.get("content"):
+            parts.append(
+                f'<div class="content">{safe(m.get("content",""))}</div>'
+            )
+
+        attachments = m.get("attachments") or []
+        if attachments:
+            parts.append('<div class="attachments">')
+            for a in attachments:
+                if a.get("is_image"):
+                    parts.append(
+                        f'<div><img src="{safe(a["url"])}" style="max-width:360px;border-radius:6px;margin-top:6px"/></div>'
+                    )
+                else:
+                    parts.append(
+                        '<div class="file-card">📎 '
+                        f'<a href="{safe(a["url"])}" target="_blank">{safe(a.get("filename") or a["url"])}</a>'
+                        "</div>"
+                    )
+            parts.append("</div>")
+
+        for embed in m.get("embeds") or []:
+            parts.append(render_embed(embed))
+
+        components = m.get("components") or []
+        if components:
+            parts.append(render_buttons(components))
+
+        parts.append("</div>")
+        parts.append("</div>")
+    parts.append("</div>")
+
+    # footer
+    parts.append('<div class="footer">')
+    parts.append(f"Transcript generated on {safe(generated_at_iso)}")
+    parts.append(
+        f'&nbsp; • &nbsp;<a href="{safe(filename)}" download>Download HTML</a>'
+    )
+    parts.append("</div>")
+
+    parts.append("</div></body></html>")
+    return "\n".join(parts)
 
 # --- PERSISTENT CLOSE BUTTON & CONFIRMATION ---
 class ConfirmView(discord.ui.View):
