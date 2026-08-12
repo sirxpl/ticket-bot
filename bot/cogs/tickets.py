@@ -584,22 +584,13 @@ class TicketView(discord.ui.View):
                     try:
                         from utils.storage import (
                             append_ticket_log,
-                            get_tickets_data,
+                            increment_ticket_counter,
                         )
 
                         ticket_id = str(ticket_channel.id)
                         timestamp = datetime.datetime.utcnow().isoformat() + "Z"
 
-                        tickets_data = get_tickets_data()
-                        tickets_data["ticket_counter"] = (
-                            tickets_data.get("ticket_counter", 0) + 1
-                        )
-                        ticket_number = tickets_data["ticket_counter"]
-                        try:
-                            with open("data/tickets.json", "w") as tf:
-                                json.dump(tickets_data, tf, indent=2)
-                        except Exception:
-                            pass
+                        ticket_number = increment_ticket_counter()
 
                         append_ticket_log({
                             "ticket_id": ticket_id,
@@ -843,10 +834,6 @@ class TicketsCog(commands.Cog):
                     "is_bot": getattr(m.author, "bot", False),
                 })
 
-            transcripts_dir = __import__(
-                "utils.storage", fromlist=["TRANSCRIPTS_DIR"]
-            ).TRANSCRIPTS_DIR
-            os.makedirs(transcripts_dir, exist_ok=True)
             filename = f"ticket-{channel.id}.html"
             generated_at = datetime.datetime.utcnow().isoformat() + "Z"
 
@@ -866,9 +853,8 @@ class TicketsCog(commands.Cog):
             html_out = build_discord_like_transcript(
                 messages, channel.name, ticket_meta, generated_at, filename
             )
-            path = os.path.join(transcripts_dir, filename)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(html_out)
+            from utils.storage import save_transcript_html
+            save_transcript_html(filename, html_out)
 
             timestamp = datetime.datetime.utcnow().isoformat() + "Z"
             from utils.storage import append_ticket_log, get_logs_for_ticket
