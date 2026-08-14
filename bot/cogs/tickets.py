@@ -12,10 +12,17 @@ from utils.storage import (
     add_active_ticket,
     add_cooldown,
     add_to_blacklist,
+    get_active_ticket,
     get_blacklist_data,
+    get_category_counter,
     get_settings,
+    increment_category_counter,
     is_on_cooldown,
+    is_ticket_channel,
     remove_active_ticket,
+    set_category_counter,
+    slugify,
+    update_active_ticket,
 )
 
 # logger for Render stdout/stderr so platform logs capture ticket close/delete events
@@ -307,6 +314,51 @@ class ConfirmView(discord.ui.View):
     ):
         await inter.response.edit_message(
             content="Cancelled.", view=None, ephemeral=True
+        )
+
+
+class RequestCloseView(discord.ui.View):
+    """Sent when staff run /requestclose. Only the ticket opener can respond
+    — staff cannot force the close through this view."""
+
+    def __init__(self, cog, target_channel, creator_id):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.target_channel = target_channel
+        self.creator_id = str(creator_id)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.creator_id:
+            await interaction.response.send_message(
+                "❌ Only the person who opened this ticket can respond to this request.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Yes, close it", style=discord.ButtonStyle.danger)
+    async def confirm(self, inter: discord.Interaction, btn: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await inter.response.edit_message(content="✅ Closing ticket...", view=self)
+        try:
+            await self.cog.do_close(
+                self.target_channel, inter.user, "Closed by opener via /requestclose"
+            )
+        except Exception as e:
+            try:
+                await inter.followup.send(
+                    f"❌ Failed to close ticket: {e}", ephemeral=True
+                )
+            except Exception:
+                pass
+
+    @discord.ui.button(label="No, keep it open", style=discord.ButtonStyle.secondary)
+    async def decline(self, inter: discord.Interaction, btn: discord.ui.Button):
+        for child in self.children:
+            child.disabled = True
+        await inter.response.edit_message(
+            content="Ticket will stay open.", view=self
         )
 
 
@@ -605,14 +657,29 @@ class TicketView(discord.ui.View):
                             read_messages=True, send_messages=True
                         )
 
-                category_id = settings.get("default_category_id")
+                from utils.storage import get_ticket_categories
+
+                categories = get_ticket_categories()
+                category_cfg = next(
+                    (c for c in categories if c.get("label") == self.selection),
+                    None,
+                )
+
+                category_id = (
+                    (category_cfg or {}).get("discord_category_id")
+                    or settings.get("default_category_id")
+                )
                 category = (
                     guild.get_channel(int(category_id))
                     if category_id
                     else None
                 )
 
-                channel_name = f"ticket-{user.name.lower().replace(' ', '-')}"
+                prefix = (category_cfg or {}).get("name_prefix") or slugify(
+                    self.selection
+                )
+                category_number = increment_category_counter(prefix)
+                channel_name = f"{prefix}-{category_number:04d}"
 
                 try:
                     ticket_channel = await guild.create_text_channel(
@@ -645,6 +712,12 @@ class TicketView(discord.ui.View):
                         value=self.can_join.value,
                         inline=False,
                     )
+                    if category_cfg and category_cfg.get("open_note"):
+                        embed.add_field(
+                            name="Note",
+                            value=category_cfg["open_note"],
+                            inline=False,
+                        )
 
                     await ticket_channel.send(
                         content=f"{user.mention}", embed=embed
@@ -673,6 +746,9 @@ class TicketView(discord.ui.View):
                             "action": "created",
                             "timestamp": timestamp,
                             "ticket_number": ticket_number,
+                            "category_label": self.selection,
+                            "category_prefix": prefix,
+                            "category_number": category_number,
                             "creator": {
                                 "id": str(user.id),
                                 "name": str(user),
@@ -689,6 +765,12 @@ class TicketView(discord.ui.View):
                             str(ticket_channel.id),
                             str(user.id),
                             ticket_number,
+                        )
+                        update_active_ticket(
+                            str(ticket_channel.id),
+                            category_label=self.selection,
+                            category_prefix=prefix,
+                            category_number=category_number,
                         )
                     except Exception:
                         pass
@@ -729,24 +811,186 @@ class TicketsCog(commands.Cog):
     def get_ticket_view(self):
         return TicketView(self.bot)
 
-    # Slash Command: /close
-    @app_commands.command(
-        name="close",
-        description="Close and delete the current ticket channel",
-    )
-    async def close_command(self, interaction: discord.Interaction):
-        if not interaction.channel.name.startswith("ticket-"):
+    async def _ticket_command_check(self, interaction: discord.Interaction) -> bool:
+        """Shared guard for all ticket-management slash commands: requires
+        Manage Channels and only works inside an active ticket channel."""
+        if not interaction.user.guild_permissions.manage_channels:
+            await interaction.response.send_message(
+                "❌ You need the **Manage Channels** permission to use this command.",
+                ephemeral=True,
+            )
+            return False
+        if not interaction.channel or not is_ticket_channel(interaction.channel.id):
             await interaction.response.send_message(
                 "❌ This command can only be used inside an active ticket channel.",
                 ephemeral=True,
             )
+            return False
+        return True
+
+    # Slash Command: /close [reason] — closes immediately, no opener confirmation
+    @app_commands.command(
+        name="close",
+        description="Close this ticket immediately, optionally with a reason",
+    )
+    @app_commands.describe(reason="Reason for closing this ticket (logged in the transcript)")
+    async def close_command(
+        self, interaction: discord.Interaction, reason: str = None
+    ):
+        if not await self._ticket_command_check(interaction):
             return
 
         await interaction.response.send_message(
-            "Are you sure you want to close this ticket?",
-            view=ConfirmView(self, interaction.channel),
+            f"🔒 Closing this ticket"
+            f"{f' — reason: {reason}' if reason else ''}...",
             ephemeral=True,
         )
+        try:
+            await self.do_close(
+                interaction.channel, interaction.user, reason or "No reason provided."
+            )
+        except Exception as e:
+            try:
+                await interaction.followup.send(
+                    f"❌ Failed to close ticket: {e}", ephemeral=True
+                )
+            except Exception:
+                pass
+
+    # Slash Command: /requestclose — asks the opener to confirm; staff can't force it
+    @app_commands.command(
+        name="requestclose",
+        description="Ask the ticket opener to confirm closing this ticket",
+    )
+    async def request_close_command(self, interaction: discord.Interaction):
+        if not await self._ticket_command_check(interaction):
+            return
+
+        ticket = get_active_ticket(interaction.channel.id)
+        creator_id = ticket.get("user_id") if ticket else None
+        if not creator_id:
+            await interaction.response.send_message(
+                "❌ Couldn't find who opened this ticket.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"<@{creator_id}>, {interaction.user.mention} has requested to close "
+            f"this ticket. Do you want to close it?",
+            view=RequestCloseView(self, interaction.channel, creator_id),
+        )
+
+    # Slash Command: /rename
+    @app_commands.command(name="rename", description="Rename this ticket channel")
+    @app_commands.describe(name="The new channel name")
+    async def rename_command(self, interaction: discord.Interaction, name: str):
+        if not await self._ticket_command_check(interaction):
+            return
+
+        new_name = slugify(name)[:90]
+        try:
+            await interaction.channel.edit(
+                name=new_name, reason=f"Renamed by {interaction.user}"
+            )
+            await interaction.response.send_message(
+                f"✅ Renamed to `{new_name}`.", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to rename: {e}", ephemeral=True
+            )
+
+    # Slash Command: /ticketnumber — resumes this ticket's category numbering
+    @app_commands.command(
+        name="ticketnumber",
+        description="Set this ticket category's numbering to resume from a given number",
+    )
+    @app_commands.describe(
+        number="The next new ticket in this category will continue counting up from this number"
+    )
+    async def ticket_number_command(
+        self, interaction: discord.Interaction, number: int
+    ):
+        if not await self._ticket_command_check(interaction):
+            return
+
+        ticket = get_active_ticket(interaction.channel.id)
+        prefix = (ticket or {}).get("category_prefix")
+        if not prefix:
+            await interaction.response.send_message(
+                "❌ Couldn't determine this ticket's category.", ephemeral=True
+            )
+            return
+
+        set_category_counter(prefix, number)
+        await interaction.response.send_message(
+            f"✅ `{prefix}` numbering set to **{number}** — the next new ticket in "
+            f"this category will be `{prefix}-{number + 1:04d}`.",
+            ephemeral=True,
+        )
+
+    # Slash Command: /move — move this ticket to a different ticket category
+    @app_commands.command(
+        name="move", description="Move this ticket to a different ticket category"
+    )
+    @app_commands.describe(category="The ticket category to move this ticket to")
+    async def move_command(self, interaction: discord.Interaction, category: str):
+        if not await self._ticket_command_check(interaction):
+            return
+
+        from utils.storage import get_ticket_categories
+
+        categories = get_ticket_categories()
+        target = next((c for c in categories if c.get("label") == category), None)
+        if not target:
+            await interaction.response.send_message(
+                "❌ Unknown category.", ephemeral=True
+            )
+            return
+
+        prefix = target.get("name_prefix") or slugify(category)
+        next_number = increment_category_counter(prefix)
+        new_name = f"{prefix}-{next_number:04d}"
+
+        try:
+            edit_kwargs = {
+                "name": new_name,
+                "reason": f"Moved to {category} by {interaction.user}",
+            }
+            discord_category_id = target.get("discord_category_id")
+            if discord_category_id:
+                disc_cat = interaction.guild.get_channel(int(discord_category_id))
+                if disc_cat:
+                    edit_kwargs["category"] = disc_cat
+
+            await interaction.channel.edit(**edit_kwargs)
+            update_active_ticket(
+                str(interaction.channel.id),
+                category_label=category,
+                category_prefix=prefix,
+                category_number=next_number,
+            )
+            await interaction.response.send_message(
+                f"✅ Moved to **{category}** — renamed to `{new_name}`.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to move ticket: {e}", ephemeral=True
+            )
+
+    @move_command.autocomplete("category")
+    async def move_command_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ):
+        from utils.storage import get_ticket_categories
+
+        categories = get_ticket_categories()
+        return [
+            app_commands.Choice(name=c["label"], value=c["label"])
+            for c in categories
+            if current.lower() in c["label"].lower()
+        ][:25]
 
     async def deploy_panel_from_dashboard(
         self,
