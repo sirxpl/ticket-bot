@@ -657,6 +657,21 @@ class TicketView(discord.ui.View):
                             read_messages=True, send_messages=True
                         )
 
+                try:
+                    from utils.access import get_ticket_viewer_role_ids
+
+                    for rid in get_ticket_viewer_role_ids():
+                        viewer_role = guild.get_role(int(rid))
+                        if viewer_role:
+                            overwrites[viewer_role] = discord.PermissionOverwrite(
+                                read_messages=True,
+                                send_messages=True,
+                                embed_links=True,
+                                attach_files=True,
+                            )
+                except Exception:
+                    pass
+
                 from utils.storage import get_ticket_categories
 
                 categories = get_ticket_categories()
