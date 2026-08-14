@@ -577,15 +577,27 @@ class TicketView(discord.ui.View):
             existing = get_active_ticket_for_user(interaction.user.id)
             if existing:
                 existing_channel_id = existing.get("channel_id")
-                channel_mention = (
-                    f"<#{existing_channel_id}>" if existing_channel_id else "your existing ticket"
+                existing_channel = (
+                    interaction.guild.get_channel(int(existing_channel_id))
+                    if interaction.guild and existing_channel_id
+                    else None
                 )
-                await interaction.response.send_message(
-                    f"❌ You already have an open ticket: {channel_mention}. "
-                    f"Please close it before opening a new one.",
-                    ephemeral=True,
-                )
-                return
+                if existing_channel is None:
+                    # the channel is gone (deleted manually, or while the bot
+                    # was offline) but the record was never cleaned up — heal
+                    # it here instead of permanently blocking this user
+                    remove_active_ticket(str(existing_channel_id))
+                    logger.info(
+                        f"Cleared stale active-ticket record for missing channel={existing_channel_id} (self-heal on new ticket attempt)"
+                    )
+                else:
+                    channel_mention = f"<#{existing_channel_id}>"
+                    await interaction.response.send_message(
+                        f"❌ You already have an open ticket: {channel_mention}. "
+                        f"Please close it before opening a new one.",
+                        ephemeral=True,
+                    )
+                    return
         except Exception:
             pass
 
@@ -843,6 +855,22 @@ class TicketsCog(commands.Cog):
 
     def get_ticket_view(self):
         return TicketView(self.bot)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        """If a ticket channel gets deleted directly in Discord (instead of
+        via /close, close-with-reason, or request-close), do_close() never
+        runs and the active-ticket record is left behind — permanently
+        blocking that user from opening a new ticket. Clean it up here so a
+        manual delete behaves the same as a normal close, storage-wise."""
+        try:
+            if is_ticket_channel(channel.id):
+                remove_active_ticket(str(channel.id))
+                logger.info(
+                    f"Cleared stale active-ticket record for manually deleted channel={channel.id}"
+                )
+        except Exception:
+            pass
 
     async def _ticket_command_check(self, interaction: discord.Interaction) -> bool:
         """Shared guard for all ticket-management slash commands: requires
