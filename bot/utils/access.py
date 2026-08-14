@@ -14,6 +14,7 @@ _DEFAULTS = {
     "log_channel_id": None,
     "blacklist_roles": [],
     "carry_manager_roles": [],
+    "ticket_viewer_roles": [],
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -50,6 +51,7 @@ def get_access_settings():
         doc.setdefault("log_channel_id", None)
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
+        doc.setdefault("ticket_viewer_roles", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -62,6 +64,7 @@ def get_access_settings():
         data.setdefault("log_channel_id", None)
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])
+        data.setdefault("ticket_viewer_roles", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -152,6 +155,33 @@ def is_role_blacklisted(member_role_ids) -> bool:
     blacklist_roles = {str(r) for r in get_blacklist_role_ids()}
     role_ids = {str(r) for r in member_role_ids}
     return bool(role_ids.intersection(blacklist_roles))
+
+
+def add_ticket_viewer_role(role_id: str) -> bool:
+    """Add a role that can view and chat in every ticket channel (with
+    embed/attachment permissions), applied as an overwrite when tickets are
+    created — separate from the single Support Role set on the panel."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["ticket_viewer_roles"]:
+        data["ticket_viewer_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_ticket_viewer_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["ticket_viewer_roles"]:
+        data["ticket_viewer_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_ticket_viewer_role_ids():
+    return get_access_settings().get("ticket_viewer_roles", [])
 
 
 def add_carry_manager_role(role_id: str) -> bool:
