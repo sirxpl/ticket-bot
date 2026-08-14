@@ -516,23 +516,36 @@ def save_ticket_categories_route():
     descriptions = request.form.getlist("cat_description")
     emojis = request.form.getlist("cat_emoji")
     blacklist_roles_raw = request.form.getlist("cat_blacklist_roles")
+    name_prefixes = request.form.getlist("cat_name_prefix")
+    open_notes = request.form.getlist("cat_open_note")
+    discord_category_ids = request.form.getlist("cat_discord_category_id")
 
-    # cat_blacklist_roles isn't guaranteed to line up 1:1 with the other
-    # lists (older cached pages, etc.) so pad it out defensively
-    while len(blacklist_roles_raw) < len(labels):
-        blacklist_roles_raw.append("")
+    # these lists aren't guaranteed to line up 1:1 with the other lists
+    # (older cached pages, etc.) so pad them out defensively
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids):
+        while len(lst) < len(labels):
+            lst.append("")
+
+    from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw in zip(labels, descriptions, emojis, blacklist_roles_raw):
+    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw in zip(
+        labels, descriptions, emojis, blacklist_roles_raw,
+        name_prefixes, open_notes, discord_category_ids,
+    ):
         label = label.strip()
         if not label:
             continue
         blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
+        prefix = slugify(prefix_raw.strip() or label)
         categories.append({
             "label": label[:100],
             "description": desc.strip()[:100],
             "emoji": emoji.strip() or None,
             "blacklist_roles": blacklist_roles,
+            "name_prefix": prefix,
+            "open_note": note_raw.strip()[:200],
+            "discord_category_id": disc_cat_raw.strip() or None,
         })
 
     if not categories:
