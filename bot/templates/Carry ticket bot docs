@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carry Ticket Bot — Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c12;
+    --surface:#14151f;
+    --surface-2:#191b28;
+    --border:#25273a;
+    --text:#eef0f7;
+    --muted:#8d90a8;
+    --yellow:#ffc93c;
+    --indigo:#7c6cf0;
+    --indigo-dim:#7c6cf033;
+    --radius:12px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    line-height:1.6;
+  }
+  h1,h2,h3,.brand,.navlink,.card h3{font-family:'Space Grotesk',sans-serif;}
+  code, .mono{font-family:'JetBrains Mono',monospace;}
+
+  /* ---- topbar ---- */
+  .topbar{
+    height:64px;
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 28px;
+    position:sticky; top:0; z-index:50;
+    background:rgba(11,12,18,0.9);
+    backdrop-filter:blur(10px);
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:17px; letter-spacing:0.2px;}
+  .brand .stub{
+    width:26px; height:20px; background:var(--yellow); border-radius:5px; position:relative;
+  }
+  .brand .stub::after{
+    content:""; position:absolute; left:60%; top:-3px; bottom:-3px; width:0;
+    border-left:2px dashed #0b0c1288;
+  }
+  .topbar-right{display:flex; align-items:center; gap:22px; font-size:14px; color:var(--muted);}
+  .topbar-right a{color:var(--muted); text-decoration:none;}
+  .topbar-right a:hover{color:var(--text);}
+  .dash-btn{
+    background:var(--indigo); color:white; padding:9px 16px; border-radius:8px; font-weight:600;
+    display:flex; align-items:center; gap:6px;
+  }
+
+  /* ---- layout ---- */
+  .layout{display:flex; max-width:1400px; margin:0 auto;}
+  .sidebar{
+    width:270px; flex-shrink:0; padding:32px 18px 60px 28px;
+    position:sticky; top:64px; height:calc(100vh - 64px); overflow-y:auto;
+  }
+  .sidebar h4{
+    font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted);
+    margin:26px 0 10px 12px; font-weight:600;
+  }
+  .sidebar h4:first-child{margin-top:0;}
+  .navlink{
+    display:flex; align-items:center; gap:0;
+    padding:8px 12px; border-radius:8px; color:var(--muted); text-decoration:none;
+    font-size:14.5px; font-weight:500; cursor:pointer; position:relative;
+    border-left:2px solid transparent;
+    margin-bottom:2px;
+  }
+  .navlink:hover{color:var(--text); background:var(--surface);}
+  .navlink.active{
+    color:var(--yellow); background:var(--indigo-dim); border-left:2px dashed var(--yellow);
+    font-weight:600;
+  }
+
+  main{flex:1; padding:40px 40px 120px 40px; min-width:0;}
+  .page{display:none;}
+  .page.active{display:block;}
+  .eyebrow{color:var(--indigo); font-weight:600; font-size:13px; letter-spacing:0.04em; margin-bottom:10px;}
+  .eyebrow.yellow{color:var(--yellow);}
+  h1.title{font-size:40px; font-weight:700; margin-bottom:16px; letter-spacing:-0.5px;}
+  .lede{color:var(--muted); font-size:17px; max-width:680px; margin-bottom:36px;}
+
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;}
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:22px; transition:border-color .15s;
+  }
+  .card:hover{border-color:var(--indigo);}
+  .card .icon{
+    width:34px; height:34px; border-radius:8px; background:var(--indigo-dim);
+    display:flex; align-items:center; justify-content:center; margin-bottom:14px; color:var(--yellow); font-size:17px;
+  }
+  .card h3{font-size:16px; margin-bottom:6px;}
+  .card p{color:var(--muted); font-size:14px;}
+
+  h2.section-h{font-size:24px; margin:44px 0 14px 0; font-weight:700;}
+  h3.sub-h{font-size:17px; margin:26px 0 10px 0; font-weight:600; color:var(--text);}
+  p.body-p{color:#c7c9db; font-size:15px; margin-bottom:14px; max-width:720px;}
+  ul.doc-list{margin:0 0 16px 0; padding-left:0; list-style:none; max-width:720px;}
+  ul.doc-list li{
+    color:#c7c9db; font-size:14.5px; padding:6px 0 6px 20px; position:relative;
+  }
+  ul.doc-list li::before{
+    content:""; position:absolute; left:2px; top:15px; width:6px; height:6px;
+    background:var(--yellow); border-radius:50%;
+  }
+  ul.doc-list li b{color:var(--text);}
+
+  .cmd{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:16px 18px; margin-bottom:12px; max-width:720px;
+  }
+  .cmd .sig{color:var(--yellow); font-weight:600; font-size:15px; margin-bottom:6px;}
+  .cmd .desc{color:#c7c9db; font-size:14px;}
+  .cmd .note{color:var(--muted); font-size:13px; margin-top:6px; font-style:italic;}
+
+  table.ref{width:100%; max-width:720px; border-collapse:collapse; margin-top:8px;}
+  table.ref th{
+    background:var(--surface-2); text-align:left; padding:10px 14px; font-size:12px;
+    text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); border:1px solid var(--border);
+  }
+  table.ref td{padding:10px 14px; border:1px solid var(--border); font-size:14px; color:#c7c9db;}
+
+  .callout{
+    border-left:2px dashed var(--yellow); background:var(--surface); border-radius:8px;
+    padding:14px 18px; max-width:720px; margin:18px 0; font-size:14px; color:#c7c9db;
+  }
+
+  .next-link{
+    display:inline-flex; align-items:center; gap:6px; color:var(--text); text-decoration:none;
+    font-weight:600; font-size:14px; margin-top:40px;
+  }
+  .next-link span.arrow{color:var(--yellow);}
+
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
+
+  @media (max-width:900px){
+    .sidebar{display:none;}
+    .grid{grid-template-columns:1fr;}
+    main{padding:28px 20px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="stub"></span> Carry Ticket Bot</div>
+  <div class="topbar-right">
+    <a href="#">Support</a>
+    <a href="#">Status</a>
+    <div class="dash-btn">Dashboard ›</div>
+  </div>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <h4>Getting Started</h4>
+    <a class="navlink active" data-page="welcome">Welcome</a>
+    <a class="navlink" data-page="lifecycle">How a Ticket Works</a>
+    <a class="navlink" data-page="dashboard">Dashboard Overview</a>
+
+    <h4>Dashboard</h4>
+    <a class="navlink" data-page="categories">Ticket Categories</a>
+    <a class="navlink" data-page="panelbuilder">Panel Builder</a>
+    <a class="navlink" data-page="blacklist">Blacklist</a>
+    <a class="navlink" data-page="access">Access Control</a>
+    <a class="navlink" data-page="transcripts">Transcripts</a>
+
+    <h4>Staff Commands</h4>
+    <a class="navlink" data-page="commands">Slash Commands</a>
+
+    <h4>Reference</h4>
+    <a class="navlink" data-page="quickref">Quick Reference</a>
+  </aside>
+
+  <main>
+
+    <!-- WELCOME -->
+    <section class="page active" id="page-welcome">
+      <div class="eyebrow">Getting Started</div>
+      <h1 class="title">Welcome to Carry Ticket Bot</h1>
+      <p class="lede">A full ticket & carry-request platform for your Discord server — category-based tickets, staff commands, transcripts, and a web dashboard for configuring everything in one place.</p>
+
+      <div class="grid">
+        <div class="card">
+          <div class="icon">🎫</div>
+          <h3>Open a Ticket</h3>
+          <p>Members pick a category from the panel dropdown, answer a short modal, and get a private channel auto-named for that category.</p>
+        </div>
+        <div class="card">
+          <div class="icon">⚙️</div>
+          <h3>Configure the Dashboard</h3>
+          <p>Set categories, the support role, viewer roles, blacklists, and where activity gets logged — all from the web dashboard.</p>
+        </div>
+        <div class="card">
+          <div class="icon">📜</div>
+          <h3>Transcripts</h3>
+          <p>Every closed ticket saves a styled transcript, and the opener is DMed a signed link the moment it closes.</p>
+        </div>
+        <div class="card">
+          <div class="icon">🧭</div>
+          <h3>Staff Commands</h3>
+          <p>Close, rename, move, or resume numbering on any ticket right from the channel with slash commands.</p>
+        </div>
+      </div>
+
+      <a class="next-link" href="#" data-goto="lifecycle">How a ticket works <span class="arrow">›</span></a>
+    </section>
+
+    <!-- LIFECYCLE -->
+    <section class="page" id="page-lifecycle">
+      <div class="eyebrow yellow">Getting Started</div>
+      <h1 class="title">How a Ticket Works</h1>
+      <p class="lede">What happens from the moment someone clicks the panel to the moment their ticket closes.</p>
+
+      <h2 class="section-h">Opening a Ticket</h2>
+      <p class="body-p">A member picks a category from the panel's dropdown. Before the modal opens, the bot checks, in order:</p>
+      <ul class="doc-list">
+        <li>Is ticket creation currently enabled?</li>
+        <li>Is the user individually blacklisted?</li>
+        <li>Does the user hold a server-wide Ticket Blacklist Role?</li>
+        <li>Does the user hold a role blacklisted from this specific category?</li>
+        <li>Does the user already have another ticket open, in <b>any</b> category?</li>
+        <li>Is the user on cooldown from a recently closed ticket?</li>
+      </ul>
+      <p class="body-p">If every check passes, a modal collects timezone, display name, and whether they can join a private server. The channel is then created and auto-named using that category's prefix and running number — e.g. <code>fallen-carry-0001</code>.</p>
+
+      <h2 class="section-h">Closing a Ticket</h2>
+      <p class="body-p">There are three ways to close a ticket:</p>
+      <ul class="doc-list">
+        <li><b>Close button</b> in the channel — asks for confirmation first</li>
+        <li><b>/close [reason]</b> — staff closes immediately, reason is logged in the transcript</li>
+        <li><b>/requestclose</b> — asks the ticket opener to confirm; staff cannot force this through, only the opener can approve or decline</li>
+      </ul>
+      <p class="body-p">On close: a transcript is generated, the opener is DMed the link, the action is logged, an 8-hour cooldown is applied, and the channel is deleted shortly after.</p>
+
+      <div class="callout">If a ticket channel is deleted directly in Discord instead of through one of the methods above, the bot detects the deletion and cleans up its internal record automatically — so the user isn't permanently blocked from opening a new ticket.</div>
+    </section>
+
+    <!-- DASHBOARD OVERVIEW -->
+    <section class="page" id="page-dashboard">
+      <div class="eyebrow">Dashboard</div>
+      <h1 class="title">Dashboard Overview</h1>
+      <p class="lede">Everything you configure lives across a few pages in the web dashboard.</p>
+      <table class="ref">
+        <tr><th>Page</th><th>What it does</th></tr>
+        <tr><td>Overview</td><td>Total lifetime tickets, currently open tickets, and active cooldowns</td></tr>
+        <tr><td>Carry Manager Settings</td><td>Ticket categories &amp; the panel builder — restricted to admins/carry managers</td></tr>
+        <tr><td>Blacklist</td><td>Individually blacklisted users, plus a read-only list of members blocked via role</td></tr>
+        <tr><td>Transcripts</td><td>Saved HTML transcripts for every closed ticket</td></tr>
+        <tr><td>Access Control</td><td>Who can log in, viewer/blacklist roles, and the activity log channel — admin only</td></tr>
+      </table>
+    </section>
+
+    <!-- CATEGORIES -->
+    <section class="page" id="page-categories">
+      <div class="eyebrow">Dashboard</div>
+      <h1 class="title">Ticket Categories</h1>
+      <p class="lede">The dropdown options members see when opening a ticket, configured in Carry Manager Settings.</p>
+      <ul class="doc-list">
+        <li><b>Label, description, emoji</b> — what shows in the dropdown</li>
+        <li><b>Blacklist Roles</b> — members with these roles can't select this specific category</li>
+        <li><b>Name Prefix</b> — tickets auto-name as <code>prefix-0001</code>, <code>prefix-0002</code>, and so on</li>
+        <li><b>Open Note</b> — optional text shown as a field in the ticket embed the moment it's created</li>
+        <li><b>Discord Category ID</b> (optional) — physically creates/moves the channel under a specific Discord category</li>
+      </ul>
+    </section>
+
+    <!-- PANEL BUILDER -->
+    <section class="page" id="page-panelbuilder">
+      <div class="eyebrow">Dashboard</div>
+      <h1 class="title">Advanced Panel Builder</h1>
+      <p class="lede">Deploys the ticket panel embed to a channel of your choice.</p>
+      <ul class="doc-list">
+        <li>Target channel &amp; default category for opened tickets</li>
+        <li>Support Role &amp; embed accent color</li>
+        <li>Panel title, description, image, thumbnail, footer</li>
+        <li>Custom embed fields</li>
+      </ul>
+    </section>
+
+    <!-- BLACKLIST -->
+    <section class="page" id="page-blacklist">
+      <div class="eyebrow">Dashboard</div>
+      <h1 class="title">Blacklist</h1>
+      <p class="lede">Two lists live here.</p>
+      <h3 class="sub-h">Blacklisted Users</h3>
+      <p class="body-p">Individually blacklisted by user ID — can be removed directly from this page.</p>
+      <h3 class="sub-h">Blacklisted via Role</h3>
+      <p class="body-p">Read-only list of members currently blocked because they hold a Ticket Blacklist Role. To un-blacklist someone here, remove the role from them, or remove the role itself in Access Control.</p>
+    </section>
+
+    <!-- ACCESS CONTROL -->
+    <section class="page" id="page-access">
+      <div class="eyebrow">Dashboard</div>
+      <h1 class="title">Access Control</h1>
+      <p class="lede">Admin-only — controls who can do what.</p>
+      <ul class="doc-list">
+        <li><b>Allowed Users / Roles</b> — who can log into the dashboard at all</li>
+        <li><b>Carry Manager Settings Access</b> — which roles can use Carry Manager Settings</li>
+        <li><b>Ticket Blacklist Role</b> — roles blocked from creating any ticket, server-wide. Supports multiple.</li>
+        <li><b>Ticket Viewer Roles</b> — roles that get view + chat access on every ticket, with embed/attachment permissions, separate from the single Support Role</li>
+        <li><b>Ticket Activity Log Channel</b> — where opened/closed events get logged</li>
+      </ul>
+    </section>
+
+    <!-- TRANSCRIPTS -->
+    <section class="page" id="page-transcripts">
+      <div class="eyebrow">Dashboard</div>
+      <h1 class="title">Transcripts</h1>
+      <p class="lede">Every closed ticket generates a saved HTML transcript, styled like Discord, listing messages, embeds, and attachments. The ticket creator is also DMed a signed, short-lived link the moment their ticket closes.</p>
+    </section>
+
+    <!-- COMMANDS -->
+    <section class="page" id="page-commands">
+      <div class="eyebrow yellow">Staff Commands</div>
+      <h1 class="title">Slash Command Reference</h1>
+      <p class="lede">All commands below require the Manage Channels permission and only work inside an active ticket channel.</p>
+
+      <div class="cmd">
+        <div class="sig">/close [reason]</div>
+        <div class="desc">Closes the current ticket immediately. Reason is optional and gets logged in the transcript.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/requestclose</div>
+        <div class="desc">Sends the ticket opener a Yes/No prompt to confirm the close.</div>
+        <div class="note">Only the ticket opener can respond — staff cannot force the close through this command.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/rename &lt;name&gt;</div>
+        <div class="desc">Renames the current ticket channel.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/ticketnumber &lt;number&gt;</div>
+        <div class="desc">Resumes this ticket's category counter from the given number.</div>
+        <div class="note">The next new ticket in that category becomes number + 1, then keeps counting up automatically.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/move &lt;category&gt;</div>
+        <div class="desc">Moves the ticket to a different configured category — renames it with that category's prefix/counter, and physically relocates the channel if a Discord Category ID is set.</div>
+        <div class="note">Autocompletes from your configured Ticket Categories.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/scan_url &lt;url&gt;</div>
+        <div class="desc">Checks a URL against VirusTotal and returns the scan result.</div>
+      </div>
+    </section>
+
+    <!-- QUICK REF -->
+    <section class="page" id="page-quickref">
+      <div class="eyebrow">Reference</div>
+      <h1 class="title">Quick Reference</h1>
+      <p class="lede">A one-glance lookup of which page controls which setting.</p>
+      <table class="ref">
+        <tr><th>Setting</th><th>Where to configure it</th></tr>
+        <tr><td>Ticket categories</td><td>Carry Manager Settings</td></tr>
+        <tr><td>Support role</td><td>Carry Manager Settings → Advanced Panel Builder</td></tr>
+        <tr><td>Ticket viewer roles</td><td>Access Control</td></tr>
+        <tr><td>Ticket blacklist roles</td><td>Access Control</td></tr>
+        <tr><td>Individually blacklisted users</td><td>Blacklist page</td></tr>
+        <tr><td>Ticket activity log channel</td><td>Access Control</td></tr>
+        <tr><td>Dashboard login access</td><td>Access Control</td></tr>
+      </table>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  const links = document.querySelectorAll('.navlink');
+  const pages = document.querySelectorAll('.page');
+  function goTo(id){
+    links.forEach(l => l.classList.toggle('active', l.dataset.page === id));
+    pages.forEach(p => p.classList.toggle('active', p.id === 'page-' + id));
+    window.scrollTo({top:0, behavior:'instant'});
+  }
+  links.forEach(l => l.addEventListener('click', () => goTo(l.dataset.page)));
+  document.querySelectorAll('[data-goto]').forEach(el => {
+    el.addEventListener('click', e => { e.preventDefault(); goTo(el.dataset.goto); });
+  });
+</script>
+
+</body>
+</html>
