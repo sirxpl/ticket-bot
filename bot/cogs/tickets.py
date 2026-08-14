@@ -480,6 +480,45 @@ class TicketView(discord.ui.View):
         except Exception:
             pass
 
+        # check per-category blacklist roles (set per dropdown option)
+        try:
+            from utils.storage import get_ticket_categories
+
+            categories = get_ticket_categories()
+            matched_category = next(
+                (c for c in categories if c.get("label") == selection), None
+            )
+            cat_blacklist_ids = {
+                str(r) for r in (matched_category.get("blacklist_roles", []) if matched_category else [])
+            }
+            if cat_blacklist_ids:
+                member_role_ids = {
+                    str(r.id) for r in getattr(interaction.user, "roles", [])
+                }
+                matched_ids = member_role_ids.intersection(cat_blacklist_ids)
+                if matched_ids:
+                    guild = interaction.guild
+                    matched_role = (
+                        guild.get_role(int(next(iter(matched_ids))))
+                        if guild
+                        else None
+                    )
+                    role_mention = (
+                        matched_role.mention if matched_role else "a blacklisted role"
+                    )
+                    emb = discord.Embed(
+                        title="❌ Blocked Category",
+                        description=f"You cannot open a **{selection}** ticket because you have the {role_mention} role.",
+                        color=discord.Color.red(),
+                    )
+                    emb.set_footer(text="Tickety | Tickety.top")
+                    await interaction.response.send_message(
+                        embed=emb, ephemeral=True
+                    )
+                    return
+        except Exception:
+            pass
+
         # check cooldown
         try:
             on_cd, cd = is_on_cooldown(str(interaction.user.id))
