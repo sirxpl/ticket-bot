@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import re
 import time
 import glob
 
@@ -47,6 +48,14 @@ def set_tickets_enabled(status: bool):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
+def slugify(text: str) -> str:
+    """Turn a label into a lowercase, hyphenated channel-name-safe prefix,
+    e.g. 'Fallen Carry' -> 'fallen-carry'."""
+    text = (text or "").lower().strip()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    return text.strip("-") or "ticket"
+
+
 # --- CUSTOM TICKET CATEGORY DROPDOWN ---
 _DEFAULT_TICKET_CATEGORIES = [
     {"label": "General Support", "description": "General help or questions", "emoji": "❓"},
@@ -59,9 +68,12 @@ def get_ticket_categories():
     categories = settings.get("ticket_categories")
     if not categories:
         categories = list(_DEFAULT_TICKET_CATEGORIES)
-    # backward-compatible: older saved categories won't have blacklist_roles yet
+    # backward-compatible: older saved categories won't have these yet
     for c in categories:
         c.setdefault("blacklist_roles", [])
+        c.setdefault("name_prefix", slugify(c.get("label", "ticket")))
+        c.setdefault("open_note", "")
+        c.setdefault("discord_category_id", None)
     return categories
 
 def save_ticket_categories(categories: list):
@@ -136,6 +148,55 @@ def increment_ticket_counter():
     data["ticket_counter"] = data.get("ticket_counter", 0) + 1
     _save_tickets_data(data)
     return data["ticket_counter"]
+
+
+# --- PER-CATEGORY TICKET NUMBERING (e.g. fallen-carry-0001, fallen-carry-0002...) ---
+def get_category_counter(prefix: str) -> int:
+    settings = get_settings()
+    return int(settings.get("category_counters", {}).get(prefix, 0))
+
+
+def set_category_counter(prefix: str, value: int):
+    """Set (resume) a category's counter to a given value. The NEXT ticket
+    created/moved into this category will be value+1."""
+    settings = get_settings()
+    counters = settings.get("category_counters", {})
+    counters[prefix] = int(value)
+    settings["category_counters"] = counters
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+
+def increment_category_counter(prefix: str) -> int:
+    settings = get_settings()
+    counters = settings.get("category_counters", {})
+    counters[prefix] = int(counters.get(prefix, 0)) + 1
+    settings["category_counters"] = counters
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+    return counters[prefix]
+
+
+# --- ACTIVE TICKET LOOKUP/UPDATE (used by ticket slash commands) ---
+def is_ticket_channel(channel_id) -> bool:
+    data = get_tickets_data()
+    return any(str(t.get("channel_id")) == str(channel_id) for t in data.get("active_tickets", []))
+
+
+def get_active_ticket(channel_id):
+    data = get_tickets_data()
+    return next(
+        (t for t in data.get("active_tickets", []) if str(t.get("channel_id")) == str(channel_id)),
+        None,
+    )
+
+
+def update_active_ticket(channel_id, **kwargs):
+    data = get_tickets_data()
+    for t in data.get("active_tickets", []):
+        if str(t.get("channel_id")) == str(channel_id):
+            t.update(kwargs)
+    _save_tickets_data(data)
 
 
 def add_active_ticket(ticket_id: str, channel_id: str, user_id: str, ticket_number: int = None):
