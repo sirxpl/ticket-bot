@@ -183,6 +183,17 @@ def is_ticket_channel(channel_id) -> bool:
     return any(str(t.get("channel_id")) == str(channel_id) for t in data.get("active_tickets", []))
 
 
+def get_active_ticket_for_user(user_id):
+    """Return this user's currently open ticket entry (any category), or
+    None if they don't have one — used to block opening a second ticket
+    while one is still active."""
+    data = get_tickets_data()
+    return next(
+        (t for t in data.get("active_tickets", []) if str(t.get("user_id")) == str(user_id)),
+        None,
+    )
+
+
 def get_active_ticket(channel_id):
     data = get_tickets_data()
     return next(
