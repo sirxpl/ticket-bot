@@ -109,11 +109,28 @@ def login_required(f):
 
 def get_member_role_ids(user_id):
     """Look up a logged-in user's role IDs in the bot's guild, used to check
-    access-control role matches. Returns [] if the guild/member isn't found."""
+    access-control role matches. Returns [] if the guild/member isn't found.
+
+    Tries the local member cache first (instant, no API call), and falls
+    back to a direct REST fetch if the member isn't cached — this matters
+    because the Members privileged intent is currently disabled (see the
+    NOTE above), so the cache is mostly empty and get_member() alone would
+    silently return [] for anyone the bot hasn't recently seen a gateway
+    event for, even though they do have the role. fetch_member() is a plain
+    REST call and works fine without that intent.
+    """
     guild = bot.guilds[0] if bot.guilds else None
     if not guild:
         return []
     member = guild.get_member(int(user_id))
+    if not member:
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                guild.fetch_member(int(user_id)), bot.loop
+            )
+            member = future.result(timeout=10)
+        except Exception:
+            member = None
     if not member:
         return []
     return [str(r.id) for r in member.roles]
