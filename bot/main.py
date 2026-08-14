@@ -75,8 +75,16 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 
 # Discord Bot
 intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+# NOTE: message_content and members are privileged intents. This app is now
+# past Discord's "high user count" threshold and can't self-toggle them until
+# the Privileged Intents review is approved - temporarily disabled so the bot
+# can start. Ticket blacklist-role checks still work fine without these (they
+# read interaction.user.roles from the interaction payload, not the member
+# cache). What's degraded: transcript message text will save blank, and the
+# dashboard's "members blocked by role" preview list will be empty. Re-enable
+# both the moment the intents review is approved.
+intents.message_content = False
+intents.members = False
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
