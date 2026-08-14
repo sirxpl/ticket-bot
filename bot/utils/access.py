@@ -8,7 +8,31 @@ ACCESS_FILE = os.path.join(DATA_DIR, "access.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-_DEFAULTS = {"allowed_users": [], "allowed_roles": [], "log_channel_id": None, "blacklist_roles": []}
+_DEFAULTS = {
+    "allowed_users": [],
+    "allowed_roles": [],
+    "log_channel_id": None,
+    "blacklist_roles": [],
+    "carry_manager_roles": [],
+}
+
+# Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
+# var — this is the person who set this feature up, kept here so Access
+# Control itself can never be fully locked out from everyone.
+SUPER_ADMIN_FALLBACK_IDS = {"777341204047331348"}
+
+
+def get_admin_ids():
+    env_ids = {
+        uid.strip() for uid in os.getenv("ADMIN_USER_IDS", "").split(",") if uid.strip()
+    }
+    return env_ids | SUPER_ADMIN_FALLBACK_IDS
+
+
+def is_admin(user_id) -> bool:
+    """True for admins: always have full dashboard access, and are the only
+    ones who can view or edit the Access Control page."""
+    return str(user_id) in get_admin_ids()
 
 
 def get_access_settings():
@@ -25,6 +49,7 @@ def get_access_settings():
         doc.setdefault("allowed_roles", [])
         doc.setdefault("log_channel_id", None)
         doc.setdefault("blacklist_roles", [])
+        doc.setdefault("carry_manager_roles", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -36,6 +61,7 @@ def get_access_settings():
         data.setdefault("allowed_roles", [])
         data.setdefault("log_channel_id", None)
         data.setdefault("blacklist_roles", [])
+        data.setdefault("carry_manager_roles", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -128,6 +154,51 @@ def is_role_blacklisted(member_role_ids) -> bool:
     return bool(role_ids.intersection(blacklist_roles))
 
 
+def add_carry_manager_role(role_id: str) -> bool:
+    """Add a role allowed to view/use the Carry Manager Settings page."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["carry_manager_roles"]:
+        data["carry_manager_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_carry_manager_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["carry_manager_roles"]:
+        data["carry_manager_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_carry_manager_role_ids():
+    return get_access_settings().get("carry_manager_roles", [])
+
+
+def has_carry_manager_access(user_id: str, member_role_ids=None) -> bool:
+    """Return True if this user can view/use the Carry Manager Settings page.
+
+    Admins always pass. Otherwise this is opt-in like the dashboard
+    allow-list: while carry_manager_roles is empty, anyone with dashboard
+    access can use it; once at least one role is added, only members with
+    one of those roles (or admins) get in.
+    """
+    if is_admin(user_id):
+        return True
+    roles = get_carry_manager_role_ids()
+    if not roles:
+        return True
+    if member_role_ids:
+        role_ids = {str(r) for r in member_role_ids}
+        if role_ids.intersection(set(roles)):
+            return True
+    return False
+
+
 def set_log_channel(channel_id):
     data = get_access_settings()
     data["log_channel_id"] = str(channel_id) if channel_id else None
@@ -141,9 +212,9 @@ def get_log_channel_id():
 def has_dashboard_access(user_id: str, member_role_ids=None) -> bool:
     """Return True if this Discord user is allowed to view the dashboard.
 
-    An ADMIN_USER_IDS env var (comma-separated Discord user IDs) always
-    passes, regardless of the allow-list below — this exists so a bad
-    Access Control entry can never fully lock every admin out.
+    Admins (see is_admin) always pass, regardless of the allow-list below —
+    this exists so a bad Access Control entry can never fully lock every
+    admin out.
 
     Otherwise, access is opt-in: until at least one user or role has been
     added to the allow-list, everyone who logs in with Discord can view the
@@ -151,10 +222,7 @@ def has_dashboard_access(user_id: str, member_role_ids=None) -> bool:
     gets locked out before setting the allow-list up). Once at least one
     entry exists, only matching users/roles/admins are let in.
     """
-    admin_ids = {
-        uid.strip() for uid in os.getenv("ADMIN_USER_IDS", "").split(",") if uid.strip()
-    }
-    if str(user_id) in admin_ids:
+    if is_admin(user_id):
         return True
 
     data = get_access_settings()
