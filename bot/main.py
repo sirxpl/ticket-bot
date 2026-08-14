@@ -48,6 +48,8 @@ from utils.access import (
     remove_blacklist_role,
     add_carry_manager_role,
     remove_carry_manager_role,
+    add_ticket_viewer_role,
+    remove_ticket_viewer_role,
     set_log_channel,
     has_dashboard_access,
     has_carry_manager_access,
@@ -214,6 +216,28 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         blacklist_roles.append({"id": rid, "name": role.name if role else None})
 
+    ticket_viewer_roles = []
+    for rid in access_settings.get("ticket_viewer_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        ticket_viewer_roles.append({"id": rid, "name": role.name if role else None})
+
+    # members who are blocked from creating tickets via a Ticket Blacklist Role
+    # (in addition to the individually-blacklisted user IDs above)
+    role_blacklisted_members = []
+    if guild:
+        blacklist_role_id_set = {str(rid) for rid in access_settings.get("blacklist_roles", [])}
+        if blacklist_role_id_set:
+            for member in guild.members:
+                member_role_ids = {str(r.id) for r in member.roles}
+                matched = member_role_ids.intersection(blacklist_role_id_set)
+                if matched:
+                    matched_role = guild.get_role(int(next(iter(matched))))
+                    role_blacklisted_members.append({
+                        "id": str(member.id),
+                        "name": str(member),
+                        "role_name": matched_role.name if matched_role else None,
+                    })
+
     transcripts = [
         get_transcript_info(fn) for fn in list_transcript_filenames()
     ]
@@ -230,9 +254,11 @@ def home():
         transcripts=transcripts,
         cooldowns=tickets_info.get("cooldowns", []),
         blacklisted_users=blacklist_info.get("blacklisted_users", []),
+        role_blacklisted_members=role_blacklisted_members,
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
         blacklist_roles=blacklist_roles,
+        ticket_viewer_roles=ticket_viewer_roles,
         carry_manager_roles=carry_manager_roles,
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
@@ -506,6 +532,26 @@ def access_add_blacklist_role():
 def access_remove_blacklist_role(role_id):
     remove_blacklist_role(role_id)
     flash("🗑️ Role removed from the Ticket Blacklist.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-viewer-role", methods=["POST"])
+@admin_required
+def access_add_viewer_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_ticket_viewer_role(role_id)
+        flash("✅ Role added as a Ticket Viewer Role.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-viewer-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_viewer_role(role_id):
+    remove_ticket_viewer_role(role_id)
+    flash("🗑️ Role removed from Ticket Viewer Roles.", "info")
     return redirect(url_for("home"))
 
 
