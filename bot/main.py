@@ -171,6 +171,11 @@ def admin_required(f):
 
 
 # --- FLASK ROUTES ---
+@app.route("/privacy")
+def privacy_policy():
+    return render_template("privacy.html")
+
+
 @app.route("/")
 def home():
     user_data = session.get("user", None)
