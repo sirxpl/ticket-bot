@@ -58,7 +58,10 @@ def get_ticket_categories():
     settings = get_settings()
     categories = settings.get("ticket_categories")
     if not categories:
-        return list(_DEFAULT_TICKET_CATEGORIES)
+        categories = list(_DEFAULT_TICKET_CATEGORIES)
+    # backward-compatible: older saved categories won't have blacklist_roles yet
+    for c in categories:
+        c.setdefault("blacklist_roles", [])
     return categories
 
 def save_ticket_categories(categories: list):
