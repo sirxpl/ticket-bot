@@ -206,6 +206,11 @@ def docs():
     return render_template("docs.html")
 
 
+@app.route("/rules")
+def rules():
+    return render_template("rules.html")
+
+
 @app.route("/")
 def home():
     user_data = session.get("user", None)
