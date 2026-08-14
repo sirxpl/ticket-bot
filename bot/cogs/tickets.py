@@ -13,6 +13,7 @@ from utils.storage import (
     add_cooldown,
     add_to_blacklist,
     get_active_ticket,
+    get_active_ticket_for_user,
     get_blacklist_data,
     get_category_counter,
     get_settings,
@@ -568,6 +569,23 @@ class TicketView(discord.ui.View):
                         embed=emb, ephemeral=True
                     )
                     return
+        except Exception:
+            pass
+
+        # check for an already-open ticket (any category) before letting them make another
+        try:
+            existing = get_active_ticket_for_user(interaction.user.id)
+            if existing:
+                existing_channel_id = existing.get("channel_id")
+                channel_mention = (
+                    f"<#{existing_channel_id}>" if existing_channel_id else "your existing ticket"
+                )
+                await interaction.response.send_message(
+                    f"❌ You already have an open ticket: {channel_mention}. "
+                    f"Please close it before opening a new one.",
+                    ephemeral=True,
+                )
+                return
         except Exception:
             pass
 
