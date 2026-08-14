@@ -32,7 +32,9 @@ from utils.storage import (
     get_logs_for_ticket,
     get_transcript_info,
     get_transcript_html,
-    list_transcript_filenames
+    list_transcript_filenames,
+    get_ticket_categories,
+    save_ticket_categories,
 )
 
 # Import access-control helpers
@@ -177,6 +179,7 @@ def home():
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
         blacklist_roles=blacklist_roles,
+        ticket_categories=get_ticket_categories(),
         log_channel_id=access_settings.get("log_channel_id")
     )
 
@@ -446,6 +449,37 @@ def access_add_blacklist_role():
 def access_remove_blacklist_role(role_id):
     remove_blacklist_role(role_id)
     flash("🗑️ Role removed from the Ticket Blacklist.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-categories/save", methods=["POST"])
+@access_required
+def save_ticket_categories_route():
+    labels = request.form.getlist("cat_label")
+    descriptions = request.form.getlist("cat_description")
+    emojis = request.form.getlist("cat_emoji")
+
+    categories = []
+    for label, desc, emoji in zip(labels, descriptions, emojis):
+        label = label.strip()
+        if not label:
+            continue
+        categories.append({
+            "label": label[:100],
+            "description": desc.strip()[:100],
+            "emoji": emoji.strip() or None,
+        })
+
+    if not categories:
+        flash("❌ Add at least one category with a label.", "danger")
+        return redirect(url_for("home"))
+
+    if len(categories) > 25:
+        categories = categories[:25]
+        flash("⚠️ Only the first 25 categories were saved (Discord's dropdown limit).", "warning")
+
+    save_ticket_categories(categories)
+    flash("✅ Ticket dropdown categories saved. New panels you deploy will use them; existing panels update after the bot restarts.", "success")
     return redirect(url_for("home"))
 
 
