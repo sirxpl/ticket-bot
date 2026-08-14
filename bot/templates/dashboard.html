@@ -416,7 +416,19 @@
                     <button onclick="unblacklistUser('{{ b_user }}')" class="btn-danger">Unblacklist</button>
                 </div>
             {% else %}
-                <p style="color: #b5bac1;">No blacklisted users.</p>
+                <p style="color: #b5bac1;">No individually blacklisted users.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Blacklisted via Role</h4>
+            <p style="color: #b5bac1; margin-top: -6px; font-size: 0.9em;">
+                Members blocked from creating tickets because they hold a Ticket Blacklist Role. Manage the roles themselves in Access Control.
+            </p>
+            {% for member in role_blacklisted_members %}
+                <div class="list-item">
+                    <span><strong>{{ member.name }}</strong> ({{ member.id }}) — @{{ member.role_name or 'Unknown role' }}</span>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No members currently blacklisted via a role.</p>
             {% endfor %}
         </div>
         </section>
@@ -540,6 +552,33 @@
                 </div>
             {% else %}
                 <p style="color: #b5bac1;">No ticket blacklist roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Viewer Roles</h4>
+            <p style="color: #b5bac1; margin-top: -6px; font-size: 0.9em;">
+                Roles added here can see and chat in every ticket, with permission to send embeds and attachments. This is separate from the single Support Role set on the panel — add as many as you need.
+            </p>
+            <form action="/dashboard/access/add-viewer-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in ticket_viewer_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-viewer-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: #b5bac1;">No ticket viewer roles added yet.</p>
             {% endfor %}
 
             <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
