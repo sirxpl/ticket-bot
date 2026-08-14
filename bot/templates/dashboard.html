@@ -305,6 +305,20 @@
         </div>
 
         <div class="card">
+            <h3>📋 Ticket Dropdown Categories</h3>
+            <p style="color: #b5bac1; margin-top: -6px;">
+                Customize the options shown in the "Choose ticket type..." dropdown. New panels you deploy use these immediately; panels already posted in Discord pick up changes after the bot restarts.
+            </p>
+            <form action="/dashboard/ticket-categories/save" method="POST" id="categoriesForm">
+                <div id="categoriesContainer"></div>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button type="button" onclick="addCategoryRow()" style="background: #5865f2; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">+ Add Category</button>
+                    <button type="submit" class="btn-submit" style="width:auto;">💾 Save Categories</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
             <h3>🚀 Advanced Carry Ticket Panel Builder</h3>
             <form action="/dashboard/tickets" method="POST" id="embedForm">
                 
@@ -559,6 +573,41 @@ function removeField(fieldId) {
     const elem = document.getElementById(fieldId);
     if (elem) elem.remove();
 }
+
+// --- TICKET DROPDOWN CATEGORIES ---
+let categoryCount = 0;
+
+function addCategoryRow(label, description, emoji) {
+    categoryCount++;
+    const container = document.getElementById('categoriesContainer');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'embed-field-row';
+    row.id = `category_${categoryCount}`;
+    row.style.cssText = "background: #1e1f22; padding: 12px; border-radius: 6px; margin-bottom: 10px; border: 1px solid #4e5058;";
+
+    row.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <strong>Category #${categoryCount}</strong>
+            <button type="button" onclick="removeField('category_${categoryCount}')" style="background: #da373c; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
+        </div>
+        <div style="display:grid; grid-template-columns: 60px 1fr 1fr; gap:6px;">
+            <input type="text" name="cat_emoji" placeholder="❓" maxlength="4" style="padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box; text-align:center;">
+            <input type="text" name="cat_label" placeholder="Label (e.g. Fallen Carry)" required maxlength="100" style="padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;">
+            <input type="text" name="cat_description" placeholder="Description (e.g. Request fallen mode carry)" maxlength="100" style="padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;">
+        </div>
+    `;
+    container.appendChild(row);
+
+    if (label) row.querySelector('[name="cat_label"]').value = label;
+    if (description) row.querySelector('[name="cat_description"]').value = description;
+    if (emoji) row.querySelector('[name="cat_emoji"]').value = emoji;
+}
+
+const existingCategories = {{ ticket_categories | tojson }};
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji));
+if (existingCategories.length === 0) addCategoryRow();
 
 function unblacklistUser(userId) {
     if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
