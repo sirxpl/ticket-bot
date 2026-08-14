@@ -46,8 +46,12 @@ from utils.access import (
     remove_allowed_role,
     add_blacklist_role,
     remove_blacklist_role,
+    add_carry_manager_role,
+    remove_carry_manager_role,
     set_log_channel,
     has_dashboard_access,
+    has_carry_manager_access,
+    is_admin,
 )
 
 # Environment & OAuth Setup
@@ -122,6 +126,48 @@ def access_required(f):
     return decorated_function
 
 
+def carry_manager_required(f):
+    """Like access_required, but also requires Carry Manager Settings access
+    (either an admin, or a matching role from carry_manager_roles)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        if not has_carry_manager_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to use Carry Manager Settings.", "danger")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def admin_required(f):
+    """Restricts a route to admins only (see utils.access.is_admin) — used
+    for the Access Control page and its management routes."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        if not is_admin(user_data["id"]):
+            flash("⛔ Access Control is restricted to admins only.", "danger")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 # --- FLASK ROUTES ---
 @app.route("/")
 def home():
@@ -155,6 +201,14 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         allowed_roles.append({"id": rid, "name": role.name if role else None})
 
+    carry_manager_roles = []
+    for rid in access_settings.get("carry_manager_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        carry_manager_roles.append({"id": rid, "name": role.name if role else None})
+
+    is_admin_user = is_admin(user_data["id"])
+    can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
+
     blacklist_roles = []
     for rid in access_settings.get("blacklist_roles", []):
         role = guild.get_role(int(rid)) if guild else None
@@ -179,6 +233,9 @@ def home():
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
         blacklist_roles=blacklist_roles,
+        carry_manager_roles=carry_manager_roles,
+        is_admin_user=is_admin_user,
+        can_access_carry_settings=can_access_carry_settings,
         ticket_categories=get_ticket_categories(),
         log_channel_id=access_settings.get("log_channel_id")
     )
@@ -229,7 +286,7 @@ def logout():
 
 
 @app.route("/dashboard/toggle-tickets", methods=["POST"])
-@access_required
+@carry_manager_required
 def toggle_tickets():
     is_enabled = request.form.get("tickets_enabled") in ["on", "true", "True"]
     set_tickets_enabled(is_enabled)
@@ -332,7 +389,7 @@ def api_remove_cooldown(user_id):
 
 
 @app.route("/dashboard/tickets", methods=["POST"])
-@access_required
+@carry_manager_required
 def deploy_ticket_panel():
     def safe_int(val):
         try:
@@ -393,7 +450,7 @@ def deploy_ticket_panel():
 
 
 @app.route("/dashboard/access/add-user", methods=["POST"])
-@access_required
+@admin_required
 def access_add_user():
     user_id = request.form.get("user_id", "").strip()
     if user_id.isdigit():
@@ -405,7 +462,7 @@ def access_add_user():
 
 
 @app.route("/dashboard/access/remove-user/<user_id>", methods=["POST"])
-@access_required
+@admin_required
 def access_remove_user(user_id):
     remove_allowed_user(user_id)
     flash("🗑️ User removed from the allow-list.", "info")
@@ -413,7 +470,7 @@ def access_remove_user(user_id):
 
 
 @app.route("/dashboard/access/add-role", methods=["POST"])
-@access_required
+@admin_required
 def access_add_role():
     role_id = request.form.get("role_id", "").strip()
     if role_id.isdigit():
@@ -425,7 +482,7 @@ def access_add_role():
 
 
 @app.route("/dashboard/access/remove-role/<role_id>", methods=["POST"])
-@access_required
+@admin_required
 def access_remove_role(role_id):
     remove_allowed_role(role_id)
     flash("🗑️ Role removed from the allow-list.", "info")
@@ -433,7 +490,7 @@ def access_remove_role(role_id):
 
 
 @app.route("/dashboard/access/add-blacklist-role", methods=["POST"])
-@access_required
+@admin_required
 def access_add_blacklist_role():
     role_id = request.form.get("role_id", "").strip()
     if role_id.isdigit():
@@ -445,7 +502,7 @@ def access_add_blacklist_role():
 
 
 @app.route("/dashboard/access/remove-blacklist-role/<role_id>", methods=["POST"])
-@access_required
+@admin_required
 def access_remove_blacklist_role(role_id):
     remove_blacklist_role(role_id)
     flash("🗑️ Role removed from the Ticket Blacklist.", "info")
@@ -453,7 +510,7 @@ def access_remove_blacklist_role(role_id):
 
 
 @app.route("/dashboard/ticket-categories/save", methods=["POST"])
-@access_required
+@carry_manager_required
 def save_ticket_categories_route():
     labels = request.form.getlist("cat_label")
     descriptions = request.form.getlist("cat_description")
@@ -491,8 +548,28 @@ def save_ticket_categories_route():
     return redirect(url_for("home"))
 
 
+@app.route("/dashboard/access/add-carry-manager-role", methods=["POST"])
+@admin_required
+def access_add_carry_manager_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_carry_manager_role(role_id)
+        flash("✅ Role added to Carry Manager Settings access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-carry-manager-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_carry_manager_role(role_id):
+    remove_carry_manager_role(role_id)
+    flash("🗑️ Role removed from Carry Manager Settings access.", "info")
+    return redirect(url_for("home"))
+
+
 @app.route("/dashboard/access/set-log-channel", methods=["POST"])
-@access_required
+@admin_required
 def access_set_log_channel():
     channel_id = request.form.get("log_channel_id", "").strip()
     set_log_channel(channel_id or None)
