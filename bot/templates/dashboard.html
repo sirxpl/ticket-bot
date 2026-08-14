@@ -605,7 +605,7 @@ function addCategoryRow(label, description, emoji) {
     if (emoji) row.querySelector('[name="cat_emoji"]').value = emoji;
 }
 
-const existingCategories = {{ ticket_categories | tojson }};
+const existingCategories = {{ ticket_categories | default([]) | tojson }};
 existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji));
 if (existingCategories.length === 0) addCategoryRow();
 
