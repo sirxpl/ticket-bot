@@ -184,6 +184,11 @@ def privacy_policy():
     return render_template("privacy.html")
 
 
+@app.route("/docs")
+def docs():
+    return render_template("docs.html")
+
+
 @app.route("/")
 def home():
     user_data = session.get("user", None)
