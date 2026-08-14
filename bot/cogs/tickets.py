@@ -382,29 +382,32 @@ class TicketView(discord.ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
-    @discord.ui.select(
-        placeholder="Choose ticket type...",
-        min_values=1,
-        max_values=1,
-        custom_id="create_ticket_select",
-        options=[
+        from utils.storage import get_ticket_categories
+
+        categories = get_ticket_categories()
+        options = [
             discord.SelectOption(
-                label="General Support",
-                description="General help or questions",
-                emoji="❓",
-            ),
-            discord.SelectOption(
-                label="Report a User",
-                description="Report another user",
-                emoji="⚠️",
-            ),
-            discord.SelectOption(
-                label="Appeal / Ban Review",
-                description="Appeal moderation action",
-                emoji="📝",
-            ),
-        ],
-    )
+                label=c.get("label", "Ticket")[:100],
+                description=(c.get("description") or "")[:100] or None,
+                emoji=c.get("emoji") or None,
+            )
+            for c in categories[:25]
+        ]
+
+        select = discord.ui.Select(
+            placeholder="Choose ticket type...",
+            min_values=1,
+            max_values=1,
+            custom_id="create_ticket_select",
+            options=options,
+        )
+
+        async def _select_callback(interaction: discord.Interaction):
+            await self.ticket_select(interaction, select)
+
+        select.callback = _select_callback
+        self.add_item(select)
+
     async def ticket_select(
         self, interaction: discord.Interaction, select: discord.ui.Select
     ):
