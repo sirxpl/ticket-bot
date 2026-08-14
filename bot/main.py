@@ -458,16 +458,24 @@ def save_ticket_categories_route():
     labels = request.form.getlist("cat_label")
     descriptions = request.form.getlist("cat_description")
     emojis = request.form.getlist("cat_emoji")
+    blacklist_roles_raw = request.form.getlist("cat_blacklist_roles")
+
+    # cat_blacklist_roles isn't guaranteed to line up 1:1 with the other
+    # lists (older cached pages, etc.) so pad it out defensively
+    while len(blacklist_roles_raw) < len(labels):
+        blacklist_roles_raw.append("")
 
     categories = []
-    for label, desc, emoji in zip(labels, descriptions, emojis):
+    for label, desc, emoji, bl_raw in zip(labels, descriptions, emojis, blacklist_roles_raw):
         label = label.strip()
         if not label:
             continue
+        blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
         categories.append({
             "label": label[:100],
             "description": desc.strip()[:100],
             "emoji": emoji.strip() or None,
+            "blacklist_roles": blacklist_roles,
         })
 
     if not categories:
