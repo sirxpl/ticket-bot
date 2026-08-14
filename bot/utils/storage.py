@@ -47,6 +47,26 @@ def set_tickets_enabled(status: bool):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
+# --- CUSTOM TICKET CATEGORY DROPDOWN ---
+_DEFAULT_TICKET_CATEGORIES = [
+    {"label": "General Support", "description": "General help or questions", "emoji": "❓"},
+    {"label": "Report a User", "description": "Report another user", "emoji": "⚠️"},
+    {"label": "Appeal / Ban Review", "description": "Appeal moderation action", "emoji": "📝"},
+]
+
+def get_ticket_categories():
+    settings = get_settings()
+    categories = settings.get("ticket_categories")
+    if not categories:
+        return list(_DEFAULT_TICKET_CATEGORIES)
+    return categories
+
+def save_ticket_categories(categories: list):
+    settings = get_settings()
+    settings["ticket_categories"] = categories
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
 # --- TICKETS DATA (counter, active tickets, cooldowns) ---
 def get_tickets_data():
     db = get_db()
