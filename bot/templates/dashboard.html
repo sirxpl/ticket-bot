@@ -666,7 +666,7 @@ function addCatBlacklistChip(row, roleId, roleName) {
     list.appendChild(chip);
 }
 
-function addCategoryRow(label, description, emoji, blacklistRoles) {
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -698,12 +698,22 @@ function addCategoryRow(label, description, emoji, blacklistRoles) {
             <div class="cat-blacklist-list"></div>
             <input type="hidden" name="cat_blacklist_roles" class="cat-blacklist-hidden" value="">
         </div>
+        <div style="margin-top:10px; padding-top:10px; border-top:1px solid #4e5058;">
+            <strong style="font-size:0.9em;">Ticket Naming</strong>
+            <p style="color:#b5bac1; font-size:0.85em; margin:4px 0;">Tickets in this category are auto-named &lt;prefix&gt;-0001, &lt;prefix&gt;-0002, etc. (counts up on its own, or resume it anytime with /ticketnumber).</p>
+            <input type="text" name="cat_name_prefix" placeholder="Name prefix (e.g. fallen-carry) — defaults to the label" style="width:100%; padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box; margin-bottom:6px;">
+            <input type="text" name="cat_open_note" placeholder="Optional note shown in the ticket when it opens" maxlength="200" style="width:100%; padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box; margin-bottom:6px;">
+            <input type="text" name="cat_discord_category_id" placeholder="Optional Discord category ID to move/create tickets under" style="width:100%; padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;">
+        </div>
     `;
     container.appendChild(row);
 
     if (label) row.querySelector('[name="cat_label"]').value = label;
     if (description) row.querySelector('[name="cat_description"]').value = description;
     if (emoji) row.querySelector('[name="cat_emoji"]').value = emoji;
+    if (namePrefix) row.querySelector('[name="cat_name_prefix"]').value = namePrefix;
+    if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
+    if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
 
     (blacklistRoles || []).forEach(roleId => {
         const role = ALL_ROLES.find(r => r.id === roleId);
@@ -712,7 +722,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles) {
 }
 
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id));
 if (existingCategories.length === 0) addCategoryRow();
 
 
