@@ -575,9 +575,53 @@ function removeField(fieldId) {
 }
 
 // --- TICKET DROPDOWN CATEGORIES ---
+const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.name | tojson }}}{% if not loop.last %}, {% endif %}{% endfor %}];
+
 let categoryCount = 0;
 
-function addCategoryRow(label, description, emoji) {
+function catRoleOptionsHtml() {
+    let html = '<option value="">Select a role...</option>';
+    ALL_ROLES.forEach(r => {
+        html += `<option value="${r.id}">@${r.name}</option>`;
+    });
+    return html;
+}
+
+function addCatBlacklistRole(btn) {
+    const row = btn.closest('.embed-field-row');
+    const select = row.querySelector('.cat-blacklist-select');
+    const roleId = select.value;
+    if (!roleId) return;
+    const role = ALL_ROLES.find(r => r.id === roleId);
+    addCatBlacklistChip(row, roleId, role ? role.name : roleId);
+    select.value = "";
+}
+
+function addCatBlacklistChip(row, roleId, roleName) {
+    const hidden = row.querySelector('.cat-blacklist-hidden');
+    const list = row.querySelector('.cat-blacklist-list');
+    const current = hidden.value ? hidden.value.split(",") : [];
+    if (current.includes(roleId)) return;
+    current.push(roleId);
+    hidden.value = current.join(",");
+
+    const chip = document.createElement('div');
+    chip.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:#2b2d31; padding:6px 10px; border-radius:4px; margin-top:6px;";
+    chip.innerHTML = `<span>@${roleName}</span>`;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.cssText = "background:#da373c; color:white; border:none; padding:2px 8px; border-radius:4px; cursor:pointer;";
+    removeBtn.onclick = function() {
+        const updated = hidden.value.split(",").filter(id => id !== roleId);
+        hidden.value = updated.join(",");
+        chip.remove();
+    };
+    chip.appendChild(removeBtn);
+    list.appendChild(chip);
+}
+
+function addCategoryRow(label, description, emoji, blacklistRoles) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -597,17 +641,36 @@ function addCategoryRow(label, description, emoji) {
             <input type="text" name="cat_label" placeholder="Label (e.g. Fallen Carry)" required maxlength="100" style="padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;">
             <input type="text" name="cat_description" placeholder="Description (e.g. Request fallen mode carry)" maxlength="100" style="padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;">
         </div>
+        <div style="margin-top:10px; padding-top:10px; border-top:1px solid #4e5058;">
+            <strong style="font-size:0.9em;">Blacklist Roles</strong>
+            <p style="color:#b5bac1; font-size:0.85em; margin:4px 0;">Members with these roles can't select this category.</p>
+            <div style="display:flex; gap:8px;">
+                <select class="cat-blacklist-select" style="flex:1; padding:8px; background:#2b2d31; border:1px solid #4e5058; color:white; border-radius:4px;">
+                    ${catRoleOptionsHtml()}
+                </select>
+                <button type="button" onclick="addCatBlacklistRole(this)" style="background:#5865f2; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-weight:bold;">+ Add</button>
+            </div>
+            <div class="cat-blacklist-list"></div>
+            <input type="hidden" name="cat_blacklist_roles" class="cat-blacklist-hidden" value="">
+        </div>
     `;
     container.appendChild(row);
 
     if (label) row.querySelector('[name="cat_label"]').value = label;
     if (description) row.querySelector('[name="cat_description"]').value = description;
     if (emoji) row.querySelector('[name="cat_emoji"]').value = emoji;
+
+    (blacklistRoles || []).forEach(roleId => {
+        const role = ALL_ROLES.find(r => r.id === roleId);
+        addCatBlacklistChip(row, roleId, role ? role.name : roleId);
+    });
 }
 
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles));
 if (existingCategories.length === 0) addCategoryRow();
+
+
 
 function unblacklistUser(userId) {
     if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
