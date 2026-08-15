@@ -2,6 +2,7 @@ import os
 import glob
 import json
 import asyncio
+import time
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -90,6 +91,11 @@ intents = discord.Intents.default()
 intents.message_content = False
 intents.members = False
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Tracks when the bot last became ready, used by the public /status page and
+# /api/status JSON endpoint below. None means it hasn't connected yet since
+# this process started.
+bot_ready_since = None
 
 
 def make_oauth_session(state=None):
@@ -218,6 +224,44 @@ def rules():
 @app.route("/guidelines")
 def guidelines():
     return render_template("guidelines.html")
+
+
+@app.route("/api/status")
+def api_status():
+    online = bool(bot.is_ready()) and not bot.is_closed()
+    latency_ms = None
+    if online:
+        try:
+            lat = bot.latency
+            if lat is not None and lat == lat:  # filters out NaN
+                latency_ms = round(lat * 1000)
+        except Exception:
+            latency_ms = None
+    uptime_seconds = None
+    if online and bot_ready_since:
+        uptime_seconds = round(time.time() - bot_ready_since)
+    guild_count = len(bot.guilds) if online else 0
+    return jsonify({
+        "online": online,
+        "latency_ms": latency_ms,
+        "uptime_seconds": uptime_seconds,
+        "guild_count": guild_count,
+    })
+
+
+@app.route("/api/status-history")
+def api_status_history():
+    from utils.status_history import get_daily_uptime, get_overall_uptime_pct, get_incidents_by_month
+    return jsonify({
+        "daily": get_daily_uptime(90),
+        "overall_uptime_pct": get_overall_uptime_pct(90),
+        "months": get_incidents_by_month(3),
+    })
+
+
+@app.route("/status")
+def status_page():
+    return render_template("status.html")
 
 
 @app.route("/")
@@ -743,6 +787,8 @@ async def setup_hook():
 
 @bot.event
 async def on_ready():
+    global bot_ready_since
+    bot_ready_since = time.time()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands.")
@@ -755,11 +801,29 @@ def run_flask():
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 
+
+def run_status_checker():
+    """Runs forever in its own daemon thread, sampling bot connectivity
+    roughly once a minute so the /status page has real uptime history and
+    auto-detected incidents instead of only a live snapshot."""
+    from utils.status_history import record_check
+    while True:
+        try:
+            online = bool(bot.is_ready()) and not bot.is_closed()
+            record_check(online)
+        except Exception as e:
+            print(f"Status checker error: {e}")
+        time.sleep(60)
+
+
 if __name__ == "__main__":
     import threading
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    
+
+    status_thread = threading.Thread(target=run_status_checker, daemon=True)
+    status_thread.start()
+
     if TOKEN:
         bot.run(TOKEN)
     else:
