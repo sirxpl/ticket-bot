@@ -552,7 +552,7 @@
             <form action="/dashboard/ticket-categories/save" method="POST" id="categoriesForm">
                 <div id="categoriesContainer"></div>
                 <div style="display:flex; gap:10px; margin-top:10px;">
-                    <button type="button" onclick="addCategoryRow()" style="background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">+ Add Category</button>
+                    <button type="button" onclick="addNewCategoryRow()" style="background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">+ Add Category</button>
                     <button type="submit" class="btn-submit" style="width:auto;">💾 Save Categories</button>
                 </div>
             </form>
@@ -954,7 +954,22 @@ const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.na
 
 let categoryCount = 0;
 
-function catRoleOptionsHtml() {
+function saveCategoriesNow() {
+    const form = document.getElementById('categoriesForm');
+    if (!form) return;
+    fetch(form.action, { method: 'POST', body: new FormData(form) })
+        .catch(err => console.error('Auto-save failed:', err));
+}
+
+function addNewCategoryRow() {
+    addCategoryRow();
+    saveCategoriesNow();
+}
+
+function removeCategoryRow(fieldId) {
+    removeField(fieldId);
+    saveCategoriesNow();
+}
     let html = '<option value="">Select a role...</option>';
     ALL_ROLES.forEach(r => {
         html += `<option value="${r.id}">@${r.name}</option>`;
@@ -970,6 +985,7 @@ function addCatBlacklistRole(btn) {
     const role = ALL_ROLES.find(r => r.id === roleId);
     addCatBlacklistChip(row, roleId, role ? role.name : roleId);
     select.value = "";
+    saveCategoriesNow();
 }
 
 function addCatBlacklistChip(row, roleId, roleName) {
@@ -991,6 +1007,7 @@ function addCatBlacklistChip(row, roleId, roleName) {
         const updated = hidden.value.split(",").filter(id => id !== roleId);
         hidden.value = updated.join(",");
         chip.remove();
+        saveCategoriesNow();
     };
     chip.appendChild(removeBtn);
     list.appendChild(chip);
@@ -1009,7 +1026,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     row.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
             <strong>Category #${categoryCount}</strong>
-            <button type="button" onclick="removeField('category_${categoryCount}')" style="background: var(--danger); color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
+            <button type="button" onclick="removeCategoryRow('category_${categoryCount}')" style="background: var(--danger); color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
         </div>
         <div style="display:grid; grid-template-columns: 60px 1fr 1fr; gap:6px;">
             <input type="text" name="cat_emoji" placeholder="❓" maxlength="4" style="padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; text-align:center;">
