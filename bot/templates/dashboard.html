@@ -970,6 +970,8 @@ function removeCategoryRow(fieldId) {
     removeField(fieldId);
     saveCategoriesNow();
 }
+
+function catRoleOptionsHtml() {
     let html = '<option value="">Select a role...</option>';
     ALL_ROLES.forEach(r => {
         html += `<option value="${r.id}">@${r.name}</option>`;
