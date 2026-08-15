@@ -48,6 +48,75 @@ def set_tickets_enabled(status: bool):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
+
+class _SafeDict(dict):
+    """Used with str.format_map so an unknown {placeholder} in a
+    user-edited template is left as-is instead of raising KeyError."""
+
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def render_ticket_template(template: str, **kwargs) -> str:
+    """Fill in {placeholders} in a user-edited message/embed template.
+    Unknown placeholders are left untouched rather than erroring."""
+    if not template:
+        return ""
+    try:
+        return template.format_map(_SafeDict(**kwargs))
+    except Exception:
+        return template
+
+
+# --- "Ticket created" redirect message (sent ephemerally to the opener) ---
+_DEFAULT_REDIRECT_MESSAGE = {
+    "content": "✅ Ticket created! Please head over to {channel}.",
+}
+
+
+def get_redirect_message():
+    settings = get_settings()
+    msg = dict(_DEFAULT_REDIRECT_MESSAGE)
+    msg.update(settings.get("ticket_redirect_message") or {})
+    return msg
+
+
+def save_redirect_message(content: str):
+    settings = get_settings()
+    settings["ticket_redirect_message"] = {"content": content}
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+
+# --- Ticket-channel welcome message (sent inside the new ticket channel) ---
+_DEFAULT_WELCOME_MESSAGE = {
+    "use_embed": True,
+    "content": "{user_mention}",
+    "title": "🎫 {category} - {user_name}",
+    "description": "",
+    "color": "#3498db",
+    "footer": "",
+    "show_timezone": True,
+    "show_display_name": True,
+    "show_can_join": True,
+}
+
+
+def get_welcome_message():
+    settings = get_settings()
+    msg = dict(_DEFAULT_WELCOME_MESSAGE)
+    msg.update(settings.get("ticket_welcome_message") or {})
+    return msg
+
+
+def save_welcome_message(data: dict):
+    settings = get_settings()
+    merged = dict(_DEFAULT_WELCOME_MESSAGE)
+    merged.update(data)
+    settings["ticket_welcome_message"] = merged
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
 def slugify(text: str) -> str:
     """Turn a label into a lowercase, hyphenated channel-name-safe prefix,
     e.g. 'Fallen Carry' -> 'fallen-carry'."""
