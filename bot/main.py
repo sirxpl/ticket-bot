@@ -270,7 +270,7 @@ def status_page():
 def home():
     user_data = session.get("user", None)
     if not user_data:
-        return render_template("dashboard.html", user=None)
+        return render_template("dashboard.html", user=None, panel_draft={})
 
     role_ids = get_member_role_ids(user_data["id"])
     if not has_dashboard_access(user_data["id"], role_ids):
