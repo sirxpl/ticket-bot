@@ -32,6 +32,11 @@ from utils.storage import (
 
 # logger for Render stdout/stderr so platform logs capture ticket close/delete events
 logger = logging.getLogger("tickets")
+
+# ⚠️ TEST MODE: when True, autoclose_watcher uses seconds instead of hours
+# (30s reminder / 1min autoclose) so the feature can be verified quickly.
+# Set back to False for real 12h/24h behavior once confirmed working.
+AUTOCLOSE_TEST_MODE = True
 if not logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter(
@@ -945,11 +950,12 @@ class TicketsCog(commands.Cog):
                 f"Failed to update ticket activity for channel={message.channel.id}"
             )
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(seconds=15)
     async def autoclose_watcher(self):
-        """Every 10 minutes: ping openers who've gone quiet for 12h with a
-        heads-up + a Stop Autoclose button, then close tickets that hit 24h
-        of inactivity with nobody having disabled it."""
+        """⚠️ TEST MODE — thresholds temporarily shortened to confirm the
+        feature works end-to-end. Loop runs every 15s, reminder fires at 30s
+        of inactivity, autoclose fires at 1 minute. Revert AUTOCLOSE_TEST_MODE
+        to False (and restore the loop interval below) once confirmed."""
         try:
             data = get_tickets_data()
         except Exception:
@@ -957,8 +963,12 @@ class TicketsCog(commands.Cog):
             return
 
         now = time.time()
-        REMINDER_AFTER = 12 * 3600
-        CLOSE_AFTER = 24 * 3600
+        if AUTOCLOSE_TEST_MODE:
+            REMINDER_AFTER = 30            # 30 seconds
+            CLOSE_AFTER = 60                # 1 minute
+        else:
+            REMINDER_AFTER = 12 * 3600
+            CLOSE_AFTER = 24 * 3600
 
         for ticket in list(data.get("active_tickets", [])):
             if ticket.get("autoclose_disabled"):
