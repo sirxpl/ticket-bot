@@ -33,7 +33,21 @@ if not os.path.exists(TICKET_LOGS_FILE):
         json.dump([], f, indent=2)
 
 # --- SYSTEM SETTINGS ---
+# Backed by MongoDB (collection: bot_settings, singleton doc) when
+# MONGODB_URI is configured, so these survive redeploys on hosts with an
+# ephemeral filesystem (e.g. Render without a persistent disk). Falls back
+# to the local settings.json file otherwise.
 def get_settings():
+    db = get_db()
+    if db is not None:
+        try:
+            doc = db.bot_settings.find_one({"_id": "singleton"})
+            if doc:
+                doc.pop("_id", None)
+                return doc
+        except Exception:
+            logger.exception("get_settings: Mongo read failed, falling back to file")
+
     if not os.path.exists(SETTINGS_FILE):
         return {"tickets_enabled": True}
     try:
@@ -42,11 +56,27 @@ def get_settings():
     except Exception:
         return {"tickets_enabled": True}
 
+
+def save_settings(settings: dict):
+    """Single write path for the whole settings blob — use this instead of
+    writing SETTINGS_FILE directly so Mongo (when configured) always stays
+    in sync with local file fallback."""
+    db = get_db()
+    if db is not None:
+        try:
+            doc = dict(settings)
+            doc["_id"] = "singleton"
+            db.bot_settings.replace_one({"_id": "singleton"}, doc, upsert=True)
+        except Exception:
+            logger.exception("save_settings: Mongo write failed, falling back to file only")
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+
 def set_tickets_enabled(status: bool):
     settings = get_settings()
     settings["tickets_enabled"] = status
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=4)
+    save_settings(settings)
 
 
 class _SafeDict(dict):
@@ -84,8 +114,7 @@ def get_redirect_message():
 def save_redirect_message(content: str):
     settings = get_settings()
     settings["ticket_redirect_message"] = {"content": content}
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=4)
+    save_settings(settings)
 
 
 # --- Ticket-channel welcome message (sent inside the new ticket channel) ---
@@ -114,8 +143,7 @@ def save_welcome_message(data: dict):
     merged = dict(_DEFAULT_WELCOME_MESSAGE)
     merged.update(data)
     settings["ticket_welcome_message"] = merged
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=4)
+    save_settings(settings)
 
 def slugify(text: str) -> str:
     """Turn a label into a lowercase, hyphenated channel-name-safe prefix,
@@ -148,8 +176,7 @@ def get_ticket_categories():
 def save_ticket_categories(categories: list):
     settings = get_settings()
     settings["ticket_categories"] = categories
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=4)
+    save_settings(settings)
 
 
 def get_ticket_panel_draft():
@@ -160,8 +187,7 @@ def get_ticket_panel_draft():
 def save_ticket_panel_draft(draft: dict):
     settings = get_settings()
     settings["ticket_panel_draft"] = draft
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=4)
+    save_settings(settings)
 
 # --- TICKETS DATA (counter, active tickets, cooldowns) ---
 def _prune_expired_cooldowns(data: dict) -> bool:
@@ -269,8 +295,7 @@ def set_category_counter(prefix: str, value: int):
     counters = settings.get("category_counters", {})
     counters[prefix] = int(value)
     settings["category_counters"] = counters
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=4)
+    save_settings(settings)
 
 
 def increment_category_counter(prefix: str) -> int:
@@ -278,8 +303,7 @@ def increment_category_counter(prefix: str) -> int:
     counters = settings.get("category_counters", {})
     counters[prefix] = int(counters.get(prefix, 0)) + 1
     settings["category_counters"] = counters
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=4)
+    save_settings(settings)
     return counters[prefix]
 
 
