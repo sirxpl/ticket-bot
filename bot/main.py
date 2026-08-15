@@ -38,6 +38,10 @@ from utils.storage import (
     save_ticket_categories,
     get_ticket_panel_draft,
     save_ticket_panel_draft,
+    get_redirect_message,
+    save_redirect_message,
+    get_welcome_message,
+    save_welcome_message,
 )
 
 # Import access-control helpers
@@ -367,6 +371,8 @@ def home():
         can_access_carry_settings=can_access_carry_settings,
         ticket_categories=get_ticket_categories(),
         panel_draft=get_ticket_panel_draft(),
+        redirect_message=get_redirect_message(),
+        welcome_message=get_welcome_message(),
         log_channel_id=access_settings.get("log_channel_id")
     )
 
@@ -781,6 +787,38 @@ def save_ticket_categories_route():
 
     save_ticket_categories(categories)
     flash("✅ Ticket dropdown categories saved. New panels you deploy will use them; existing panels update after the bot restarts.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-messages/save-redirect", methods=["POST"])
+@carry_manager_required
+def save_redirect_message_route():
+    content = request.form.get("redirect_content", "").strip()
+    if not content:
+        flash("❌ Redirect message can't be empty.", "danger")
+        return redirect(url_for("home"))
+    save_redirect_message(content[:1000])
+    flash("✅ 'Ticket created' redirect message saved.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-messages/save-welcome", methods=["POST"])
+@carry_manager_required
+def save_welcome_message_route():
+    use_embed = request.form.get("welcome_use_embed") == "yes"
+    data = {
+        "use_embed": use_embed,
+        "content": request.form.get("welcome_content", "").strip()[:500],
+        "title": request.form.get("welcome_title", "").strip()[:256],
+        "description": request.form.get("welcome_description", "").strip()[:2000],
+        "color": request.form.get("welcome_color", "#3498db").strip() or "#3498db",
+        "footer": request.form.get("welcome_footer", "").strip()[:200],
+        "show_timezone": request.form.get("welcome_show_timezone") == "yes",
+        "show_display_name": request.form.get("welcome_show_display_name") == "yes",
+        "show_can_join": request.form.get("welcome_show_can_join") == "yes",
+    }
+    save_welcome_message(data)
+    flash("✅ Ticket-channel welcome message saved.", "success")
     return redirect(url_for("home"))
 
 
