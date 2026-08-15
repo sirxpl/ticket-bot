@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carry Service Guidelines — Carry Ticket Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14151f; --surface-2:#191b28; --border:#25273a;
+    --text:#eef0f7; --muted:#8d90a8; --yellow:#ffc93c; --indigo:#7c6cf0; --indigo-dim:#7c6cf033;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; line-height:1.7; margin:0;}
+  h1,h2,strong,.brand{font-family:'Space Grotesk',sans-serif;}
+  code, .mono{font-family:'JetBrains Mono',monospace;}
+  .topbar{
+    height:64px; border-bottom:1px solid var(--border); display:flex; align-items:center;
+    justify-content:space-between; padding:0 28px; position:sticky; top:0; z-index:50;
+    background:rgba(11,12,18,0.92); backdrop-filter:blur(10px);
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:17px; color:var(--text); text-decoration:none;}
+  .brand .stub{width:26px; height:20px; background:var(--yellow); border-radius:5px; position:relative;}
+  .brand .stub::after{content:""; position:absolute; left:60%; top:-3px; bottom:-3px; border-left:2px dashed #0b0c1288;}
+  .topnav{display:flex; gap:24px; font-size:14px;}
+  .topnav a{color:var(--muted); text-decoration:none;}
+  .topnav a:hover, .topnav a.active{color:var(--yellow);}
+  .layout{display:flex; max-width:1300px; margin:0 auto;}
+  .toc{
+    width:280px; flex-shrink:0; padding:32px 18px 60px 28px; position:sticky; top:64px;
+    height:calc(100vh - 64px); overflow-y:auto; font-size:13.5px;
+  }
+  .toc-title{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:12px; font-weight:600;}
+  .toc a{
+    display:block; color:var(--muted); text-decoration:none; padding:7px 10px; border-radius:7px;
+    border-left:2px solid transparent; margin-bottom:1px; line-height:1.35;
+  }
+  .toc a:hover{color:var(--text); background:var(--surface);}
+  main{flex:1; padding:40px 44px 120px 44px; min-width:0; max-width:780px;}
+  .doc-header{margin-bottom:8px;}
+  .eyebrow{color:var(--indigo); font-weight:600; font-size:13px; margin-bottom:8px;}
+  h1.doctitle{font-size:34px; font-weight:700; margin:0 0 6px 0; letter-spacing:-0.5px;}
+  .rev{color:var(--muted); font-size:13px; margin-bottom:36px;}
+  .content h2{
+    font-size:21px; margin:44px 0 14px 0; padding-top:8px; border-top:1px solid var(--border);
+    font-weight:700; color:var(--yellow); scroll-margin-top:80px;
+  }
+  .content h2:first-child{border-top:none; margin-top:0;}
+  .content h3{font-size:16.5px; margin:26px 0 6px 0; color:var(--text); scroll-margin-top:80px;}
+  .content h4{font-size:14.5px; margin:18px 0 6px 0; color:var(--indigo); text-transform:uppercase; letter-spacing:.03em;}
+  .content p{color:#c7c9db; font-size:14.5px; margin:0 0 14px 0;}
+  .content strong{color:var(--text);}
+  .content em{color:#b7bad0;}
+  .content ul{color:#c7c9db; font-size:14.5px; padding-left:22px; margin-bottom:14px;}
+  .content li{margin-bottom:6px;}
+  .content a{color:var(--yellow);}
+
+  .rule-card{
+    border-left:2px dashed var(--yellow); background:var(--surface); border-radius:8px;
+    padding:14px 18px; margin-bottom:12px;
+  }
+  .rule-card .rule-title{font-weight:600; color:var(--text); font-size:14.5px; margin-bottom:4px;}
+  .rule-card p{margin:0; font-size:14px; color:#c7c9db;}
+
+  table.points{width:100%; border-collapse:collapse; margin:10px 0 22px 0; font-size:13.5px;}
+  table.points th{
+    background:var(--surface-2); text-align:left; padding:9px 12px; font-size:11.5px;
+    text-transform:uppercase; letter-spacing:.04em; color:var(--muted); border:1px solid var(--border);
+  }
+  table.points td{padding:9px 12px; border:1px solid var(--border); color:#c7c9db;}
+  table.points td.pts{color:var(--yellow); font-weight:600; white-space:nowrap;}
+
+  .callout{
+    border-left:2px dashed var(--indigo); background:var(--surface); border-radius:8px;
+    padding:14px 18px; margin:18px 0; font-size:14px; color:#c7c9db;
+  }
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
+  @media (max-width:900px){ .toc{display:none;} main{padding:28px 20px;} }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
+  <div class="topnav">
+    <a href="/docs">Docs</a>
+    <a href="/rules">Rules &amp; Regulations</a>
+    <a href="/guidelines" class="active">Carry Guidelines</a>
+    <a href="/privacy">Privacy</a>
+  </div>
+</div>
+
+<div class="layout">
+  <aside class="toc">
+    <div class="toc-title">On this page</div>
+    <a href="#preface">Preface</a>
+    <a href="#for-clients">For Clients</a>
+    <a href="#for-carry-team">For Carry Team Members</a>
+    <a href="#points-info">Points Info</a>
+    <a href="#points-regular">Regular Modes</a>
+    <a href="#points-special">Special Gamemodes</a>
+    <a href="#points-trials">Challenge Trials</a>
+    <a href="#points-misc">Miscellaneous</a>
+  </aside>
+
+  <main>
+    <div class="doc-header">
+      <div class="eyebrow">Carry Ticket Bot</div>
+      <h1 class="doctitle">📜 Carry Service System Rules</h1>
+      <div class="rev">Guidelines for the Carry Service &amp; the point system that governs it</div>
+    </div>
+    <div class="content">
+
+      <p id="preface">This section dictates transactions and assistance protocols specifically for Roblox Tower Defense Simulator (TDS). All <a href="https://discord.com/channels/1369526633144254475/1369626364080033862" target="_blank">#「📚」rules</a> within the premises of the server will still be followed with mandatory procedures.</p>
+
+      <h2 id="for-clients">For Clients (Users receiving help)</h2>
+
+      <div class="rule-card">
+        <div class="rule-title">Respect the Team</div>
+        <p>Treat carry operators with absolute respect. Toxicity or elitism results in ticket closure and disciplinary action.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">Refrain from Wasting Time and Effort</div>
+        <p>Idling, being unready, or stalling a carry ticket on purpose will result in your ticket being dissolved and your account being flagged.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">No Duplicate or Troll Requests</div>
+        <p>Do not open tickets for game modes you have already beaten, or open joke/troll tickets. The only exception is mission quests.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">Do Not Spam The Staff nor The Carry Service Members</div>
+        <p>Do not ping carry members in public channels or DMs asking for speed. Wait your turn in the queue.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">Follow Directives</div>
+        <p>Follow the tactical commands and strategies of the carry lead during a match. Going rogue allows the team to abandon the run and close your ticket alongside existing server penalties.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">Ticket Throttling (Cooldowns)</div>
+        <p>Standard clients may open exactly one (1) ticket every 8 hours after ticket closes. Specialized trial queues are limited to one (1) ticket every 2 hours.</p>
+      </div>
+
+      <h2 id="for-carry-team">For Carry Team Members (Operators)</h2>
+
+      <div class="rule-card">
+        <div class="rule-title">Maintain respect for all clients regardless of their skill level</div>
+        <p>Mocking mistakes or showing toxic elitism results in instant role revocation.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">Patience with Various Timezones</div>
+        <p>Clients are global. If a client is temporarily offline due to scheduling/latency, leave the ticket open and pivot to help another active client instead of deleting the request.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">No Abuse of Power</div>
+        <p>Closing active tickets without a valid, documented reason or adding unauthorized third parties to private ticket rooms will result in immediate removal from the team.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">Strict Confidentiality</div>
+        <p>Internal team strategies, application details, management logs, and private staff conversations must never be shared in public chat channels, tickets, or external platforms.</p>
+      </div>
+      <div class="rule-card">
+        <div class="rule-title">Mandatory Activity</div>
+        <p>Carry members must maintain a visible presence. If real-world schedules force an extended absence, you must formally notify the Administration beforehand, or you will be quietly decommissioned for inactivity.</p>
+      </div>
+
+      <h2 id="points-info">Points Info</h2>
+      <p>Points are earned per client based on the game mode, the difficulty variant, and how many carriers were on the run. Fewer carriers on a run earns more points per carrier.</p>
+
+      <h3 id="points-regular">Regular Modes</h3>
+      <table class="points">
+        <tr><th>Mode</th><th>Carriers</th><th>Points / Client</th></tr>
+        <tr><td rowspan="2">Easy — Fallen</td><td>1 Carrier</td><td class="pts">1</td></tr>
+        <tr><td>2–3 Carriers</td><td class="pts">0.5</td></tr>
+        <tr><td rowspan="2">Frost</td><td>1–2 Carriers</td><td class="pts">1</td></tr>
+        <tr><td>3 Carriers</td><td class="pts">0.5</td></tr>
+      </table>
+
+      <h3 id="points-special">Special Gamemode</h3>
+      <table class="points">
+        <tr><th>Mode</th><th>Variant</th><th>Carriers</th><th>Points / Client</th></tr>
+        <tr><td rowspan="2">Pizza Party</td><td rowspan="2">Regular</td><td>1 Carrier</td><td class="pts">1</td></tr>
+        <tr><td>2–3 Carriers</td><td class="pts">0.5</td></tr>
+        <tr><td rowspan="2"></td><td rowspan="2">Lost Soul</td><td>1 Carrier</td><td class="pts">1.5</td></tr>
+        <tr><td>2–3 Carriers</td><td class="pts">1</td></tr>
+        <tr><td rowspan="2">Badlands 2</td><td rowspan="2">Regular</td><td>1 Carrier</td><td class="pts">1</td></tr>
+        <tr><td>2–3 Carriers</td><td class="pts">0.5</td></tr>
+        <tr><td rowspan="2"></td><td rowspan="2">Quickdraw</td><td>1 Carrier</td><td class="pts">1.5</td></tr>
+        <tr><td>2–3 Carriers</td><td class="pts">1</td></tr>
+        <tr><td rowspan="3">Polluted Wasteland 2</td><td rowspan="3">—</td><td>1 Carrier</td><td class="pts">2</td></tr>
+        <tr><td>2 Carriers</td><td class="pts">1.5</td></tr>
+        <tr><td>3 Carriers</td><td class="pts">1</td></tr>
+        <tr><td rowspan="2">Hidden Wave</td><td rowspan="2">—</td><td>1–2 Carriers</td><td class="pts">2</td></tr>
+        <tr><td>3 Carriers</td><td class="pts">1</td></tr>
+        <tr><td rowspan="2">Cores</td><td>Hardcore</td><td>—</td><td class="pts">2</td></tr>
+        <tr><td>Voidcore 😑</td><td>Duo only (mandatory)</td><td class="pts">10</td></tr>
+      </table>
+
+      <h3 id="points-trials">Challenge Trials</h3>
+      <table class="points">
+        <tr><th>Tier</th><th>Trials</th><th>Carriers</th><th>Points / Client</th></tr>
+        <tr><td rowspan="2">Easy Trials</td><td rowspan="2">Glass, Exploding, Limitation</td><td>Solo Carry</td><td class="pts">1</td></tr>
+        <tr><td>2–3 Carriers</td><td class="pts">0.5</td></tr>
+        <tr><td rowspan="2">Medium Trials</td><td rowspan="2">Fog, Flying, Healthy, Hidden, Speedy, Quarantine</td><td>Solo Carry</td><td class="pts">1.5</td></tr>
+        <tr><td>2+ Carriers</td><td class="pts">1</td></tr>
+        <tr><td>Hard Trials</td><td>Inflation, Broke, Committed</td><td>—</td><td class="pts">2</td></tr>
+        <tr><td>Jailed 😑</td><td>—</td><td>—</td><td class="pts">4</td></tr>
+      </table>
+
+      <h3 id="points-misc">Miscellaneous</h3>
+      <table class="points">
+        <tr><th>Quest</th><th>Carriers</th><th>Points / Client</th></tr>
+        <tr><td rowspan="2">Fallen Minigunner Last Quest — Fallen on Winter Stronghold</td><td>Solo Carry</td><td class="pts">2</td></tr>
+        <tr><td>2+ Carriers</td><td class="pts">1.5</td></tr>
+        <tr><td rowspan="2">Cybernetic Crook Boss Last Quest — Fallen on Space City</td><td>Solo Carry</td><td class="pts">2</td></tr>
+        <tr><td>2+ Carriers</td><td class="pts">1.5</td></tr>
+        <tr><td rowspan="2">Slayer Shotgunner Last Quest — Molten on Infernal Abyss</td><td>Solo Carry</td><td class="pts">1.5</td></tr>
+        <tr><td>2+ Carriers</td><td class="pts">1</td></tr>
+      </table>
+
+      <div class="callout">Voidcore and Jailed trials are marked with 😑 to note their difficulty — Voidcore specifically must be done in duo carrying and cannot be soloed for points.</div>
+
+    </div>
+  </main>
+</div>
+
+</body>
+</html>
