@@ -239,7 +239,7 @@
       <ul class="doc-list">
         <li><b>Close button</b> in the channel — asks for confirmation first</li>
         <li><b>/close [reason]</b> — staff closes immediately, reason is logged in the transcript</li>
-        <li><b>/requestclose</b> — asks the ticket opener to confirm; staff cannot force this through, only the opener can approve or decline</li>
+        <li><b>/requestclose [reason]</b> — asks the ticket opener to confirm, optionally showing them why; staff cannot force this through, only the opener can approve or decline</li>
       </ul>
       <p class="body-p">On close: a transcript is generated, the opener is DMed the link, the action is logged, an 8-hour cooldown is applied, and the channel is deleted shortly after.</p>
 
@@ -309,6 +309,7 @@
         <li><b>Carry Manager Settings Access</b> — which roles can use Carry Manager Settings</li>
         <li><b>Ticket Blacklist Role</b> — roles blocked from creating any ticket, server-wide. Supports multiple.</li>
         <li><b>Ticket Viewer Roles</b> — roles that get view + chat access on every ticket, with embed/attachment permissions, separate from the single Support Role</li>
+        <li><b>Powerful Command Access</b> — roles and/or user IDs allowed to use <code>/move</code> and <code>/ticketnumber</code>. While empty, anyone with Manage Channels can use both; once you add an entry, only matching roles/users (and admins) can.</li>
         <li><b>Ticket Activity Log Channel</b> — where opened/closed events get logged</li>
       </ul>
     </section>
@@ -331,9 +332,17 @@
         <div class="desc">Closes the current ticket immediately. Reason is optional and gets logged in the transcript.</div>
       </div>
       <div class="cmd">
-        <div class="sig">/requestclose</div>
-        <div class="desc">Sends the ticket opener a Yes/No prompt to confirm the close.</div>
+        <div class="sig">/requestclose [reason]</div>
+        <div class="desc">Sends the ticket opener a Yes/No prompt to confirm the close. Reason is optional and shown to the opener in the prompt, then logged in the transcript if confirmed.</div>
         <div class="note">Only the ticket opener can respond — staff cannot force the close through this command.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/disableautoclose</div>
+        <div class="desc">Turns off the 12h/24h inactivity autoclose for this specific ticket.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/enableautoclose</div>
+        <div class="desc">Resumes inactivity autoclose for this ticket, resetting the inactivity clock from now.</div>
       </div>
       <div class="cmd">
         <div class="sig">/rename &lt;name&gt;</div>
@@ -351,12 +360,12 @@
       <div class="cmd">
         <div class="sig">/ticketnumber &lt;number&gt;</div>
         <div class="desc">Resumes this ticket's category counter from the given number.</div>
-        <div class="note">The next new ticket in that category becomes number + 1, then keeps counting up automatically.</div>
+        <div class="note">The next new ticket in that category becomes number + 1, then keeps counting up automatically. Restricted to Powerful Command Access roles/users once configured.</div>
       </div>
       <div class="cmd">
         <div class="sig">/move &lt;category&gt;</div>
         <div class="desc">Moves the ticket to a different configured category — renames it with that category's prefix/counter, and physically relocates the channel if a Discord Category ID is set.</div>
-        <div class="note">Autocompletes from your configured Ticket Categories.</div>
+        <div class="note">Autocompletes from your configured Ticket Categories. Restricted to Powerful Command Access roles/users once configured.</div>
       </div>
       <div class="cmd">
         <div class="sig">/scan_url &lt;url&gt;</div>
@@ -374,6 +383,7 @@
         <tr><td>Ticket categories</td><td>Carry Manager Settings</td></tr>
         <tr><td>Support role</td><td>Carry Manager Settings → Advanced Panel Builder</td></tr>
         <tr><td>Ticket viewer roles</td><td>Access Control</td></tr>
+        <tr><td>Powerful command access (/move, /ticketnumber)</td><td>Access Control</td></tr>
         <tr><td>Ticket blacklist roles</td><td>Access Control</td></tr>
         <tr><td>Individually blacklisted users</td><td>Blacklist page</td></tr>
         <tr><td>Ticket activity log channel</td><td>Access Control</td></tr>
