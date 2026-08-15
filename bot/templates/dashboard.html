@@ -567,7 +567,7 @@
                         <label>Target Channel:</label>
                         <select name="channel_id" required>
                             {% for channel in channels %}
-                                <option value="{{ channel.id }}">#{{ channel.name }}</option>
+                                <option value="{{ channel.id }}" {% if panel_draft.channel_id and channel.id|string == panel_draft.channel_id|string %}selected{% endif %}>#{{ channel.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -576,7 +576,7 @@
                         <select name="category_id">
                             <option value="">None</option>
                             {% for cat in categories %}
-                                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                                <option value="{{ cat.id }}" {% if panel_draft.category_id and cat.id|string == panel_draft.category_id|string %}selected{% endif %}>{{ cat.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -588,13 +588,13 @@
                         <select name="support_role_id">
                             <option value="">None</option>
                             {% for role in roles %}
-                                <option value="{{ role.id }}">@{{ role.name }}</option>
+                                <option value="{{ role.id }}" {% if panel_draft.support_role_id and role.id|string == panel_draft.support_role_id|string %}selected{% endif %}>@{{ role.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     <div>
                         <label>Embed Accent Color:</label>
-                        <input type="hidden" name="embed_color" id="embed_color_input" value="#58b9ff">
+                        <input type="hidden" name="embed_color" id="embed_color_input" value="{{ panel_draft.embed_color or '#58b9ff' }}">
                         <div style="margin-top: 5px;" id="color-picker-container"></div>
                     </div>
                 </div>
@@ -602,24 +602,24 @@
                 <hr style="border: 0; border-top: 1px solid var(--border); margin: 20px 0;">
 
                 <label>Panel Title:</label>
-                <input type="text" name="title" value="Request Carry" placeholder="e.g. Carry Request Panel">
+                <input type="text" name="title" value="{{ panel_draft.title or 'Request Carry' }}" placeholder="e.g. Carry Request Panel">
 
                 <label>Panel Description:</label>
-                <textarea name="description" rows="3" placeholder="Description content...">Click the button below to request a carry ticket!</textarea>
+                <textarea name="description" rows="3" placeholder="Description content...">{{ panel_draft.description or 'Click the button below to request a carry ticket!' }}</textarea>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <div>
                         <label>Main Image URL (Optional):</label>
-                        <input type="url" name="image_url" placeholder="https://example.com/banner.png">
+                        <input type="url" name="image_url" value="{{ panel_draft.image_url or '' }}" placeholder="https://example.com/banner.png">
                     </div>
                     <div>
                         <label>Thumbnail URL (Optional):</label>
-                        <input type="url" name="thumbnail_url" placeholder="https://example.com/logo.png">
+                        <input type="url" name="thumbnail_url" value="{{ panel_draft.thumbnail_url or '' }}" placeholder="https://example.com/logo.png">
                     </div>
                 </div>
 
                 <label>Footer Text (Optional):</label>
-                <input type="text" name="footer_text" placeholder="e.g. Powered by Carry Bot">
+                <input type="text" name="footer_text" value="{{ panel_draft.footer_text or '' }}" placeholder="e.g. Powered by Carry Bot">
 
                 <hr style="border: 0; border-top: 1px solid var(--border); margin: 20px 0;">
 
@@ -631,6 +631,7 @@
                     <div id="fieldsContainer"></div>
                 </div>
 
+                <button type="submit" formaction="/dashboard/tickets/save-draft" class="btn-view" style="margin-bottom: 10px; display: block; width: 100%; text-align: center;">💾 Save Draft</button>
                 <button type="submit" class="btn-submit">🚀 Deploy Custom Panel to Discord</button>
             </form>
         </div>
@@ -912,7 +913,7 @@ function showPage(pageId, btn) {
 // --- GLOBAL FUNCTIONS ---
 let fieldCount = 0;
 
-function addField() {
+function addField(name, value, inline) {
     fieldCount++;
     const container = document.getElementById('fieldsContainer');
     if (!container) return;
@@ -934,12 +935,19 @@ function addField() {
         </label>
     `;
     container.appendChild(fieldDiv);
+
+    if (name) fieldDiv.querySelector('.field-name').value = name;
+    if (value) fieldDiv.querySelector('.field-value').value = value;
+    if (inline) fieldDiv.querySelector('.field-inline').checked = true;
 }
 
 function removeField(fieldId) {
     const elem = document.getElementById(fieldId);
     if (elem) elem.remove();
 }
+
+const panelDraftFields = {{ (panel_draft.fields | default([])) | tojson }};
+panelDraftFields.forEach(f => addField(f.name, f.value, f.inline));
 
 // --- TICKET DROPDOWN CATEGORIES ---
 const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.name | tojson }}}{% if not loop.last %}, {% endif %}{% endfor %}];
@@ -1163,7 +1171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const pickr = Pickr.create({
                 el: '#color-picker-container',
                 theme: 'nano',
-                default: '#58b9ff',
+                default: document.getElementById('embed_color_input')?.value || '#58b9ff',
                 components: {
                     preview: true,
                     opacity: false,
