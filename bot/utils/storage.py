@@ -215,17 +215,32 @@ def add_active_ticket(ticket_id: str, channel_id: str, user_id: str, ticket_numb
     # ensure no duplicate
     exists = any(t.get('ticket_id') == str(ticket_id) for t in data.get('active_tickets', []))
     if not exists:
+        now = __import__('time').time()
         entry = {
             'ticket_id': str(ticket_id),
             'channel_id': str(channel_id),
             'user_id': str(user_id),
-            'created_at': __import__('time').time()
+            'created_at': now,
+            # --- autoclose tracking ---
+            'last_activity': now,       # updated whenever the opener sends a message
+            'autoclose_disabled': False,
+            'reminder_sent': False,
         }
         if ticket_number is not None:
             entry['ticket_number'] = int(ticket_number)
         data['active_tickets'].append(entry)
     data['ticket_counter'] = int(data.get('ticket_counter', 0))
     _save_tickets_data(data)
+
+
+def touch_ticket_activity(channel_id):
+    """Call whenever the ticket opener sends a message — resets the autoclose
+    clock and clears the 12h reminder flag so it can fire again next time."""
+    update_active_ticket(channel_id, last_activity=__import__('time').time(), reminder_sent=False)
+
+
+def set_autoclose_disabled(channel_id, disabled: bool = True):
+    update_active_ticket(channel_id, autoclose_disabled=bool(disabled))
 
 
 def remove_active_ticket(ticket_id: str):
