@@ -1,1480 +1,518 @@
-import asyncio
-import datetime
-import html
+import os
 import json
 import logging
-import os
-import discord
-from discord import app_commands
-from discord.ext import commands
+import re
+import time
+import glob
 
-from utils.storage import (
-    add_active_ticket,
-    add_cooldown,
-    add_to_blacklist,
-    get_active_ticket,
-    get_active_ticket_for_user,
-    get_blacklist_data,
-    get_category_counter,
-    get_settings,
-    increment_category_counter,
-    is_on_cooldown,
-    is_ticket_channel,
-    remove_active_ticket,
-    set_category_counter,
-    slugify,
-    update_active_ticket,
-)
+from pymongo import ReturnDocument
 
-# logger for Render stdout/stderr so platform logs capture ticket close/delete events
-logger = logging.getLogger("tickets")
+from utils.db import get_db
+
+# logger emits to stdout so platform (Render) captures ticket events
+logger = logging.getLogger('ticket_storage')
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
-    )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    h = logging.StreamHandler()
+    h.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)s] %(name)s: %(message)s'))
+    logger.addHandler(h)
     logger.setLevel(logging.INFO)
 
+DATA_DIR = "data"
+TICKETS_FILE = os.path.join(DATA_DIR, "tickets.json")
+BLACKLIST_FILE = os.path.join(DATA_DIR, "blacklist.json")
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+TRANSCRIPTS_DIR = os.path.join(DATA_DIR, "transcripts")
+TICKET_LOGS_FILE = os.path.join(DATA_DIR, "ticket_logs.json")
 
-async def send_ticket_log(bot, action, **fields):
-    """Post a ticket-activity embed to the configured Access Control log
-    channel, if one is set. Silently does nothing if no channel is configured
-    or the bot can't find/post to it."""
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
+
+# ensure logs file exists
+if not os.path.exists(TICKET_LOGS_FILE):
+    with open(TICKET_LOGS_FILE, "w") as f:
+        json.dump([], f, indent=2)
+
+# --- SYSTEM SETTINGS ---
+def get_settings():
+    if not os.path.exists(SETTINGS_FILE):
+        return {"tickets_enabled": True}
     try:
-        from utils.access import get_log_channel_id
-
-        channel_id = get_log_channel_id()
-        if not channel_id:
-            return
-        channel = bot.get_channel(int(channel_id))
-        if not channel:
-            return
-
-        colors = {
-            "opened": discord.Color.green(),
-            "closed": discord.Color.red(),
-        }
-        titles = {
-            "opened": "🎫 Ticket Opened",
-            "closed": "🔒 Ticket Closed",
-        }
-
-        embed = discord.Embed(
-            title=titles.get(action, action.title()),
-            color=colors.get(action, discord.Color.greyple()),
-            timestamp=datetime.datetime.utcnow(),
-        )
-        for key, value in fields.items():
-            if value is not None:
-                embed.add_field(
-                    name=key.replace("_", " ").title(), value=str(value), inline=True
-                )
-
-        await channel.send(embed=embed)
+        with open(SETTINGS_FILE, "r") as f:
+            return json.load(f)
     except Exception:
-        logger.exception(f"Failed to send ticket log embed for action={action}")
+        return {"tickets_enabled": True}
+
+def set_tickets_enabled(status: bool):
+    settings = get_settings()
+    settings["tickets_enabled"] = status
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+def slugify(text: str) -> str:
+    """Turn a label into a lowercase, hyphenated channel-name-safe prefix,
+    e.g. 'Fallen Carry' -> 'fallen-carry'."""
+    text = (text or "").lower().strip()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    return text.strip("-") or "ticket"
 
 
-def build_discord_like_transcript(
-    messages, channel_name, ticket_meta, generated_at_iso, filename
-):
-    """Render a dark-themed Discord-like HTML transcript, including embeds,
-    buttons, and image/file attachments styled to match Discord's real UI."""
-    safe = html.escape
+# --- CUSTOM TICKET CATEGORY DROPDOWN ---
+_DEFAULT_TICKET_CATEGORIES = [
+    {"label": "General Support", "description": "General help or questions", "emoji": "❓"},
+    {"label": "Report a User", "description": "Report another user", "emoji": "⚠️"},
+    {"label": "Appeal / Ban Review", "description": "Appeal moderation action", "emoji": "📝"},
+]
 
-    def render_embed(embed):
-        color_hex = "#5865f2"
-        if embed.get("color") is not None:
-            try:
-                color_hex = f"#{int(embed['color']):06x}"
-            except Exception:
-                pass
+def get_ticket_categories():
+    settings = get_settings()
+    categories = settings.get("ticket_categories")
+    if not categories:
+        categories = list(_DEFAULT_TICKET_CATEGORIES)
+    # backward-compatible: older saved categories won't have these yet
+    for c in categories:
+        c.setdefault("blacklist_roles", [])
+        c.setdefault("name_prefix", slugify(c.get("label", "ticket")))
+        c.setdefault("open_note", "")
+        c.setdefault("discord_category_id", None)
+    return categories
 
-        out = [f'<div class="discord-embed" style="border-left-color:{color_hex}">']
+def save_ticket_categories(categories: list):
+    settings = get_settings()
+    settings["ticket_categories"] = categories
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
 
-        if embed.get("thumbnail_url"):
-            out.append(f'<img class="embed-thumb" src="{safe(embed["thumbnail_url"])}"/>')
+# --- TICKETS DATA (counter, active tickets, cooldowns) ---
+def get_tickets_data():
+    db = get_db()
+    if db is not None:
+        doc = db.tickets_data.find_one({"_id": "singleton"})
+        if not doc:
+            doc = {"_id": "singleton", "ticket_counter": 0, "active_tickets": [], "cooldowns": []}
+            db.tickets_data.insert_one(dict(doc))
+        doc.setdefault("ticket_counter", 0)
+        doc.setdefault("active_tickets", [])
+        doc.setdefault("cooldowns", [])
+        return doc
 
-        if embed.get("author_name"):
-            out.append('<div class="embed-author">')
-            if embed.get("author_icon"):
-                out.append(f'<img src="{safe(embed["author_icon"])}"/>')
-            out.append(f'<span>{safe(embed["author_name"])}</span>')
-            out.append("</div>")
+    if not os.path.exists(TICKETS_FILE):
+        data = {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
+        with open(TICKETS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+        return data
+    try:
+        with open(TICKETS_FILE, "r") as f:
+            data = json.load(f)
+        # ensure keys
+        data.setdefault("ticket_counter", 0)
+        data.setdefault("active_tickets", [])
+        data.setdefault("cooldowns", [])
+        return data
+    except Exception:
+        return {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
 
-        if embed.get("title"):
-            title_html = safe(embed["title"])
-            if embed.get("url"):
-                title_html = f'<a href="{safe(embed["url"])}" target="_blank">{title_html}</a>'
-            out.append(f'<div class="embed-title">{title_html}</div>')
 
-        if embed.get("description"):
-            out.append(f'<div class="embed-desc">{safe(embed["description"])}</div>')
-
-        fields = embed.get("fields") or []
-        if fields:
-            out.append('<div class="embed-fields">')
-            for f in fields:
-                cls = "embed-field" if f.get("inline") else "embed-field full"
-                out.append(f'<div class="{cls}">')
-                out.append(f'<div class="embed-field-name">{safe(f.get("name",""))}</div>')
-                out.append(f'<div class="embed-field-value">{safe(f.get("value",""))}</div>')
-                out.append("</div>")
-            out.append("</div>")
-
-        if embed.get("image_url"):
-            out.append(f'<img class="embed-image" src="{safe(embed["image_url"])}"/>')
-
-        if embed.get("footer_text"):
-            out.append('<div class="embed-footer">')
-            if embed.get("footer_icon"):
-                out.append(f'<img src="{safe(embed["footer_icon"])}"/>')
-            out.append(f'<span>{safe(embed["footer_text"])}</span>')
-            out.append("</div>")
-
-        out.append("</div>")
-        return "".join(out)
-
-    def render_buttons(rows):
-        out = []
-        for row in rows:
-            out.append('<div class="discord-buttons">')
-            for btn in row:
-                style = btn.get("style") or "secondary"
-                label = safe(btn.get("label") or "")
-                emoji = btn.get("emoji")
-                prefix = f"{safe(emoji)} " if emoji else ""
-                link_icon = " ↗" if style == "link" else ""
-                out.append(
-                    f'<span class="discord-btn style-{safe(style)}">{prefix}{label}{link_icon}</span>'
-                )
-            out.append("</div>")
-        return "".join(out)
-
-    parts = []
-    parts.append("<!doctype html>")
-    parts.append(
-        '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-    )
-    parts.append(f"<title>Transcript - {safe(channel_name)}</title>")
-    parts.append(
-        "<style>"
-        "body{background:#0f1114;color:#e6eef8;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;margin:0}"
-        ".container{max-width:900px;margin:20px auto;padding:18px}"
-        ".embed{background:#2f3136;border-left:4px solid #2a9df4;padding:12px;border-radius:6px;margin-bottom:16px}"
-        ".embed h2{margin:0 0 6px 0}"
-        ".field{margin:6px 0;padding:6px 10px;background:#222326;border-radius:6px}"
-        ".msg{display:flex;gap:12px;padding:10px;border-radius:8px;background:linear-gradient(180deg,#0f1114,#0f1114);margin-bottom:6px}"
-        ".avatar{width:42px;height:42px;border-radius:50%;flex:0 0 42px}"
-        ".msg-body{flex:1}"
-        ".meta{color:#9aa5b1;font-size:13px;margin-bottom:6px}"
-        ".content{white-space:pre-wrap;color:#dbe7ef}"
-        ".attachments{margin-top:6px}"
-        ".file-card{display:flex;align-items:center;gap:8px;background:#2b2d31;border:1px solid #3a3c42;border-radius:6px;padding:8px 12px;margin-top:6px;max-width:360px}"
-        ".file-card a{color:#00a8fc;text-decoration:none;font-weight:600}"
-        ".footer{margin-top:18px;padding:10px;color:#9aa5b1;font-size:13px;border-top:1px solid #1b1d20}"
-        ".discord-embed{background:#2b2d31;border-left:4px solid #5865f2;border-radius:4px;padding:12px 16px;margin:6px 0 6px 0;max-width:520px}"
-        ".discord-embed .embed-author{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;margin-bottom:6px}"
-        ".discord-embed .embed-author img{width:20px;height:20px;border-radius:50%}"
-        ".discord-embed .embed-title{font-weight:700;font-size:15px;margin-bottom:4px;color:#fff}"
-        ".discord-embed .embed-title a{color:#00a8fc;text-decoration:none}"
-        ".discord-embed .embed-desc{font-size:14px;color:#dbdee1;white-space:pre-wrap;margin-bottom:8px}"
-        ".discord-embed .embed-fields{display:flex;flex-wrap:wrap;gap:8px}"
-        ".discord-embed .embed-field{flex:1 1 auto;min-width:100px}"
-        ".discord-embed .embed-field.full{flex-basis:100%}"
-        ".discord-embed .embed-field-name{font-weight:600;font-size:13px;color:#fff;margin-bottom:2px}"
-        ".discord-embed .embed-field-value{font-size:13px;color:#dbdee1;white-space:pre-wrap}"
-        ".discord-embed .embed-thumb{float:right;width:80px;height:80px;border-radius:4px;margin-left:12px;object-fit:cover}"
-        ".discord-embed .embed-image{max-width:100%;border-radius:4px;margin-top:8px;display:block}"
-        ".discord-embed .embed-footer{display:flex;align-items:center;gap:6px;font-size:12px;color:#949ba4;margin-top:8px}"
-        ".discord-embed .embed-footer img{width:16px;height:16px;border-radius:50%}"
-        ".discord-buttons{display:flex;gap:8px;margin:8px 0 4px 0;flex-wrap:wrap}"
-        ".discord-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:3px;font-size:14px;font-weight:500;color:#fff;cursor:default}"
-        ".discord-btn.style-primary{background:#5865f2}"
-        ".discord-btn.style-secondary{background:#4e5058}"
-        ".discord-btn.style-success{background:#248046}"
-        ".discord-btn.style-danger{background:#da373c}"
-        ".discord-btn.style-link{background:#4e5058}"
-        "</style>"
-    )
-    parts.append("</head><body>")
-    parts.append('<div class="container">')
-
-    # ticket embed
-    parts.append('<div class="embed">')
-    parts.append(f"<h2>🎫 {safe(channel_name)}</h2>")
-    creator = ticket_meta.get("creator") if ticket_meta else None
-    if creator:
-        parts.append(
-            f'<div style="font-size:14px;color:#9aa5b1">Created by: {safe(creator.get("name",""))}</div>'
-        )
-    parts.append(
-        '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">'
-    )
-    fields = ticket_meta.get("fields") if ticket_meta else {}
-    if fields:
-        for k in ("timezone", "display_name", "can_join"):
-            v = fields.get(k)
-            if v:
-                parts.append(
-                    f'<div class="field"><strong>{safe(k.replace("_"," ").title())}:</strong> {safe(v)}</div>'
-                )
-    parts.append("</div>")
-    parts.append("</div>")
-
-    # messages
-    parts.append("<div>")
-    for m in messages:
-        parts.append('<div class="msg">')
-        parts.append(
-            f'<img class="avatar" src="{safe(m.get("avatar_url") or "https://cdn.discordapp.com/embed/avatars/0.png")}" alt="avatar"/>'
-        )
-        parts.append('<div class="msg-body">')
-        parts.append(
-            f'<div class="meta"><strong>{safe(m.get("author_name","Unknown"))}</strong> <span style="margin-left:8px">{safe(m.get("ts",""))}</span></div>'
-        )
-        if m.get("content"):
-            parts.append(
-                f'<div class="content">{safe(m.get("content",""))}</div>'
-            )
-
-        attachments = m.get("attachments") or []
-        if attachments:
-            parts.append('<div class="attachments">')
-            for a in attachments:
-                if a.get("is_image"):
-                    parts.append(
-                        f'<div><img src="{safe(a["url"])}" style="max-width:360px;border-radius:6px;margin-top:6px"/></div>'
-                    )
-                else:
-                    parts.append(
-                        '<div class="file-card">📎 '
-                        f'<a href="{safe(a["url"])}" target="_blank">{safe(a.get("filename") or a["url"])}</a>'
-                        "</div>"
-                    )
-            parts.append("</div>")
-
-        for embed in m.get("embeds") or []:
-            parts.append(render_embed(embed))
-
-        components = m.get("components") or []
-        if components:
-            parts.append(render_buttons(components))
-
-        parts.append("</div>")
-        parts.append("</div>")
-    parts.append("</div>")
-
-    # footer
-    parts.append('<div class="footer">')
-    parts.append(f"Transcript generated on {safe(generated_at_iso)}")
-    parts.append(
-        f'&nbsp; • &nbsp;<a href="{safe(filename)}" download>Download HTML</a>'
-    )
-    parts.append("</div>")
-
-    parts.append("</div></body></html>")
-    return "\n".join(parts)
-
-# --- PERSISTENT CLOSE BUTTON & CONFIRMATION ---
-class ConfirmView(discord.ui.View):
-    def __init__(self, cog, target_channel):
-        super().__init__(timeout=60)
-        self.cog = cog
-        self.target_channel = target_channel
-
-    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
-    async def confirm(
-        self, inter: discord.Interaction, btn: discord.ui.Button
-    ):
-        await inter.response.defer(ephemeral=True)
+def _save_tickets_data(data: dict):
+    db = get_db()
+    if db is not None:
         try:
-            await self.cog.do_close(
-                self.target_channel, inter.user, "Closed via button"
-            )
-        except Exception as e:
-            try:
-                await inter.followup.send(
-                    f"❌ Failed to close ticket: {e}", ephemeral=True
-                )
-            except Exception:
-                pass
-
-        for child in self.children:
-            child.disabled = True
-        try:
-            await inter.message.edit(view=self)
+            data = dict(data)
+            data["_id"] = "singleton"
+            db.tickets_data.replace_one({"_id": "singleton"}, data, upsert=True)
+            return True
         except Exception:
-            pass
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel(
-        self, inter: discord.Interaction, btn: discord.ui.Button
-    ):
-        await inter.response.edit_message(
-            content="Cancelled.", view=None, ephemeral=True
-        )
-
-
-class RequestCloseView(discord.ui.View):
-    """Sent when staff run /requestclose. Only the ticket opener can respond
-    — staff cannot force the close through this view."""
-
-    def __init__(self, cog, target_channel, creator_id):
-        super().__init__(timeout=600)
-        self.cog = cog
-        self.target_channel = target_channel
-        self.creator_id = str(creator_id)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if str(interaction.user.id) != self.creator_id:
-            await interaction.response.send_message(
-                "❌ Only the person who opened this ticket can respond to this request.",
-                ephemeral=True,
-            )
             return False
+    try:
+        with open(TICKETS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
         return True
+    except Exception:
+        return False
 
-    @discord.ui.button(label="Yes, close it", style=discord.ButtonStyle.danger)
-    async def confirm(self, inter: discord.Interaction, btn: discord.ui.Button):
-        for child in self.children:
-            child.disabled = True
-        await inter.response.edit_message(content="✅ Closing ticket...", view=self)
+
+def increment_ticket_counter():
+    """Atomically increment and return the new lifetime ticket counter."""
+    db = get_db()
+    if db is not None:
         try:
-            await self.cog.do_close(
-                self.target_channel, inter.user, "Closed by opener via /requestclose"
+            doc = db.tickets_data.find_one_and_update(
+                {"_id": "singleton"},
+                {"$inc": {"ticket_counter": 1}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
             )
-        except Exception as e:
-            try:
-                await inter.followup.send(
-                    f"❌ Failed to close ticket: {e}", ephemeral=True
-                )
-            except Exception:
-                pass
-
-    @discord.ui.button(label="No, keep it open", style=discord.ButtonStyle.secondary)
-    async def decline(self, inter: discord.Interaction, btn: discord.ui.Button):
-        for child in self.children:
-            child.disabled = True
-        await inter.response.edit_message(
-            content="Ticket will stay open.", view=self
-        )
+            return doc.get("ticket_counter", 1)
+        except Exception:
+            logger.exception("Failed to increment ticket counter in MongoDB")
+    data = get_tickets_data()
+    data["ticket_counter"] = data.get("ticket_counter", 0) + 1
+    _save_tickets_data(data)
+    return data["ticket_counter"]
 
 
-class CloseConfirmView(discord.ui.View):
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
+# --- PER-CATEGORY TICKET NUMBERING (e.g. fallen-carry-0001, fallen-carry-0002...) ---
+def get_category_counter(prefix: str) -> int:
+    settings = get_settings()
+    return int(settings.get("category_counters", {}).get(prefix, 0))
 
-    @discord.ui.button(
-        label="Close Ticket",
-        style=discord.ButtonStyle.danger,
-        custom_id="ticket_close_btn",
-        emoji="🔒",
+
+def set_category_counter(prefix: str, value: int):
+    """Set (resume) a category's counter to a given value. The NEXT ticket
+    created/moved into this category will be value+1."""
+    settings = get_settings()
+    counters = settings.get("category_counters", {})
+    counters[prefix] = int(value)
+    settings["category_counters"] = counters
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
+
+def increment_category_counter(prefix: str) -> int:
+    settings = get_settings()
+    counters = settings.get("category_counters", {})
+    counters[prefix] = int(counters.get(prefix, 0)) + 1
+    settings["category_counters"] = counters
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+    return counters[prefix]
+
+
+# --- ACTIVE TICKET LOOKUP/UPDATE (used by ticket slash commands) ---
+def is_ticket_channel(channel_id) -> bool:
+    data = get_tickets_data()
+    return any(str(t.get("channel_id")) == str(channel_id) for t in data.get("active_tickets", []))
+
+
+def get_active_ticket_for_user(user_id):
+    """Return this user's currently open ticket entry (any category), or
+    None if they don't have one — used to block opening a second ticket
+    while one is still active."""
+    data = get_tickets_data()
+    return next(
+        (t for t in data.get("active_tickets", []) if str(t.get("user_id")) == str(user_id)),
+        None,
     )
-    async def close_button(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        cog = self.bot.get_cog("TicketsCog")
-        if not cog:
-            await interaction.response.send_message(
-                "❌ Close functionality is not available right now.",
-                ephemeral=True,
-            )
-            return
-
-        settings = get_settings()
-        allowed_category = settings.get("default_category_id")
-        if (
-            allowed_category
-            and interaction.channel.category
-            and str(interaction.channel.category.id) != str(allowed_category)
-        ):
-            await interaction.response.send_message(
-                "❌ This command only works in ticket channels.",
-                ephemeral=True,
-            )
-            return
-
-        perms = interaction.user.guild_permissions
-        from utils.storage import get_logs_for_ticket
-
-        creator_id = None
-        try:
-            logs = get_logs_for_ticket(str(interaction.channel.id))
-            created = next(
-                (l for l in logs if l.get("action") == "created"), None
-            )
-            if created and created.get("creator"):
-                creator_id = created.get("creator").get("id")
-        except Exception:
-            creator_id = None
-
-        if not (
-            perms.manage_channels
-            or (creator_id and str(interaction.user.id) == str(creator_id))
-        ):
-            await interaction.response.send_message(
-                "❌ You don't have permission to close this ticket.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.send_message(
-            "Are you sure you want to close this ticket?",
-            view=ConfirmView(cog, interaction.channel),
-            ephemeral=True,
-        )
 
 
-# --- MAIN TICKET CREATION SELECT MENU ---
-class TicketView(discord.ui.View):
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-        from utils.storage import get_ticket_categories
-
-        categories = get_ticket_categories()
-        options = [
-            discord.SelectOption(
-                label=c.get("label", "Ticket")[:100],
-                description=(c.get("description") or "")[:100] or None,
-                emoji=c.get("emoji") or None,
-            )
-            for c in categories[:25]
-        ]
-
-        select = discord.ui.Select(
-            placeholder="Choose ticket type...",
-            min_values=1,
-            max_values=1,
-            custom_id="create_ticket_select",
-            options=options,
-        )
-
-        async def _select_callback(interaction: discord.Interaction):
-            await self.ticket_select(interaction, select)
-
-        select.callback = _select_callback
-        self.add_item(select)
-
-    async def ticket_select(
-        self, interaction: discord.Interaction, select: discord.ui.Select
-    ):
-        settings = get_settings()
-        if not settings.get("tickets_enabled", True):
-            await interaction.response.send_message(
-                "🚫 Ticket creation is currently disabled by administrators.",
-                ephemeral=True,
-            )
-            return
-
-        selection = select.values[0] if select.values else "General Support"
-        outer_view = self
-
-        # check blacklist (individually-blacklisted user IDs)
-        try:
-            bl = get_blacklist_data()
-            blacklisted = [str(u) for u in bl.get("blacklisted_users", [])]
-            if str(interaction.user.id) in blacklisted:
-                guild = interaction.guild
-                role = (
-                    discord.utils.get(guild.roles, name="Ticket Blacklist")
-                    if guild
-                    else None
-                )
-                role_mention = role.mention if role else "@Ticket Blacklist"
-                emb = discord.Embed(
-                    title="❌ Blocked Role",
-                    description=f"You cannot create tickets on this panel because you have the {role_mention} role.",
-                    color=discord.Color.red(),
-                )
-                emb.set_footer(text="Tickety | Tickety.top")
-                await interaction.response.send_message(
-                    embed=emb, ephemeral=True
-                )
-                return
-        except Exception:
-            pass
-
-        # check ticket blacklist roles (set from the dashboard's Access Control page)
-        try:
-            from utils.access import get_blacklist_role_ids
-
-            blacklist_role_ids = {str(r) for r in get_blacklist_role_ids()}
-            if blacklist_role_ids:
-                member_role_ids = {
-                    str(r.id) for r in getattr(interaction.user, "roles", [])
-                }
-                matched_ids = member_role_ids.intersection(blacklist_role_ids)
-                if matched_ids:
-                    guild = interaction.guild
-                    matched_role = (
-                        guild.get_role(int(next(iter(matched_ids))))
-                        if guild
-                        else None
-                    )
-                    role_mention = (
-                        matched_role.mention if matched_role else "a blacklisted role"
-                    )
-                    emb = discord.Embed(
-                        title="❌ Blocked Role",
-                        description=f"You cannot create tickets on this panel because you have the {role_mention} role.",
-                        color=discord.Color.red(),
-                    )
-                    emb.set_footer(text="Tickety | Tickety.top")
-                    await interaction.response.send_message(
-                        embed=emb, ephemeral=True
-                    )
-                    return
-        except Exception:
-            pass
-
-        # check per-category blacklist roles (set per dropdown option)
-        try:
-            from utils.storage import get_ticket_categories
-
-            categories = get_ticket_categories()
-            matched_category = next(
-                (c for c in categories if c.get("label") == selection), None
-            )
-            cat_blacklist_ids = {
-                str(r) for r in (matched_category.get("blacklist_roles", []) if matched_category else [])
-            }
-            if cat_blacklist_ids:
-                member_role_ids = {
-                    str(r.id) for r in getattr(interaction.user, "roles", [])
-                }
-                matched_ids = member_role_ids.intersection(cat_blacklist_ids)
-                if matched_ids:
-                    guild = interaction.guild
-                    matched_role = (
-                        guild.get_role(int(next(iter(matched_ids))))
-                        if guild
-                        else None
-                    )
-                    role_mention = (
-                        matched_role.mention if matched_role else "a blacklisted role"
-                    )
-                    emb = discord.Embed(
-                        title="❌ Blocked Category",
-                        description=f"You cannot open a **{selection}** ticket because you have the {role_mention} role.",
-                        color=discord.Color.red(),
-                    )
-                    emb.set_footer(text="Tickety | Tickety.top")
-                    await interaction.response.send_message(
-                        embed=emb, ephemeral=True
-                    )
-                    return
-        except Exception:
-            pass
-
-        # check for an already-open ticket (any category) before letting them make another
-        try:
-            existing = get_active_ticket_for_user(interaction.user.id)
-            if existing:
-                existing_channel_id = existing.get("channel_id")
-                existing_channel = (
-                    interaction.guild.get_channel(int(existing_channel_id))
-                    if interaction.guild and existing_channel_id
-                    else None
-                )
-                if existing_channel is None:
-                    # the channel is gone (deleted manually, or while the bot
-                    # was offline) but the record was never cleaned up — heal
-                    # it here instead of permanently blocking this user
-                    remove_active_ticket(str(existing_channel_id))
-                    logger.info(
-                        f"Cleared stale active-ticket record for missing channel={existing_channel_id} (self-heal on new ticket attempt)"
-                    )
-                else:
-                    channel_mention = f"<#{existing_channel_id}>"
-                    await interaction.response.send_message(
-                        f"❌ You already have an open ticket: {channel_mention}. "
-                        f"Please close it before opening a new one.",
-                        ephemeral=True,
-                    )
-                    return
-        except Exception:
-            pass
-
-        # check cooldown
-        try:
-            on_cd, cd = is_on_cooldown(str(interaction.user.id))
-            if on_cd and cd:
-                try:
-                    expires_ts = int(cd.get("expires_ts"))
-                    await interaction.response.send_message(
-                        f"⏳ You are on cooldown until <t:{expires_ts}:F> (<t:{expires_ts}:R>).",
-                        ephemeral=True,
-                    )
-                except Exception:
-                    await interaction.response.send_message(
-                        f"⏳ You are on cooldown until {cd.get('expires_at')}.",
-                        ephemeral=True,
-                    )
-                return
-        except Exception:
-            pass
-
-        class TicketModal(discord.ui.Modal, title=f"{selection}"):
-            def __init__(self, author, selection):
-                super().__init__()
-                self.author = author
-                self.selection = selection
-
-                self.timezone = discord.ui.TextInput(
-                    label="⏰ Which country and timezone are you from? *",
-                    placeholder="e.g. UTC, PST, CET",
-                    required=True,
-                    style=discord.TextStyle.short,
-                    max_length=100,
-                )
-
-                self.display_name = discord.ui.TextInput(
-                    label="🎮 What is your roblox display name? *",
-                    placeholder="Provide your display name (not username)",
-                    required=True,
-                    style=discord.TextStyle.short,
-                    max_length=100,
-                )
-
-                self.can_join = discord.ui.TextInput(
-                    label="🎲 Are you able to join a private server? *",
-                    placeholder="Yes or No",
-                    required=True,
-                    style=discord.TextStyle.short,
-                    max_length=10,
-                )
-
-                self.add_item(self.timezone)
-                self.add_item(self.display_name)
-                self.add_item(self.can_join)
-
-            async def on_submit(
-                self, modal_interaction: discord.Interaction
-            ):
-                settings = get_settings()
-                guild = modal_interaction.guild
-                user = self.author
-
-                await modal_interaction.response.defer(ephemeral=True)
-
-                overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(
-                        read_messages=False
-                    ),
-                    user: discord.PermissionOverwrite(
-                        read_messages=True,
-                        send_messages=True,
-                        attach_files=True,
-                    ),
-                    guild.me: discord.PermissionOverwrite(
-                        read_messages=True,
-                        send_messages=True,
-                        manage_channels=True,
-                    ),
-                }
-
-                support_role_id = settings.get("support_role_id")
-                if support_role_id:
-                    support_role = guild.get_role(int(support_role_id))
-                    if support_role:
-                        overwrites[support_role] = discord.PermissionOverwrite(
-                            read_messages=True, send_messages=True
-                        )
-
-                try:
-                    from utils.access import get_ticket_viewer_role_ids
-
-                    for rid in get_ticket_viewer_role_ids():
-                        viewer_role = guild.get_role(int(rid))
-                        if viewer_role:
-                            overwrites[viewer_role] = discord.PermissionOverwrite(
-                                read_messages=True,
-                                send_messages=True,
-                                embed_links=True,
-                                attach_files=True,
-                            )
-                except Exception:
-                    pass
-
-                from utils.storage import get_ticket_categories
-
-                categories = get_ticket_categories()
-                category_cfg = next(
-                    (c for c in categories if c.get("label") == self.selection),
-                    None,
-                )
-
-                category_id = (
-                    (category_cfg or {}).get("discord_category_id")
-                    or settings.get("default_category_id")
-                )
-                category = (
-                    guild.get_channel(int(category_id))
-                    if category_id
-                    else None
-                )
-
-                prefix = (category_cfg or {}).get("name_prefix") or slugify(
-                    self.selection
-                )
-                category_number = increment_category_counter(prefix)
-                channel_name = f"{prefix}-{category_number:04d}"
-
-                try:
-                    ticket_channel = await guild.create_text_channel(
-                        name=channel_name,
-                        category=category,
-                        overwrites=overwrites,
-                        reason=f"Ticket created by {user.name}",
-                    )
-
-                    embed = discord.Embed(
-                        title=f"🎫 {self.selection} - {user.name}",
-                        description="",
-                        color=discord.Color.blue(),
-                    )
-
-                    if self.timezone.value:
-                        embed.add_field(
-                            name="Timezone",
-                            value=self.timezone.value,
-                            inline=False,
-                        )
-                    if self.display_name.value:
-                        embed.add_field(
-                            name="Display name",
-                            value=self.display_name.value,
-                            inline=False,
-                        )
-                    embed.add_field(
-                        name="Can join private server?",
-                        value=self.can_join.value,
-                        inline=False,
-                    )
-                    if category_cfg and category_cfg.get("open_note"):
-                        embed.add_field(
-                            name="Note",
-                            value=category_cfg["open_note"],
-                            inline=False,
-                        )
-
-                    await ticket_channel.send(
-                        content=f"{user.mention}", embed=embed
-                    )
-
-                    # Attach close button view
-                    await ticket_channel.send(
-                        view=CloseConfirmView(outer_view.bot)
-                    )
-
-                    # Log creation
-                    ticket_id = str(ticket_channel.id)
-                    timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-
-                    try:
-                        from utils.storage import increment_ticket_counter
-
-                        ticket_number = increment_ticket_counter()
-                    except Exception as e:
-                        logger.exception(
-                            f"Failed to increment ticket counter for channel={ticket_channel.id}: {e}"
-                        )
-                        ticket_number = None
-
-                    # Record the active ticket in its OWN try/except, separate from
-                    # logging below - this is what powers the "you already have a
-                    # ticket open" block, so a logging/counter failure must never
-                    # silently skip it too.
-                    try:
-                        add_active_ticket(
-                            str(ticket_channel.id),
-                            str(ticket_channel.id),
-                            str(user.id),
-                            ticket_number,
-                        )
-                        update_active_ticket(
-                            str(ticket_channel.id),
-                            category_label=self.selection,
-                            category_prefix=prefix,
-                            category_number=category_number,
-                        )
-                    except Exception as e:
-                        logger.exception(
-                            f"Failed to record active ticket for channel={ticket_channel.id} user={user.id}: {e}"
-                        )
-
-                    try:
-                        from utils.storage import append_ticket_log
-
-                        append_ticket_log({
-                            "ticket_id": ticket_id,
-                            "ticket_name": ticket_channel.name,
-                            "action": "created",
-                            "timestamp": timestamp,
-                            "ticket_number": ticket_number,
-                            "category_label": self.selection,
-                            "category_prefix": prefix,
-                            "category_number": category_number,
-                            "creator": {
-                                "id": str(user.id),
-                                "name": str(user),
-                            },
-                            "fields": {
-                                "timezone": self.timezone.value,
-                                "display_name": self.display_name.value,
-                                "can_join": self.can_join.value,
-                            },
-                        })
-                    except Exception as e:
-                        logger.exception(
-                            f"Failed to append ticket creation log for channel={ticket_channel.id}: {e}"
-                        )
-
-                    await modal_interaction.followup.send(
-                        f"✅ Ticket created! Please head over to {ticket_channel.mention}.",
-                        ephemeral=True,
-                    )
-
-                    await send_ticket_log(
-                        outer_view.bot,
-                        "opened",
-                        ticket=ticket_channel.mention,
-                        opened_by=f"{user} ({user.id})",
-                        type=self.selection,
-                    )
-
-                except discord.Forbidden:
-                    await modal_interaction.followup.send(
-                        "❌ I lack permissions to create channels or set permissions in this server.",
-                        ephemeral=True,
-                    )
-                except Exception as e:
-                    await modal_interaction.followup.send(
-                        f"❌ Failed to create ticket channel: {str(e)}",
-                        ephemeral=True,
-                    )
-
-        modal = TicketModal(interaction.user, selection)
-        await interaction.response.send_modal(modal)
+def get_active_ticket(channel_id):
+    data = get_tickets_data()
+    return next(
+        (t for t in data.get("active_tickets", []) if str(t.get("channel_id")) == str(channel_id)),
+        None,
+    )
 
 
-# --- TICKETS COG & SLASH COMMANDS ---
-class TicketsCog(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+def update_active_ticket(channel_id, **kwargs):
+    data = get_tickets_data()
+    for t in data.get("active_tickets", []):
+        if str(t.get("channel_id")) == str(channel_id):
+            t.update(kwargs)
+    _save_tickets_data(data)
 
-    def get_ticket_view(self):
-        return TicketView(self.bot)
 
-    @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
-        """If a ticket channel gets deleted directly in Discord (instead of
-        via /close, close-with-reason, or request-close), do_close() never
-        runs and the active-ticket record is left behind — permanently
-        blocking that user from opening a new ticket. Clean it up here so a
-        manual delete behaves the same as a normal close, storage-wise."""
-        try:
-            if is_ticket_channel(channel.id):
-                remove_active_ticket(str(channel.id))
-                logger.info(
-                    f"Cleared stale active-ticket record for manually deleted channel={channel.id}"
-                )
-        except Exception:
-            pass
+def add_active_ticket(ticket_id: str, channel_id: str, user_id: str, ticket_number: int = None):
+    data = get_tickets_data()
+    # ensure no duplicate
+    exists = any(t.get('ticket_id') == str(ticket_id) for t in data.get('active_tickets', []))
+    if not exists:
+        now = __import__('time').time()
+        entry = {
+            'ticket_id': str(ticket_id),
+            'channel_id': str(channel_id),
+            'user_id': str(user_id),
+            'created_at': now,
+            # --- autoclose tracking ---
+            'last_activity': now,       # updated whenever the opener sends a message
+            'autoclose_disabled': False,
+            'reminder_sent': False,
+        }
+        if ticket_number is not None:
+            entry['ticket_number'] = int(ticket_number)
+        data['active_tickets'].append(entry)
+    data['ticket_counter'] = int(data.get('ticket_counter', 0))
+    _save_tickets_data(data)
 
-    async def _ticket_command_check(self, interaction: discord.Interaction) -> bool:
-        """Shared guard for all ticket-management slash commands: requires
-        Manage Channels and only works inside an active ticket channel."""
-        if not interaction.user.guild_permissions.manage_channels:
-            await interaction.response.send_message(
-                "❌ You need the **Manage Channels** permission to use this command.",
-                ephemeral=True,
-            )
-            return False
-        if not interaction.channel or not is_ticket_channel(interaction.channel.id):
-            await interaction.response.send_message(
-                "❌ This command can only be used inside an active ticket channel.",
-                ephemeral=True,
-            )
-            return False
+
+def touch_ticket_activity(channel_id):
+    """Call whenever the ticket opener sends a message — resets the autoclose
+    clock and clears the 12h reminder flag so it can fire again next time."""
+    update_active_ticket(channel_id, last_activity=__import__('time').time(), reminder_sent=False)
+
+
+def set_autoclose_disabled(channel_id, disabled: bool = True):
+    update_active_ticket(channel_id, autoclose_disabled=bool(disabled))
+
+
+def remove_active_ticket(ticket_id: str):
+    data = get_tickets_data()
+    data['active_tickets'] = [t for t in data.get('active_tickets', []) if str(t.get('ticket_id')) != str(ticket_id)]
+    _save_tickets_data(data)
+
+
+def add_cooldown(user_id: str, hours: int = 8):
+    data = get_tickets_data()
+    now = int(__import__('time').time())
+    expires = now + int(hours) * 3600
+    # remove existing for user
+    data['cooldowns'] = [c for c in data.get('cooldowns', []) if str(c.get('user_id')) != str(user_id)]
+    data['cooldowns'].append({'user_id': str(user_id), 'expires_at': __import__('datetime').datetime.utcfromtimestamp(expires).isoformat() + 'Z', 'expires_ts': expires})
+    _save_tickets_data(data)
+
+
+def remove_cooldown(user_id: str):
+    data = get_tickets_data()
+    before = len(data.get('cooldowns', []))
+    data['cooldowns'] = [c for c in data.get('cooldowns', []) if str(c.get('user_id')) != str(user_id)]
+    _save_tickets_data(data)
+    return len(data.get('cooldowns', [])) < before
+
+
+def get_cooldowns():
+    data = get_tickets_data()
+    return data.get('cooldowns', [])
+
+
+def is_on_cooldown(user_id: str):
+    try:
+        now = int(__import__('time').time())
+        for c in get_cooldowns():
+            if str(c.get('user_id')) == str(user_id):
+                if int(c.get('expires_ts', 0)) > now:
+                    return True, c
+        return False, None
+    except Exception:
+        return False, None
+
+
+def add_to_blacklist(user_id: str):
+    data = get_blacklist_data()
+    if user_id not in data.get('blacklisted_users', []):
+        data['blacklisted_users'].append(str(user_id))
+        with open(BLACKLIST_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
         return True
+    return False
 
-    # Slash Command: /close [reason] — closes immediately, no opener confirmation
-    @app_commands.command(
-        name="close",
-        description="Close this ticket immediately, optionally with a reason",
-    )
-    @app_commands.describe(reason="Reason for closing this ticket (logged in the transcript)")
-    async def close_command(
-        self, interaction: discord.Interaction, reason: str = None
-    ):
-        if not await self._ticket_command_check(interaction):
-            return
 
-        await interaction.response.send_message(
-            f"🔒 Closing this ticket"
-            f"{f' — reason: {reason}' if reason else ''}...",
-            ephemeral=True,
-        )
+# --- TICKET LOGS ---
+def append_ticket_log(entry: dict):
+    """Append a log entry dict. Entry should include at least:
+    {"ticket_id": str, "action": str, "timestamp": iso, "payload": {...}}
+    Writes to MongoDB when configured, otherwise to ticket_logs.json.
+    Also logs to stdout so platform logs capture the event for debugging.
+    """
+    db = get_db()
+    if db is not None:
         try:
-            await self.do_close(
-                interaction.channel, interaction.user, reason or "No reason provided."
-            )
-        except Exception as e:
+            db.ticket_logs.insert_one(dict(entry))
             try:
-                await interaction.followup.send(
-                    f"❌ Failed to close ticket: {e}", ephemeral=True
-                )
+                logger.info(f"ticket_log appended: action={entry.get('action')} ticket_id={entry.get('ticket_id')} payload_keys={list(entry.keys())}")
             except Exception:
                 pass
-
-    # Slash Command: /requestclose — asks the opener to confirm; staff can't force it
-    @app_commands.command(
-        name="requestclose",
-        description="Ask the ticket opener to confirm closing this ticket",
-    )
-    async def request_close_command(self, interaction: discord.Interaction):
-        if not await self._ticket_command_check(interaction):
-            return
-
-        ticket = get_active_ticket(interaction.channel.id)
-        creator_id = ticket.get("user_id") if ticket else None
-        if not creator_id:
-            await interaction.response.send_message(
-                "❌ Couldn't find who opened this ticket.", ephemeral=True
-            )
-            return
-
-        await interaction.response.send_message(
-            f"<@{creator_id}>, {interaction.user.mention} has requested to close "
-            f"this ticket. Do you want to close it?",
-            view=RequestCloseView(self, interaction.channel, creator_id),
-        )
-
-    # Slash Command: /add — grants a member access to this ticket channel
-    @app_commands.command(
-        name="add",
-        description="Add a user to this ticket channel",
-    )
-    @app_commands.describe(user="The member to add to this ticket")
-    async def add_command(
-        self, interaction: discord.Interaction, user: discord.Member
-    ):
-        if not await self._ticket_command_check(interaction):
-            return
-
-        if user.bot:
-            await interaction.response.send_message(
-                "❌ You can't add a bot to a ticket.", ephemeral=True
-            )
-            return
-
-        existing_overwrite = interaction.channel.overwrites_for(user)
-        if existing_overwrite.read_messages:
-            await interaction.response.send_message(
-                f"⚠️ {user.mention} already has access to this ticket.",
-                ephemeral=True,
-            )
-            return
-
-        try:
-            await interaction.channel.set_permissions(
-                user,
-                read_messages=True,
-                send_messages=True,
-                attach_files=True,
-                reason=f"Added to ticket by {interaction.user}",
-            )
-            await interaction.response.send_message(
-                f"✅ {user.mention} has been added to this ticket."
-            )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ I don't have permission to edit this channel's permissions.",
-                ephemeral=True,
-            )
+            return True
         except Exception as e:
-            await interaction.response.send_message(
-                f"❌ Failed to add user: {e}", ephemeral=True
-            )
+            logger.exception(f"Failed to append ticket_log to MongoDB: {e}")
+            return False
 
-    # Slash Command: /remove — revokes a member's access to this ticket channel
-    @app_commands.command(
-        name="remove",
-        description="Remove a user from this ticket channel",
-    )
-    @app_commands.describe(user="The member to remove from this ticket")
-    async def remove_command(
-        self, interaction: discord.Interaction, user: discord.Member
-    ):
-        if not await self._ticket_command_check(interaction):
-            return
-
+    try:
+        logs = []
+        if os.path.exists(TICKET_LOGS_FILE):
+            with open(TICKET_LOGS_FILE, "r") as f:
+                logs = json.load(f)
+        logs.append(entry)
+        with open(TICKET_LOGS_FILE, "w") as f:
+            json.dump(logs, f, indent=2)
         try:
-            await interaction.channel.set_permissions(
-                user,
-                overwrite=None,
-                reason=f"Removed from ticket by {interaction.user}",
-            )
-            await interaction.response.send_message(
-                f"✅ {user.mention} has been removed from this ticket."
-            )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ I don't have permission to edit this channel's permissions.",
-                ephemeral=True,
-            )
-        except Exception as e:
-            await interaction.response.send_message(
-                f"❌ Failed to remove user: {e}", ephemeral=True
-            )
-
-    # Slash Command: /rename
-    @app_commands.command(name="rename", description="Rename this ticket channel")
-    @app_commands.describe(name="The new channel name")
-    async def rename_command(self, interaction: discord.Interaction, name: str):
-        if not await self._ticket_command_check(interaction):
-            return
-
-        new_name = slugify(name)[:90]
-        try:
-            await interaction.channel.edit(
-                name=new_name, reason=f"Renamed by {interaction.user}"
-            )
-            await interaction.response.send_message(
-                f"✅ Renamed to `{new_name}`.", ephemeral=True
-            )
-        except Exception as e:
-            await interaction.response.send_message(
-                f"❌ Failed to rename: {e}", ephemeral=True
-            )
-
-    # Slash Command: /ticketnumber — resumes this ticket's category numbering
-    @app_commands.command(
-        name="ticketnumber",
-        description="Set this ticket category's numbering to resume from a given number",
-    )
-    @app_commands.describe(
-        number="The next new ticket in this category will continue counting up from this number"
-    )
-    async def ticket_number_command(
-        self, interaction: discord.Interaction, number: int
-    ):
-        if not await self._ticket_command_check(interaction):
-            return
-
-        ticket = get_active_ticket(interaction.channel.id)
-        prefix = (ticket or {}).get("category_prefix")
-        if not prefix:
-            await interaction.response.send_message(
-                "❌ Couldn't determine this ticket's category.", ephemeral=True
-            )
-            return
-
-        set_category_counter(prefix, number)
-        await interaction.response.send_message(
-            f"✅ `{prefix}` numbering set to **{number}** — the next new ticket in "
-            f"this category will be `{prefix}-{number + 1:04d}`.",
-            ephemeral=True,
-        )
-
-    # Slash Command: /move — move this ticket to a different ticket category
-    @app_commands.command(
-        name="move", description="Move this ticket to a different ticket category"
-    )
-    @app_commands.describe(category="The ticket category to move this ticket to")
-    async def move_command(self, interaction: discord.Interaction, category: str):
-        if not await self._ticket_command_check(interaction):
-            return
-
-        from utils.storage import get_ticket_categories
-
-        categories = get_ticket_categories()
-        target = next((c for c in categories if c.get("label") == category), None)
-        if not target:
-            await interaction.response.send_message(
-                "❌ Unknown category.", ephemeral=True
-            )
-            return
-
-        prefix = target.get("name_prefix") or slugify(category)
-        next_number = increment_category_counter(prefix)
-        new_name = f"{prefix}-{next_number:04d}"
-
-        try:
-            edit_kwargs = {
-                "name": new_name,
-                "reason": f"Moved to {category} by {interaction.user}",
-            }
-            discord_category_id = target.get("discord_category_id")
-            if discord_category_id:
-                disc_cat = interaction.guild.get_channel(int(discord_category_id))
-                if disc_cat:
-                    edit_kwargs["category"] = disc_cat
-
-            await interaction.channel.edit(**edit_kwargs)
-            update_active_ticket(
-                str(interaction.channel.id),
-                category_label=category,
-                category_prefix=prefix,
-                category_number=next_number,
-            )
-            await interaction.response.send_message(
-                f"✅ Moved to **{category}** — renamed to `{new_name}`.",
-                ephemeral=True,
-            )
-        except Exception as e:
-            await interaction.response.send_message(
-                f"❌ Failed to move ticket: {e}", ephemeral=True
-            )
-
-    @move_command.autocomplete("category")
-    async def move_command_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ):
-        from utils.storage import get_ticket_categories
-
-        categories = get_ticket_categories()
-        return [
-            app_commands.Choice(name=c["label"], value=c["label"])
-            for c in categories
-            if current.lower() in c["label"].lower()
-        ][:25]
-
-    async def deploy_panel_from_dashboard(
-        self,
-        channel_id: int,
-        title: str,
-        description: str,
-        category_id: int = None,
-        support_role_id: int = None,
-        color: str = "#58b9ff",
-        image_url: str = None,
-        thumbnail_url: str = None,
-        footer_text: str = None,
-        fields: list = None,
-    ):
-        channel = self.bot.get_channel(channel_id)
-        if not channel:
-            try:
-                channel = await self.bot.fetch_channel(channel_id)
-            except Exception:
-                return False, f"Channel ID {channel_id} could not be found."
-
-        settings = get_settings()
-        if category_id:
-            settings["default_category_id"] = category_id
-        if support_role_id:
-            settings["support_role_id"] = support_role_id
-
-        from utils.storage import SETTINGS_FILE
-
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f, indent=4)
-
-        try:
-            hex_val = color.lstrip("#")
-            embed_color = discord.Color(int(hex_val, 16))
+            logger.info(f"ticket_log appended: action={entry.get('action')} ticket_id={entry.get('ticket_id')} payload_keys={list(entry.keys())}")
         except Exception:
-            embed_color = discord.Color.blue()
-
-        embed = discord.Embed(
-            title=title, description=description, color=embed_color
-        )
-
-        if image_url:
-            embed.set_image(url=image_url)
-        if thumbnail_url:
-            embed.set_thumbnail(url=thumbnail_url)
-        if footer_text:
-            embed.set_footer(text=footer_text)
-
-        if fields and isinstance(fields, list):
-            for f in fields:
-                field_name = f.get("name", "").strip()
-                field_value = f.get("value", "").strip()
-                is_inline = bool(f.get("inline", False))
-
-                if field_name and field_value:
-                    embed.add_field(
-                        name=field_name, value=field_value, inline=is_inline
-                    )
-
+            pass
+        return True
+    except Exception as e:
         try:
-            await channel.send(embed=embed, view=self.get_ticket_view())
-            return True, "Panel deployed successfully!"
-        except discord.Forbidden:
-            return (
-                False,
-                "Bot lacks permission to send messages in that channel.",
-            )
-        except Exception as e:
-            return False, f"Failed to send embed: {str(e)}"
+            logger.exception(f"Failed to append ticket_log: {e}")
+        except Exception:
+            pass
+        return False
 
-    async def do_close(
-        self,
-        channel: discord.abc.GuildChannel,
-        executor: discord.abc.Snowflake,
-        reason: str = "No reason provided.",
-    ):
-        """Generate transcript, log close, DM creator, then delete the channel after 5 seconds."""
+
+def get_ticket_logs():
+    db = get_db()
+    if db is not None:
         try:
-            try:
-                logger.info(
-                    f"do_close invoked for channel={getattr(channel,'id',None)} by executor={getattr(executor,'id',executor)} reason={reason}"
-                )
-            except Exception:
-                pass
+            return list(db.ticket_logs.find({}, {"_id": 0}))
+        except Exception:
+            logger.exception("Failed to read ticket_logs from MongoDB")
+            return []
+    try:
+        with open(TICKET_LOGS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return []
 
-            messages = []
-            async for m in channel.history(limit=1000, oldest_first=True):
-                ts = m.created_at.isoformat()
-                author_name = str(m.author)
-                author_id = getattr(m.author, "id", None)
-                try:
-                    avatar_url = m.author.display_avatar.url
-                except Exception:
-                    avatar_url = (
-                        getattr(m.author, "avatar_url", None)
-                        or "https://cdn.discordapp.com/embed/avatars/0.png"
-                    )
-                content = m.content or ""
 
-                attachments_data = []
-                for a in m.attachments:
-                    is_image = bool(
-                        a.content_type and a.content_type.startswith("image/")
-                    ) or a.filename.lower().endswith(
-                        (".png", ".jpg", ".jpeg", ".gif", ".webp")
-                    )
-                    attachments_data.append({
-                        "url": a.url,
-                        "filename": a.filename,
-                        "is_image": is_image,
-                    })
+def get_logs_for_ticket(ticket_id: str):
+    logs = get_ticket_logs()
+    return [l for l in logs if str(l.get("ticket_id")) == str(ticket_id)]
 
-                embeds_data = []
-                for e in m.embeds:
-                    embeds_data.append({
-                        "title": e.title,
-                        "description": e.description,
-                        "url": e.url if e.url else None,
-                        "color": e.color.value if e.color else None,
-                        "author_name": e.author.name if e.author else None,
-                        "author_icon": e.author.icon_url if e.author else None,
-                        "thumbnail_url": e.thumbnail.url if e.thumbnail else None,
-                        "image_url": e.image.url if e.image else None,
-                        "footer_text": e.footer.text if e.footer else None,
-                        "footer_icon": e.footer.icon_url if e.footer else None,
-                        "fields": [
-                            {
-                                "name": f.name,
-                                "value": f.value,
-                                "inline": f.inline,
-                            }
-                            for f in e.fields
-                        ],
-                    })
+def get_transcript_info(filename: str):
+    """Given a transcript filename like 'ticket-123456789.html', return the
+    ticket's creator username and ticket number for a cleaner dashboard display."""
+    ticket_id = filename
+    if ticket_id.startswith("ticket-"):
+        ticket_id = ticket_id[len("ticket-"):]
+    if ticket_id.endswith(".html"):
+        ticket_id = ticket_id[: -len(".html")]
 
-                components_data = []
-                for row in m.components:
-                    row_buttons = []
-                    for child in getattr(row, "children", []):
-                        if isinstance(child, discord.Button):
-                            row_buttons.append({
-                                "label": child.label,
-                                "style": str(child.style).split(".")[-1],
-                                "emoji": str(child.emoji) if child.emoji else None,
-                                "url": child.url,
-                            })
-                    if row_buttons:
-                        components_data.append(row_buttons)
+    username = "Unknown User"
+    ticket_number = None
 
-                messages.append({
-                    "ts": ts,
-                    "author_name": author_name,
-                    "author_id": str(author_id) if author_id else None,
-                    "avatar_url": avatar_url,
-                    "content": content,
-                    "attachments": attachments_data,
-                    "embeds": embeds_data,
-                    "components": components_data,
-                    "is_bot": getattr(m.author, "bot", False),
-                })
+    logs = get_logs_for_ticket(ticket_id)
+    created = next((l for l in logs if l.get("action") == "created"), None)
+    if created:
+        creator = created.get("creator") or {}
+        username = creator.get("name") or username
+        ticket_number = created.get("ticket_number")
 
-            filename = f"ticket-{channel.id}.html"
-            generated_at = datetime.datetime.utcnow().isoformat() + "Z"
+    return {
+        "filename": filename,
+        "username": username,
+        "ticket_number": ticket_number,
+    }
 
-            ticket_meta = {}
-            try:
-                from utils.storage import get_logs_for_ticket
 
-                logs = get_logs_for_ticket(str(channel.id))
-                created = next(
-                    (l for l in logs if l.get("action") == "created"), None
-                )
-                if created:
-                    ticket_meta = created
-            except Exception:
-                ticket_meta = {}
-
-            html_out = build_discord_like_transcript(
-                messages, channel.name, ticket_meta, generated_at, filename
+# --- TRANSCRIPT HTML STORAGE ---
+def save_transcript_html(filename: str, html: str):
+    """Save a rendered transcript's HTML. Stored in MongoDB when configured,
+    otherwise written to the local transcripts folder."""
+    db = get_db()
+    if db is not None:
+        try:
+            db.transcripts.replace_one(
+                {"_id": filename},
+                {"_id": filename, "html": html, "saved_at": time.time()},
+                upsert=True,
             )
-            from utils.storage import save_transcript_html
-            save_transcript_html(filename, html_out)
+            return True
+        except Exception:
+            logger.exception(f"Failed to save transcript '{filename}' to MongoDB")
+            return False
 
-            timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-            from utils.storage import append_ticket_log, get_logs_for_ticket
-
-            creator_id = None
-            try:
-                logs = get_logs_for_ticket(str(channel.id))
-                created = next(
-                    (l for l in logs if l.get("action") == "created"), None
-                )
-                if created and created.get("creator"):
-                    creator_id = created.get("creator").get("id")
-            except Exception:
-                pass
-
-            append_ticket_log({
-                "ticket_id": str(channel.id),
-                "ticket_name": channel.name,
-                "action": "closed",
-                "timestamp": timestamp,
-                "executor": {
-                    "id": str(getattr(executor, "id", executor)),
-                    "name": str(executor),
-                },
-                "reason": reason,
-                "transcript_file": filename,
-                "allowed_user_id": creator_id,
-            })
-
-            # apply cooldown when the ticket is closed
-            try:
-                if creator_id:
-                    add_cooldown(str(creator_id), hours=8)
-            except Exception:
-                pass
-
-            await send_ticket_log(
-                self.bot,
-                "closed",
-                ticket=f"#{channel.name}",
-                closed_by=f"{executor} ({getattr(executor, 'id', executor)})",
-                reason=reason,
-            )
-
-            try:
-                remove_active_ticket(str(channel.id))
-            except Exception:
-                pass
-
-            # DM creator transcript
-            from utils.storage import generate_transcript_url
-
-            signed_url = generate_transcript_url(
-                filename, expires_seconds=3600
-            )
-
-            if creator_id:
-                try:
-                    user = await self.bot.fetch_user(int(creator_id))
-
-                    class LinkView(discord.ui.View):
-
-                        def __init__(self, url):
-                            super().__init__(timeout=None)
-                            self.add_item(
-                                discord.ui.Button(
-                                    label="View Transcript", url=url
-                                )
-                            )
-
-                    await user.send(
-                        content=f"Your ticket '{channel.name}' has been closed. The transcript is available for 1 hour.",
-                        view=LinkView(signed_url),
-                    )
-                except Exception as e:
-                    logger.exception(f"Failed DM user: {e}")
-
-            try:
-                await channel.send("This ticket will be deleted in 5 seconds.")
-            except Exception:
-                pass
-
-            me = None
-            if channel.guild:
-                me = channel.guild.get_member(self.bot.user.id)
-                if not me:
-                    try:
-                        me = await channel.guild.fetch_member(
-                            self.bot.user.id
-                        )
-                    except Exception:
-                        me = None
-
-            can_delete = False
-            if me:
-                perms = channel.permissions_for(me)
-                guild_perms = getattr(me, "guild_permissions", None)
-                can_delete = bool(
-                    (guild_perms and guild_perms.manage_channels)
-                    or (perms and perms.manage_channels)
-                )
-
-            await asyncio.sleep(5)
-            ts_now = datetime.datetime.utcnow().isoformat() + "Z"
-
-            if can_delete:
-                try:
-                    await channel.delete(reason=f"Ticket closed: {reason}")
-                    append_ticket_log({
-                        "ticket_id": str(channel.id),
-                        "ticket_name": channel.name,
-                        "action": "deleted",
-                        "timestamp": ts_now,
-                        "executor": {
-                            "id": str(getattr(executor, "id", executor)),
-                            "name": str(executor),
-                        },
-                    })
-                except Exception as e:
-                    append_ticket_log({
-                        "ticket_id": str(channel.id),
-                        "ticket_name": channel.name,
-                        "action": "delete_failed",
-                        "timestamp": ts_now,
-                        "executor": {
-                            "id": str(getattr(executor, "id", executor)),
-                            "name": str(executor),
-                        },
-                        "error": str(e),
-                    })
-                    try:
-                        await channel.send(
-                            "⚠️ Failed to delete channel; archiving instead."
-                        )
-                        await channel.set_permissions(
-                            channel.guild.default_role, read_messages=False
-                        )
-                        await channel.edit(name=f"closed-{channel.name}")
-                    except Exception:
-                        pass
-        except Exception as global_err:
-            logger.exception(f"Error in do_close: {global_err}")
+    try:
+        os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
+        with open(os.path.join(TRANSCRIPTS_DIR, filename), "w", encoding="utf-8") as f:
+            f.write(html)
+        return True
+    except Exception:
+        logger.exception(f"Failed to save transcript '{filename}' to disk")
+        return False
 
 
-async def setup(bot):
-    cog = TicketsCog(bot)
-    await bot.add_cog(cog)
-    bot.add_view(TicketView(bot))
-    bot.add_view(CloseConfirmView(bot))
+def get_transcript_html(filename: str):
+    """Return a transcript's HTML content, or None if it doesn't exist."""
+    db = get_db()
+    if db is not None:
+        try:
+            doc = db.transcripts.find_one({"_id": filename})
+            return doc["html"] if doc else None
+        except Exception:
+            logger.exception(f"Failed to read transcript '{filename}' from MongoDB")
+            return None
+
+    path = os.path.join(TRANSCRIPTS_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return None
+
+
+def list_transcript_filenames():
+    """Return the filenames of every saved transcript."""
+    db = get_db()
+    if db is not None:
+        try:
+            return [doc["_id"] for doc in db.transcripts.find({}, {"_id": 1})]
+        except Exception:
+            logger.exception("Failed to list transcripts from MongoDB")
+            return []
+
+    if not os.path.exists(TRANSCRIPTS_DIR):
+        return []
+    return [os.path.basename(f) for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")]
+
+# --- BLACKLIST DATA ---
+def get_blacklist_data():
+    if not os.path.exists(BLACKLIST_FILE):
+        return {"blacklisted_users": []}
+    try:
+        with open(BLACKLIST_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {"blacklisted_users": []}
+
+def remove_from_blacklist(user_id: str):
+    data = get_blacklist_data()
+    if user_id in data["blacklisted_users"]:
+        data["blacklisted_users"].remove(user_id)
+        with open(BLACKLIST_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        return True
+    return False
+
+# --- Signed short-lived transcript URLs ---
+import hmac
+import hashlib
+import base64
+import time
+
+
+def _get_secret_key():
+    # prefer environment SECRET_KEY, fall back to a static default (not recommended for production)
+    return os.getenv('SECRET_KEY') or 'supersecretkey123'
+
+
+def generate_transcript_token(filename: str, expires_seconds: int = 3600) -> str:
+    """Return a URL-safe token encoding filename and expiry signed with SECRET_KEY."""
+    expiry = int(time.time()) + int(expires_seconds)
+    payload = f"{filename}|{expiry}".encode('utf-8')
+    key = _get_secret_key().encode('utf-8')
+    sig = hmac.new(key, payload, hashlib.sha256).digest()
+    token = base64.urlsafe_b64encode(payload + b"|" + sig).decode('utf-8')
+    return token
+
+
+def verify_transcript_token(token: str) -> dict:
+    """Verify token and return dict {filename, expires} if valid, else None."""
+    try:
+        raw = base64.urlsafe_b64decode(token.encode('utf-8'))
+        parts = raw.split(b"|")
+        if len(parts) < 3:
+            return None
+        filename = parts[0].decode('utf-8')
+        expires = int(parts[1].decode('utf-8'))
+        sig = b"|".join(parts[2:])
+        payload = f"{filename}|{expires}".encode('utf-8')
+        key = _get_secret_key().encode('utf-8')
+        expected = hmac.new(key, payload, hashlib.sha256).digest()
+        if not hmac.compare_digest(expected, sig):
+            return None
+        if int(time.time()) > expires:
+            return None
+        return {"filename": filename, "expires": expires}
+    except Exception:
+        return None
+
+
+def generate_transcript_url(filename: str, expires_seconds: int = 3600) -> str:
+    """Build a full absolute HTTPS URL to the transcripts route with a short-lived token."""
+    token = generate_transcript_token(filename, expires_seconds=expires_seconds)
+    base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com'
+    if base_url.endswith('/callback'):
+        base_url = base_url.rsplit('/callback', 1)[0]
+    if not base_url.startswith('http'):
+        base_url = 'https://' + base_url
+    if base_url.startswith('http://'):
+        base_url = 'https://' + base_url[len('http://'):]
+    return f"{base_url.rstrip('/')}/transcripts/{filename}?token={token}"
