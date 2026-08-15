@@ -15,6 +15,8 @@ _DEFAULTS = {
     "blacklist_roles": [],
     "carry_manager_roles": [],
     "ticket_viewer_roles": [],
+    "powerful_command_roles": [],
+    "powerful_command_users": [],
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -52,6 +54,8 @@ def get_access_settings():
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
         doc.setdefault("ticket_viewer_roles", [])
+        doc.setdefault("powerful_command_roles", [])
+        doc.setdefault("powerful_command_users", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -65,6 +69,8 @@ def get_access_settings():
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])
         data.setdefault("ticket_viewer_roles", [])
+        data.setdefault("powerful_command_roles", [])
+        data.setdefault("powerful_command_users", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -221,6 +227,81 @@ def has_carry_manager_access(user_id: str, member_role_ids=None) -> bool:
         return True
     roles = get_carry_manager_role_ids()
     if not roles:
+        return True
+    if member_role_ids:
+        role_ids = {str(r) for r in member_role_ids}
+        if role_ids.intersection(set(roles)):
+            return True
+    return False
+
+
+def add_powerful_command_role(role_id: str) -> bool:
+    """Add a role allowed to use the /move and /ticketnumber commands."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["powerful_command_roles"]:
+        data["powerful_command_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_powerful_command_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["powerful_command_roles"]:
+        data["powerful_command_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def add_powerful_command_user(user_id: str) -> bool:
+    """Add a user ID allowed to use the /move and /ticketnumber commands."""
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id not in data["powerful_command_users"]:
+        data["powerful_command_users"].append(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_powerful_command_user(user_id: str) -> bool:
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id in data["powerful_command_users"]:
+        data["powerful_command_users"].remove(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_powerful_command_role_ids():
+    return get_access_settings().get("powerful_command_roles", [])
+
+
+def get_powerful_command_user_ids():
+    return get_access_settings().get("powerful_command_users", [])
+
+
+def has_powerful_command_access(user_id: str, member_role_ids=None) -> bool:
+    """Return True if this user can use /move and /ticketnumber.
+
+    Admins always pass. While both lists are empty, anyone who already
+    passes the normal Manage Channels check keeps working as before (so
+    nobody gets locked out before this is configured). Once at least one
+    role or user is added to either list, only matching users/roles/admins
+    get through — on top of the existing Manage Channels + valid ticket
+    channel requirement.
+    """
+    if is_admin(user_id):
+        return True
+    roles = get_powerful_command_role_ids()
+    users = get_powerful_command_user_ids()
+    if not roles and not users:
+        return True
+    if str(user_id) in users:
         return True
     if member_role_ids:
         role_ids = {str(r) for r in member_role_ids}
