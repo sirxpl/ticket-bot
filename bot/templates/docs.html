@@ -339,6 +339,15 @@
         <div class="desc">Renames the current ticket channel.</div>
       </div>
       <div class="cmd">
+        <div class="sig">/add &lt;user&gt;</div>
+        <div class="desc">Grants a member view + chat access to the current ticket channel.</div>
+        <div class="note">Fails harmlessly if the user already has access, and can't be used to add a bot.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/remove &lt;user&gt;</div>
+        <div class="desc">Revokes a member's channel-specific access to the current ticket, added earlier via /add.</div>
+      </div>
+      <div class="cmd">
         <div class="sig">/ticketnumber &lt;number&gt;</div>
         <div class="desc">Resumes this ticket's category counter from the given number.</div>
         <div class="note">The next new ticket in that category becomes number + 1, then keeps counting up automatically.</div>
