@@ -36,7 +36,7 @@ logger = logging.getLogger("tickets")
 # ⚠️ TEST MODE: when True, autoclose_watcher uses seconds instead of hours
 # (30s reminder / 1min autoclose) so the feature can be verified quickly.
 # Set back to False for real 12h/24h behavior once confirmed working.
-AUTOCLOSE_TEST_MODE = True
+AUTOCLOSE_TEST_MODE = False
 if not logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter(
@@ -435,53 +435,6 @@ class CloseConfirmView(discord.ui.View):
             "Are you sure you want to close this ticket?",
             view=ConfirmView(cog, interaction.channel),
             ephemeral=True,
-        )
-
-
-class StopAutocloseView(discord.ui.View):
-    """Attached to the 12h inactivity reminder — lets the opener (or staff)
-    turn off autoclose for this ticket with one click, no slash command
-    needed."""
-
-    def __init__(self, bot):
-        super().__init__(timeout=None)
-        self.bot = bot
-
-    @discord.ui.button(
-        label="Stop Autoclose",
-        style=discord.ButtonStyle.primary,
-        custom_id="ticket_stop_autoclose_btn",
-        emoji="🛑",
-    )
-    async def stop_button(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        ticket = get_active_ticket(interaction.channel.id)
-        if not ticket:
-            await interaction.response.send_message(
-                "❌ This isn't an active ticket channel.", ephemeral=True
-            )
-            return
-
-        is_opener = str(interaction.user.id) == str(ticket.get("user_id"))
-        if not (is_opener or interaction.user.guild_permissions.manage_channels):
-            await interaction.response.send_message(
-                "❌ Only the ticket opener or staff can stop autoclose.",
-                ephemeral=True,
-            )
-            return
-
-        set_autoclose_disabled(interaction.channel.id, True)
-        button.disabled = True
-        button.label = "Autoclose Stopped"
-        button.style = discord.ButtonStyle.secondary
-        try:
-            await interaction.response.edit_message(view=self)
-        except Exception:
-            pass
-        await interaction.followup.send(
-            "🛑 Autoclose has been turned off for this ticket. It won't close from inactivity anymore.",
-            ephemeral=False,
         )
 
 
@@ -950,12 +903,11 @@ class TicketsCog(commands.Cog):
                 f"Failed to update ticket activity for channel={message.channel.id}"
             )
 
-    @tasks.loop(seconds=15)
+    @tasks.loop(minutes=10)
     async def autoclose_watcher(self):
-        """⚠️ TEST MODE — thresholds temporarily shortened to confirm the
-        feature works end-to-end. Loop runs every 15s, reminder fires at 30s
-        of inactivity, autoclose fires at 1 minute. Revert AUTOCLOSE_TEST_MODE
-        to False (and restore the loop interval below) once confirmed."""
+        """Every 10 minutes: ping openers who've gone quiet for 12h with a
+        heads-up, then close tickets that hit 24h of inactivity with nobody
+        having disabled it via /disableautoclose."""
         try:
             data = get_tickets_data()
         except Exception:
@@ -1005,10 +957,9 @@ class TicketsCog(commands.Cog):
                     await channel.send(
                         content=(
                             f"<@{user_id}> ⏳ This ticket will **automatically close in 12 hours** "
-                            "due to inactivity. Send a message here to keep it open, or press the "
-                            "button below to stop autoclose entirely."
+                            "due to inactivity. Send a message here to keep it open, or ask staff "
+                            "to run `/disableautoclose` to stop autoclose entirely."
                         ),
-                        view=StopAutocloseView(self.bot),
                     )
                     update_active_ticket(channel_id, reminder_sent=True)
                 except Exception:
@@ -1105,28 +1056,17 @@ class TicketsCog(commands.Cog):
             view=RequestCloseView(self, interaction.channel, creator_id),
         )
 
-    # Slash Command: /disableautoclose — opener or staff can turn off the
+    # Slash Command: /disableautoclose — staff-only, turns off the
     # 24h-inactivity autoclose for this specific ticket
     @app_commands.command(
         name="disableautoclose",
         description="Stop this ticket from auto-closing after 24 hours of inactivity",
     )
     async def disable_autoclose_command(self, interaction: discord.Interaction):
-        if not interaction.channel or not is_ticket_channel(interaction.channel.id):
-            await interaction.response.send_message(
-                "❌ This command can only be used inside an active ticket channel.",
-                ephemeral=True,
-            )
+        if not await self._ticket_command_check(interaction):
             return
 
         ticket = get_active_ticket(interaction.channel.id)
-        is_opener = ticket and str(interaction.user.id) == str(ticket.get("user_id"))
-        if not (is_opener or interaction.user.guild_permissions.manage_channels):
-            await interaction.response.send_message(
-                "❌ Only the ticket opener or staff can use this.", ephemeral=True
-            )
-            return
-
         if ticket and ticket.get("autoclose_disabled"):
             await interaction.response.send_message(
                 "🛑 Autoclose is already off for this ticket.", ephemeral=True
@@ -1659,4 +1599,3 @@ async def setup(bot):
     await bot.add_cog(cog)
     bot.add_view(TicketView(bot))
     bot.add_view(CloseConfirmView(bot))
-    bot.add_view(StopAutocloseView(bot))
