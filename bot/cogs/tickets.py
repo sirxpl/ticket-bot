@@ -17,12 +17,15 @@ from utils.storage import (
     get_active_ticket_for_user,
     get_blacklist_data,
     get_category_counter,
+    get_redirect_message,
     get_settings,
     get_tickets_data,
+    get_welcome_message,
     increment_category_counter,
     is_on_cooldown,
     is_ticket_channel,
     remove_active_ticket,
+    render_ticket_template,
     set_autoclose_disabled,
     set_category_counter,
     slugify,
@@ -747,39 +750,99 @@ class TicketView(discord.ui.View):
                         reason=f"Ticket created by {user.name}",
                     )
 
-                    embed = discord.Embed(
-                        title=f"🎫 {self.selection} - {user.name}",
-                        description="",
-                        color=discord.Color.blue(),
-                    )
+                    # Build the placeholder set available to both editable
+                    # templates (welcome message + redirect message)
+                    template_vars = {
+                        "user": user.mention,
+                        "user_mention": user.mention,
+                        "user_name": user.name,
+                        "channel": ticket_channel.mention,
+                        "channel_mention": ticket_channel.mention,
+                        "channel_name": ticket_channel.name,
+                        "category": self.selection,
+                        "timezone": self.timezone.value or "",
+                        "display_name": self.display_name.value or "",
+                        "can_join": self.can_join.value or "",
+                    }
 
-                    if self.timezone.value:
-                        embed.add_field(
-                            name="Timezone",
-                            value=self.timezone.value,
-                            inline=False,
-                        )
-                    if self.display_name.value:
-                        embed.add_field(
-                            name="Display name",
-                            value=self.display_name.value,
-                            inline=False,
-                        )
-                    embed.add_field(
-                        name="Can join private server?",
-                        value=self.can_join.value,
-                        inline=False,
-                    )
-                    if category_cfg and category_cfg.get("open_note"):
-                        embed.add_field(
-                            name="Note",
-                            value=category_cfg["open_note"],
-                            inline=False,
+                    welcome_cfg = get_welcome_message()
+
+                    if welcome_cfg.get("use_embed", True):
+                        embed_color = discord.Color.blue()
+                        try:
+                            color_hex = (welcome_cfg.get("color") or "").lstrip("#")
+                            if color_hex:
+                                embed_color = discord.Color(int(color_hex, 16))
+                        except Exception:
+                            pass
+
+                        embed = discord.Embed(
+                            title=render_ticket_template(
+                                welcome_cfg.get("title") or "", **template_vars
+                            )
+                            or None,
+                            description=render_ticket_template(
+                                welcome_cfg.get("description") or "", **template_vars
+                            )
+                            or "",
+                            color=embed_color,
                         )
 
-                    await ticket_channel.send(
-                        content=f"{user.mention}", embed=embed
-                    )
+                        if welcome_cfg.get("show_timezone", True) and self.timezone.value:
+                            embed.add_field(
+                                name="Timezone",
+                                value=self.timezone.value,
+                                inline=False,
+                            )
+                        if welcome_cfg.get("show_display_name", True) and self.display_name.value:
+                            embed.add_field(
+                                name="Display name",
+                                value=self.display_name.value,
+                                inline=False,
+                            )
+                        if welcome_cfg.get("show_can_join", True):
+                            embed.add_field(
+                                name="Can join private server?",
+                                value=self.can_join.value,
+                                inline=False,
+                            )
+                        if category_cfg and category_cfg.get("open_note"):
+                            embed.add_field(
+                                name="Note",
+                                value=category_cfg["open_note"],
+                                inline=False,
+                            )
+                        if welcome_cfg.get("footer"):
+                            embed.set_footer(
+                                text=render_ticket_template(
+                                    welcome_cfg["footer"], **template_vars
+                                )
+                            )
+
+                        await ticket_channel.send(
+                            content=render_ticket_template(
+                                welcome_cfg.get("content") or "", **template_vars
+                            )
+                            or None,
+                            embed=embed,
+                        )
+                    else:
+                        # Plain-text mode: no embed, just the rendered message
+                        plain_parts = [
+                            render_ticket_template(
+                                welcome_cfg.get("content") or "{user_mention}",
+                                **template_vars,
+                            )
+                        ]
+                        if welcome_cfg.get("show_timezone", True) and self.timezone.value:
+                            plain_parts.append(f"**Timezone:** {self.timezone.value}")
+                        if welcome_cfg.get("show_display_name", True) and self.display_name.value:
+                            plain_parts.append(f"**Display name:** {self.display_name.value}")
+                        if welcome_cfg.get("show_can_join", True):
+                            plain_parts.append(f"**Can join private server?** {self.can_join.value}")
+                        if category_cfg and category_cfg.get("open_note"):
+                            plain_parts.append(f"**Note:** {category_cfg['open_note']}")
+                        await ticket_channel.send(content="\n".join(plain_parts))
 
                     # Attach close button view
                     await ticket_channel.send(
@@ -850,7 +913,11 @@ class TicketView(discord.ui.View):
                         )
 
                     await modal_interaction.followup.send(
-                        f"✅ Ticket created! Please head over to {ticket_channel.mention}.",
+                        render_ticket_template(
+                            get_redirect_message().get("content")
+                            or "✅ Ticket created! Please head over to {channel}.",
+                            **template_vars,
+                        ),
                         ephemeral=True,
                     )
 
