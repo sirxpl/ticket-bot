@@ -518,25 +518,24 @@ def api_remove_cooldown(user_id):
     return jsonify({"success": ok})
 
 
-@app.route("/dashboard/tickets/save-draft", methods=["POST"])
-@carry_manager_required
-def save_ticket_panel_draft_route():
-    def safe_int(val):
-        try:
-            return int(val) if val and str(val).strip() else None
-        except ValueError:
-            return None
+def _safe_int(val):
+    try:
+        return int(val) if val and str(val).strip() else None
+    except ValueError:
+        return None
 
+
+def _panel_draft_from_form():
     raw_fields_json = request.form.get("fields_json", "[]")
     try:
         fields = json.loads(raw_fields_json)
     except Exception:
         fields = []
 
-    draft = {
-        "channel_id": safe_int(request.form.get("channel_id")),
-        "category_id": safe_int(request.form.get("category_id")),
-        "support_role_id": safe_int(request.form.get("support_role_id")),
+    return {
+        "channel_id": _safe_int(request.form.get("channel_id")),
+        "category_id": _safe_int(request.form.get("category_id")),
+        "support_role_id": _safe_int(request.form.get("support_role_id")),
         "title": request.form.get("title", "Request Carry"),
         "description": request.form.get(
             "description", "Click below to request a carry ticket!"
@@ -548,6 +547,11 @@ def save_ticket_panel_draft_route():
         "fields": fields,
     }
 
+
+@app.route("/dashboard/tickets/save-draft", methods=["POST"])
+@carry_manager_required
+def save_ticket_panel_draft_route():
+    draft = _panel_draft_from_form()
     save_ticket_panel_draft(draft)
     flash("💾 Panel draft saved. It'll be pre-filled next time you open this builder.", "success")
     return redirect("/")
@@ -556,32 +560,26 @@ def save_ticket_panel_draft_route():
 @app.route("/dashboard/tickets", methods=["POST"])
 @carry_manager_required
 def deploy_ticket_panel():
-    def safe_int(val):
-        try:
-            return int(val) if val and str(val).strip() else None
-        except ValueError:
-            return None
+    draft = _panel_draft_from_form()
+    # Deploying also remembers this config, so it's pre-filled next time -
+    # not just an explicit "Save Draft" click.
+    save_ticket_panel_draft(draft)
 
-    channel_id = safe_int(request.form.get("channel_id"))
-    category_id = safe_int(request.form.get("category_id"))
-    support_role_id = safe_int(request.form.get("support_role_id"))
+    channel_id = draft["channel_id"]
+    category_id = draft["category_id"]
+    support_role_id = draft["support_role_id"]
 
     if not channel_id:
         flash("❌ Please select a valid target channel.", "danger")
         return redirect("/")
 
-    title = request.form.get("title", "Request Carry")
-    description = request.form.get("description", "Click below to request a carry ticket!")
-    embed_color = request.form.get("embed_color", "#58b9ff")
-    image_url = request.form.get("image_url", "").strip() or None
-    thumbnail_url = request.form.get("thumbnail_url", "").strip() or None
-    footer_text = request.form.get("footer_text", "").strip() or None
-
-    raw_fields_json = request.form.get("fields_json", "[]")
-    try:
-        fields = json.loads(raw_fields_json)
-    except Exception:
-        fields = []
+    title = draft["title"]
+    description = draft["description"]
+    embed_color = draft["embed_color"]
+    image_url = draft["image_url"]
+    thumbnail_url = draft["thumbnail_url"]
+    footer_text = draft["footer_text"]
+    fields = draft["fields"]
 
     cog = bot.get_cog("TicketsCog") or bot.get_cog("Tickets")
     if cog:
