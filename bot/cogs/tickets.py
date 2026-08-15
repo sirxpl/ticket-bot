@@ -957,6 +957,84 @@ class TicketsCog(commands.Cog):
             view=RequestCloseView(self, interaction.channel, creator_id),
         )
 
+    # Slash Command: /add — grants a member access to this ticket channel
+    @app_commands.command(
+        name="add",
+        description="Add a user to this ticket channel",
+    )
+    @app_commands.describe(user="The member to add to this ticket")
+    async def add_command(
+        self, interaction: discord.Interaction, user: discord.Member
+    ):
+        if not await self._ticket_command_check(interaction):
+            return
+
+        if user.bot:
+            await interaction.response.send_message(
+                "❌ You can't add a bot to a ticket.", ephemeral=True
+            )
+            return
+
+        existing_overwrite = interaction.channel.overwrites_for(user)
+        if existing_overwrite.read_messages:
+            await interaction.response.send_message(
+                f"⚠️ {user.mention} already has access to this ticket.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await interaction.channel.set_permissions(
+                user,
+                read_messages=True,
+                send_messages=True,
+                attach_files=True,
+                reason=f"Added to ticket by {interaction.user}",
+            )
+            await interaction.response.send_message(
+                f"✅ {user.mention} has been added to this ticket."
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I don't have permission to edit this channel's permissions.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to add user: {e}", ephemeral=True
+            )
+
+    # Slash Command: /remove — revokes a member's access to this ticket channel
+    @app_commands.command(
+        name="remove",
+        description="Remove a user from this ticket channel",
+    )
+    @app_commands.describe(user="The member to remove from this ticket")
+    async def remove_command(
+        self, interaction: discord.Interaction, user: discord.Member
+    ):
+        if not await self._ticket_command_check(interaction):
+            return
+
+        try:
+            await interaction.channel.set_permissions(
+                user,
+                overwrite=None,
+                reason=f"Removed from ticket by {interaction.user}",
+            )
+            await interaction.response.send_message(
+                f"✅ {user.mention} has been removed from this ticket."
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I don't have permission to edit this channel's permissions.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to remove user: {e}", ephemeral=True
+            )
+
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")
     @app_commands.describe(name="The new channel name")
