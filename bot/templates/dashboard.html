@@ -946,7 +946,7 @@ function removeField(fieldId) {
     if (elem) elem.remove();
 }
 
-const panelDraftFields = {{ (panel_draft.fields | default([])) | tojson }};
+const panelDraftFields = {{ ((panel_draft | default({})).fields | default([])) | tojson }};
 panelDraftFields.forEach(f => addField(f.name, f.value, f.inline));
 
 // --- TICKET DROPDOWN CATEGORIES ---
