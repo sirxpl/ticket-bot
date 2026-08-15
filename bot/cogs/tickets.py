@@ -1078,6 +1078,34 @@ class TicketsCog(commands.Cog):
             "🛑 Autoclose turned off — this ticket will no longer close itself due to inactivity."
         )
 
+    # Slash Command: /enableautoclose — staff-only, resumes the
+    # 24h-inactivity autoclose for this specific ticket
+    @app_commands.command(
+        name="enableautoclose",
+        description="Resume auto-closing this ticket after inactivity",
+    )
+    async def enable_autoclose_command(self, interaction: discord.Interaction):
+        if not await self._ticket_command_check(interaction):
+            return
+
+        ticket = get_active_ticket(interaction.channel.id)
+        if ticket and not ticket.get("autoclose_disabled"):
+            await interaction.response.send_message(
+                "✅ Autoclose is already on for this ticket.", ephemeral=True
+            )
+            return
+
+        # Reset the inactivity clock from now, rather than from whenever the
+        # opener last spoke — otherwise re-enabling on an already-stale
+        # ticket could fire the reminder/close almost immediately.
+        set_autoclose_disabled(interaction.channel.id, False)
+        update_active_ticket(
+            interaction.channel.id, last_activity=time.time(), reminder_sent=False
+        )
+        await interaction.response.send_message(
+            "✅ Autoclose resumed — this ticket will close after 12h/24h of inactivity again."
+        )
+
     # Slash Command: /add — grants a member access to this ticket channel
     @app_commands.command(
         name="add",
