@@ -1,7 +1,7 @@
-# Installation Guide (Free aka Enterprise Certificates)
+# TICKET BOT CONTROL PANEL
 > [!IMPORTANT]
-> While this guide will teach you how to enable and use certificates without entitlements on Geode, it is still recommended to buy a Developer Certificate if you can, and follow the [Apple Developer Certificates guide](./APPLE-DEV-CERT-INSTALL-GUIDE.md), as this method is not endorsed or recommended.
-> This is because this method is time consuming, tedious, and slow for using Geode, as it will require you to install a patched Geometry Dash ("Geode Helper") each time you want to install a mod, update a mod, enable a mod, disable a mod, update Geode, and launch in safe mode.
+> These files contains some that can save someone's UserID and Roles. For example, MongoDB Altas can still save files. So my advise is to not copy the Codes I made, or to touch them.
+> Make sure to edit some of them as it can result in conflicting results between by MongoDB and yours.
 
 > [!CAUTION]
 > In this tutorial, you will install the Geode Helper. This Helper stores a seperate save data for Geometry Dash. Uninstalling the Helper will cause your ***__SAVE DATA, MODS AND MOD SETTINGS in the Helper, to be PERMANENTLY DELETED!!!__*** Instead, keep the Helper installed and just install the IPA the iOS launcher generates for you. Think of it like updating the Helper.
