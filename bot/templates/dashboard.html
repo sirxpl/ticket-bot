@@ -641,6 +641,9 @@
         <section class="page" id="page-transcripts">
         <div class="card">
             <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
+            <div style="background: var(--danger); color: white; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; font-weight: 600;">
+                ⚠️ Transcripts are currently saving without message text. The Message Content privileged intent is not enabled yet (pending Discord's verification review), so saved transcripts will only show attachments/embeds — no message content — until it's approved and turned on.
+            </div>
            {% for transcript in transcripts %}
                 <div class="list-item">
                     <div>
