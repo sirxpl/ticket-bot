@@ -171,6 +171,7 @@
 
     <h4>Dashboard</h4>
     <a class="navlink" data-page="categories">Ticket Categories</a>
+    <a class="navlink" data-page="ticketmessages">Ticket Messages</a>
     <a class="navlink" data-page="panelbuilder">Panel Builder</a>
     <a class="navlink" data-page="blacklist">Blacklist</a>
     <a class="navlink" data-page="access">Access Control</a>
@@ -276,6 +277,39 @@
       </ul>
     </section>
 
+    <!-- TICKET MESSAGES -->
+    <section class="page" id="page-ticketmessages">
+      <div class="eyebrow">Dashboard</div>
+      <h1 class="title">Ticket Messages</h1>
+      <p class="lede">Two editable messages, both in Carry Manager Settings, sent automatically when a ticket is created.</p>
+
+      <h3 class="sub-h">"Ticket Created" Redirect Message</h3>
+      <p class="body-p">Sent privately to the member the moment they submit the ticket form — only they can see it. Plain text, one field.</p>
+
+      <h3 class="sub-h">Ticket-Channel Welcome Message</h3>
+      <p class="body-p">Posted inside the new ticket channel itself, right after it's created. Configurable:</p>
+      <ul class="doc-list">
+        <li><b>Format</b> — Embed (styled box) or Plain text</li>
+        <li><b>Message Content</b> — text sent alongside/outside the embed, usually the opener's mention</li>
+        <li><b>Embed Title, Description, Color, Footer</b> — only used in Embed format</li>
+        <li><b>Show Timezone / Show Display Name / Show "Can Join?"</b> — Yes/No toggles for whether each of the opener's ticket-form answers appears as a field</li>
+      </ul>
+
+      <h3 class="sub-h">Placeholders</h3>
+      <p class="body-p">Available in both messages — any left unused are simply not replaced:</p>
+      <table class="ref">
+        <tr><th>Placeholder</th><th>Fills in with</th></tr>
+        <tr><td><code>{user}</code> / <code>{user_mention}</code></td><td>@mention of the person who opened the ticket</td></tr>
+        <tr><td><code>{user_name}</code></td><td>Their Discord username (no mention)</td></tr>
+        <tr><td><code>{channel}</code> / <code>{channel_mention}</code></td><td>#mention of the new ticket channel</td></tr>
+        <tr><td><code>{channel_name}</code></td><td>Raw channel name, e.g. <code>fallen-0007</code></td></tr>
+        <tr><td><code>{category}</code></td><td>The ticket category label they chose</td></tr>
+        <tr><td><code>{timezone}</code></td><td>Their answer to the timezone question on the ticket form</td></tr>
+        <tr><td><code>{display_name}</code></td><td>Their answer to the Roblox display name question</td></tr>
+        <tr><td><code>{can_join}</code></td><td>Their Yes/No answer to the private server question</td></tr>
+      </table>
+    </section>
+
     <!-- PANEL BUILDER -->
     <section class="page" id="page-panelbuilder">
       <div class="eyebrow">Dashboard</div>
@@ -373,6 +407,8 @@
       <table class="ref">
         <tr><th>Setting</th><th>Where to configure it</th></tr>
         <tr><td>Ticket categories</td><td>Carry Manager Settings</td></tr>
+        <tr><td>"Ticket created" redirect message</td><td>Carry Manager Settings → Ticket Messages</td></tr>
+        <tr><td>Ticket-channel welcome message</td><td>Carry Manager Settings → Ticket Messages</td></tr>
         <tr><td>Support role</td><td>Carry Manager Settings → Advanced Panel Builder</td></tr>
         <tr><td>Ticket viewer roles</td><td>Access Control</td></tr>
         <tr><td>Ticket blacklist roles</td><td>Access Control</td></tr>
