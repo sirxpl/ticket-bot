@@ -559,6 +559,88 @@
         </div>
 
         <div class="card">
+            <h3><span class="card-icon">📨</span> "Ticket Created" Redirect Message</h3>
+            <p class="card-subtitle">
+                Sent privately (only they can see it) to the member right after they submit the ticket form, pointing them to their new channel.
+            </p>
+            <form action="/dashboard/ticket-messages/save-redirect" method="POST">
+                <label>Message:</label>
+                <textarea name="redirect_content" rows="2" maxlength="1000" placeholder="e.g. ✅ Ticket created! Please head over to {channel}.">{{ redirect_message.content }}</textarea>
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code>
+                </p>
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Redirect Message</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3><span class="card-icon">💬</span> Ticket-Channel Welcome Message</h3>
+            <p class="card-subtitle">
+                Sent inside the new ticket channel itself, right after it's created — this is what the opener and staff first see.
+            </p>
+            <form action="/dashboard/ticket-messages/save-welcome" method="POST">
+                <label>Format:</label>
+                <select name="welcome_use_embed">
+                    <option value="yes" {% if welcome_message.use_embed %}selected{% endif %}>Embed (styled box)</option>
+                    <option value="no" {% if not welcome_message.use_embed %}selected{% endif %}>Plain text (no embed)</option>
+                </select>
+
+                <label>Message Content <span style="font-weight:normal; color:var(--text-dim);">(sent above/outside the embed — usually the mention)</span>:</label>
+                <input type="text" name="welcome_content" maxlength="500" value="{{ welcome_message.content }}" placeholder="{user_mention}">
+
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Embed Title:</label>
+                        <input type="text" name="welcome_title" maxlength="256" value="{{ welcome_message.title }}" placeholder="🎫 {category} - {user_name}">
+                    </div>
+                    <div>
+                        <label>Embed Color:</label>
+                        <input type="text" name="welcome_color" maxlength="7" value="{{ welcome_message.color or '#3498db' }}" placeholder="#3498db">
+                    </div>
+                </div>
+
+                <label>Embed Description (optional):</label>
+                <textarea name="welcome_description" rows="2" maxlength="2000" placeholder="Optional description text...">{{ welcome_message.description }}</textarea>
+
+                <label>Embed Footer (optional):</label>
+                <input type="text" name="welcome_footer" maxlength="200" value="{{ welcome_message.footer }}" placeholder="e.g. Powered by Carry Bot">
+
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{user}</code> <code>{user_name}</code> <code>{channel}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code>
+                </p>
+
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0;">
+
+                <p class="card-subtitle" style="margin-bottom:8px;">Which of the opener's form answers should be shown as fields?</p>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                    <div>
+                        <label>Show Timezone:</label>
+                        <select name="welcome_show_timezone">
+                            <option value="yes" {% if welcome_message.show_timezone %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_timezone %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show Display Name:</label>
+                        <select name="welcome_show_display_name">
+                            <option value="yes" {% if welcome_message.show_display_name %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_display_name %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show "Can Join?":</label>
+                        <select name="welcome_show_can_join">
+                            <option value="yes" {% if welcome_message.show_can_join %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_can_join %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Welcome Message</button>
+            </form>
+        </div>
+
+        <div class="card">
             <h3><span class="card-icon">🚀</span> Advanced Carry Ticket Panel Builder</h3>
             <form action="/dashboard/tickets" method="POST" id="embedForm">
                 
