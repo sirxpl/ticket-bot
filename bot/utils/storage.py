@@ -83,6 +83,18 @@ def save_ticket_categories(categories: list):
         json.dump(settings, f, indent=4)
 
 # --- TICKETS DATA (counter, active tickets, cooldowns) ---
+def _prune_expired_cooldowns(data: dict) -> bool:
+    """Remove cooldown entries that have already expired. Returns True if
+    anything was actually removed, so callers know whether to persist."""
+    now = int(time.time())
+    cooldowns = data.get("cooldowns", [])
+    kept = [c for c in cooldowns if int(c.get("expires_ts", 0)) > now]
+    if len(kept) != len(cooldowns):
+        data["cooldowns"] = kept
+        return True
+    return False
+
+
 def get_tickets_data():
     db = get_db()
     if db is not None:
@@ -93,6 +105,13 @@ def get_tickets_data():
         doc.setdefault("ticket_counter", 0)
         doc.setdefault("active_tickets", [])
         doc.setdefault("cooldowns", [])
+        if _prune_expired_cooldowns(doc):
+            try:
+                db.tickets_data.update_one(
+                    {"_id": "singleton"}, {"$set": {"cooldowns": doc["cooldowns"]}}
+                )
+            except Exception:
+                pass
         return doc
 
     if not os.path.exists(TICKETS_FILE):
@@ -107,6 +126,12 @@ def get_tickets_data():
         data.setdefault("ticket_counter", 0)
         data.setdefault("active_tickets", [])
         data.setdefault("cooldowns", [])
+        if _prune_expired_cooldowns(data):
+            try:
+                with open(TICKETS_FILE, "w") as f:
+                    json.dump(data, f, indent=2)
+            except Exception:
+                pass
         return data
     except Exception:
         return {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}
