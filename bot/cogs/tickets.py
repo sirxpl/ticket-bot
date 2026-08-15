@@ -1008,6 +1008,26 @@ class TicketsCog(commands.Cog):
             return False
         return True
 
+    async def _powerful_command_check(self, interaction: discord.Interaction) -> bool:
+        """Extra guard for /move and /ticketnumber on top of the normal
+        ticket-command check — restricts these two specifically to roles/
+        users configured in Access Control, once configured."""
+        if not await self._ticket_command_check(interaction):
+            return False
+
+        from utils.access import has_powerful_command_access
+
+        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
+        if not has_powerful_command_access(interaction.user.id, member_role_ids):
+            await interaction.response.send_message(
+                "❌ You don't have permission to use this command. Ask an admin to "
+                "add your role or user ID to the Powerful Command Access list in "
+                "Access Control.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
     # Slash Command: /close [reason] — closes immediately, no opener confirmation
     @app_commands.command(
         name="close",
@@ -1226,7 +1246,7 @@ class TicketsCog(commands.Cog):
     async def ticket_number_command(
         self, interaction: discord.Interaction, number: int
     ):
-        if not await self._ticket_command_check(interaction):
+        if not await self._powerful_command_check(interaction):
             return
 
         ticket = get_active_ticket(interaction.channel.id)
@@ -1250,7 +1270,7 @@ class TicketsCog(commands.Cog):
     )
     @app_commands.describe(category="The ticket category to move this ticket to")
     async def move_command(self, interaction: discord.Interaction, category: str):
-        if not await self._ticket_command_check(interaction):
+        if not await self._powerful_command_check(interaction):
             return
 
         from utils.storage import get_ticket_categories
