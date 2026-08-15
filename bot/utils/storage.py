@@ -82,6 +82,18 @@ def save_ticket_categories(categories: list):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=4)
 
+
+def get_ticket_panel_draft():
+    settings = get_settings()
+    return settings.get("ticket_panel_draft") or {}
+
+
+def save_ticket_panel_draft(draft: dict):
+    settings = get_settings()
+    settings["ticket_panel_draft"] = draft
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
+
 # --- TICKETS DATA (counter, active tickets, cooldowns) ---
 def _prune_expired_cooldowns(data: dict) -> bool:
     """Remove cooldown entries that have already expired. Returns True if
