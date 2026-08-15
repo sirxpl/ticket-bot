@@ -36,6 +36,8 @@ from utils.storage import (
     list_transcript_filenames,
     get_ticket_categories,
     save_ticket_categories,
+    get_ticket_panel_draft,
+    save_ticket_panel_draft,
 )
 
 # Import access-control helpers
@@ -364,6 +366,7 @@ def home():
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
         ticket_categories=get_ticket_categories(),
+        panel_draft=get_ticket_panel_draft(),
         log_channel_id=access_settings.get("log_channel_id")
     )
 
@@ -513,6 +516,41 @@ def api_remove_cooldown(user_id):
     from utils.storage import remove_cooldown
     ok = remove_cooldown(user_id)
     return jsonify({"success": ok})
+
+
+@app.route("/dashboard/tickets/save-draft", methods=["POST"])
+@carry_manager_required
+def save_ticket_panel_draft_route():
+    def safe_int(val):
+        try:
+            return int(val) if val and str(val).strip() else None
+        except ValueError:
+            return None
+
+    raw_fields_json = request.form.get("fields_json", "[]")
+    try:
+        fields = json.loads(raw_fields_json)
+    except Exception:
+        fields = []
+
+    draft = {
+        "channel_id": safe_int(request.form.get("channel_id")),
+        "category_id": safe_int(request.form.get("category_id")),
+        "support_role_id": safe_int(request.form.get("support_role_id")),
+        "title": request.form.get("title", "Request Carry"),
+        "description": request.form.get(
+            "description", "Click below to request a carry ticket!"
+        ),
+        "embed_color": request.form.get("embed_color", "#58b9ff"),
+        "image_url": request.form.get("image_url", "").strip() or None,
+        "thumbnail_url": request.form.get("thumbnail_url", "").strip() or None,
+        "footer_text": request.form.get("footer_text", "").strip() or None,
+        "fields": fields,
+    }
+
+    save_ticket_panel_draft(draft)
+    flash("💾 Panel draft saved. It'll be pre-filled next time you open this builder.", "success")
+    return redirect("/")
 
 
 @app.route("/dashboard/tickets", methods=["POST"])
