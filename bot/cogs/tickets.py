@@ -774,16 +774,43 @@ class TicketView(discord.ui.View):
                     )
 
                     # Log creation
-                    try:
-                        from utils.storage import (
-                            append_ticket_log,
-                            increment_ticket_counter,
-                        )
+                    ticket_id = str(ticket_channel.id)
+                    timestamp = datetime.datetime.utcnow().isoformat() + "Z"
 
-                        ticket_id = str(ticket_channel.id)
-                        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+                    try:
+                        from utils.storage import increment_ticket_counter
 
                         ticket_number = increment_ticket_counter()
+                    except Exception as e:
+                        logger.exception(
+                            f"Failed to increment ticket counter for channel={ticket_channel.id}: {e}"
+                        )
+                        ticket_number = None
+
+                    # Record the active ticket in its OWN try/except, separate from
+                    # logging below - this is what powers the "you already have a
+                    # ticket open" block, so a logging/counter failure must never
+                    # silently skip it too.
+                    try:
+                        add_active_ticket(
+                            str(ticket_channel.id),
+                            str(ticket_channel.id),
+                            str(user.id),
+                            ticket_number,
+                        )
+                        update_active_ticket(
+                            str(ticket_channel.id),
+                            category_label=self.selection,
+                            category_prefix=prefix,
+                            category_number=category_number,
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            f"Failed to record active ticket for channel={ticket_channel.id} user={user.id}: {e}"
+                        )
+
+                    try:
+                        from utils.storage import append_ticket_log
 
                         append_ticket_log({
                             "ticket_id": ticket_id,
@@ -804,21 +831,10 @@ class TicketView(discord.ui.View):
                                 "can_join": self.can_join.value,
                             },
                         })
-
-                        add_active_ticket(
-                            str(ticket_channel.id),
-                            str(ticket_channel.id),
-                            str(user.id),
-                            ticket_number,
+                    except Exception as e:
+                        logger.exception(
+                            f"Failed to append ticket creation log for channel={ticket_channel.id}: {e}"
                         )
-                        update_active_ticket(
-                            str(ticket_channel.id),
-                            category_label=self.selection,
-                            category_prefix=prefix,
-                            category_number=category_number,
-                        )
-                    except Exception:
-                        pass
 
                     await modal_interaction.followup.send(
                         f"✅ Ticket created! Please head over to {ticket_channel.mention}.",
