@@ -331,11 +331,12 @@ class RequestCloseView(discord.ui.View):
     """Sent when staff run /requestclose. Only the ticket opener can respond
     — staff cannot force the close through this view."""
 
-    def __init__(self, cog, target_channel, creator_id):
+    def __init__(self, cog, target_channel, creator_id, reason: str = None):
         super().__init__(timeout=600)
         self.cog = cog
         self.target_channel = target_channel
         self.creator_id = str(creator_id)
+        self.reason = reason
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if str(interaction.user.id) != self.creator_id:
@@ -351,10 +352,13 @@ class RequestCloseView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await inter.response.edit_message(content="✅ Closing ticket...", view=self)
+        close_reason = (
+            f"Closed by opener via /requestclose — reason: {self.reason}"
+            if self.reason
+            else "Closed by opener via /requestclose"
+        )
         try:
-            await self.cog.do_close(
-                self.target_channel, inter.user, "Closed by opener via /requestclose"
-            )
+            await self.cog.do_close(self.target_channel, inter.user, close_reason)
         except Exception as e:
             try:
                 await inter.followup.send(
@@ -1038,7 +1042,10 @@ class TicketsCog(commands.Cog):
         name="requestclose",
         description="Ask the ticket opener to confirm closing this ticket",
     )
-    async def request_close_command(self, interaction: discord.Interaction):
+    @app_commands.describe(reason="Reason for requesting this ticket be closed (shown to the opener)")
+    async def request_close_command(
+        self, interaction: discord.Interaction, reason: str = None
+    ):
         if not await self._ticket_command_check(interaction):
             return
 
@@ -1050,10 +1057,14 @@ class TicketsCog(commands.Cog):
             )
             return
 
-        await interaction.response.send_message(
+        message = (
             f"<@{creator_id}>, {interaction.user.mention} has requested to close "
-            f"this ticket. Do you want to close it?",
-            view=RequestCloseView(self, interaction.channel, creator_id),
+            f"this ticket"
+            f"{f' — reason: {reason}' if reason else ''}. Do you want to close it?"
+        )
+        await interaction.response.send_message(
+            message,
+            view=RequestCloseView(self, interaction.channel, creator_id, reason),
         )
 
     # Slash Command: /disableautoclose — staff-only, turns off the
