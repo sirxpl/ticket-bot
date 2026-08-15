@@ -259,6 +259,27 @@
 
         <section class="page active" id="page-overview">
         <div class="card">
+            <h3>🔗 Site Links</h3>
+            <p style="color: #b5bac1; margin-top: -6px;">Public URLs for this bot's dashboard and pages.</p>
+            <div class="list-item">
+                <span><strong>Dashboard</strong></span>
+                <a href="{{ url_for('home', _external=True) }}" target="_blank" class="btn-view">{{ url_for('home', _external=True) }}</a>
+            </div>
+            <div class="list-item">
+                <span><strong>Privacy Policy</strong></span>
+                <a href="{{ url_for('privacy_policy', _external=True) }}" target="_blank" class="btn-view">{{ url_for('privacy_policy', _external=True) }}</a>
+            </div>
+            <div class="list-item">
+                <span><strong>Docs</strong></span>
+                <a href="{{ url_for('docs', _external=True) }}" target="_blank" class="btn-view">{{ url_for('docs', _external=True) }}</a>
+            </div>
+            <div class="list-item">
+                <span><strong>Rules</strong></span>
+                <a href="{{ url_for('rules', _external=True) }}" target="_blank" class="btn-view">{{ url_for('rules', _external=True) }}</a>
+            </div>
+        </div>
+
+        <div class="card">
             <h3>🎫 Live Active Tickets (Total Lifetime: {{ total_tickets }})</h3>
             {% for ticket in active_tickets %}
                 <div class="list-item">
