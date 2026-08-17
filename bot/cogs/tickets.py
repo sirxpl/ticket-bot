@@ -91,6 +91,46 @@ async def send_ticket_log(bot, action, **fields):
         logger.exception(f"Failed to send ticket log embed for action={action}")
 
 
+async def send_blacklist_log(bot, action, **fields):
+    """Post an embed to the separate Blacklist Log Channel (Access Control),
+    used only by /addticketblacklist and /removeticketblacklist — kept apart
+    from the general ticket activity log channel above. Silently does
+    nothing if no channel is configured or the bot can't post to it."""
+    try:
+        from utils.access import get_blacklist_log_channel_id
+
+        channel_id = get_blacklist_log_channel_id()
+        if not channel_id:
+            return
+        channel = bot.get_channel(int(channel_id))
+        if not channel:
+            return
+
+        colors = {
+            "blacklist_added": discord.Color.red(),
+            "blacklist_removed": discord.Color.green(),
+        }
+        titles = {
+            "blacklist_added": "🚫 User Blacklisted",
+            "blacklist_removed": "✅ Blacklist Removed",
+        }
+
+        embed = discord.Embed(
+            title=titles.get(action, action.title()),
+            color=colors.get(action, discord.Color.greyple()),
+            timestamp=datetime.datetime.utcnow(),
+        )
+        for key, value in fields.items():
+            if value is not None:
+                embed.add_field(
+                    name=key.replace("_", " ").title(), value=str(value), inline=True
+                )
+
+        await channel.send(embed=embed)
+    except Exception:
+        logger.exception(f"Failed to send blacklist log embed for action={action}")
+
+
 def build_discord_like_transcript(
     messages, channel_name, ticket_meta, generated_at_iso, filename
 ):
@@ -1371,6 +1411,16 @@ class TicketsCog(commands.Cog):
         duration_text = (
             f"{duration_hours} hour(s)" if duration_hours else "Permanent"
         )
+
+        await send_blacklist_log(
+            self.bot,
+            "blacklist_added",
+            user=f"{user} ({user.id})",
+            reason=reason,
+            duration=duration_text,
+            executor=str(interaction.user),
+        )
+
         emb = discord.Embed(
             title="🚫 User Blacklisted",
             description=f"{user.mention} can no longer create tickets.",
@@ -1424,6 +1474,14 @@ class TicketsCog(commands.Cog):
             })
         except Exception:
             pass
+
+        await send_blacklist_log(
+            self.bot,
+            "blacklist_removed",
+            user=f"{user} ({user.id})",
+            reason=reason,
+            executor=str(interaction.user),
+        )
 
         emb = discord.Embed(
             title="✅ Blacklist Removed",
