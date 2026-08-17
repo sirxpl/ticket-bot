@@ -397,6 +397,16 @@
         <div class="sig">/scan_url &lt;url&gt;</div>
         <div class="desc">Checks a URL against VirusTotal and returns the scan result.</div>
       </div>
+      <div class="cmd">
+        <div class="sig">/addticketblacklist &lt;user&gt; &lt;reason&gt; [duration_hours]</div>
+        <div class="desc">Blocks a user from creating any tickets. Reason is required; duration is optional (leave blank for permanent).</div>
+        <div class="note">⚠️ Dangerous command — unlike the commands above, this works anywhere (not just inside a ticket channel) and does NOT use Manage Channels. It's restricted to Administrators, dashboard-configured admins, and anyone granted Powerful Command Access in Access Control.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/removeticketblacklist &lt;user&gt; &lt;reason&gt;</div>
+        <div class="desc">Lifts a user's ticket-creation blacklist. Reason is required, for the audit log.</div>
+        <div class="note">⚠️ Dangerous command — same permission requirement as /addticketblacklist above.</div>
+      </div>
     </section>
 
     <!-- QUICK REF -->
