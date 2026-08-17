@@ -734,6 +734,7 @@
                     <div>
                         <div><strong>User ID:</strong> {{ entry.user_id }}</div>
                         <div style="color: var(--text-dim); font-size: 0.9em;">
+                            <strong>Type:</strong> {{ (entry.blacklist_type or "regular")|title }} •
                             <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
                             {% if entry.expires_ts %}
                                 • <span class="local-time" data-ts="{{ entry.expires_ts }}">expires {{ entry.expires_ts }}</span>
