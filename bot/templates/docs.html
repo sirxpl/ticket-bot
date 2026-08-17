@@ -49,7 +49,7 @@
   }
   .topbar-right{display:flex; align-items:center; gap:22px; font-size:14px; color:var(--muted);}
   .topbar-right a{color:var(--muted); text-decoration:none;}
-  .topbar-right a:hover{color:var(--text);}
+  .topbar-right a:hover, .topbar-right a.active{color:var(--yellow);}
   .dash-btn{
     background:var(--indigo); color:white; padding:9px 16px; border-radius:8px; font-weight:600;
     display:flex; align-items:center; gap:6px; text-decoration:none;
@@ -154,11 +154,11 @@
 <div class="topbar">
   <div class="brand"><span class="stub"></span> Carry Ticket Bot</div>
   <div class="topbar-right">
-    <a href="/rules">Rules</a>
+    <a href="/docs" class="active">Docs</a>
+    <a href="/rules">Rules &amp; Regulations</a>
     <a href="/guidelines">Carry Guidelines</a>
     <a href="/privacy">Privacy</a>
     <a href="/status">Status</a>
-    <a href="/" class="dash-btn">Dashboard ›</a>
   </div>
 </div>
 
