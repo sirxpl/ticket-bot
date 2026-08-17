@@ -915,7 +915,7 @@
 
             <h4 style="margin-top: 20px;">Powerful Command Access</h4>
             <p class="card-subtitle">
-                Controls who can use <code>/move</code> and <code>/ticketnumber</code> — on top of the normal Manage Channels requirement. While empty, anyone with Manage Channels can use both. Once you add a role or user ID here, only they (and admins) can.
+                Controls who can use <code>/move</code>, <code>/ticketnumber</code>, <code>/addticketblacklist</code>, and <code>/removeticketblacklist</code> — on top of the normal Manage Channels requirement for the first two. <code>/addticketblacklist</code> and <code>/removeticketblacklist</code> stay admin-only until you add a role or user ID here; <code>/move</code>/<code>/ticketnumber</code> stay open to anyone with Manage Channels until configured.
             </p>
             <form action="/dashboard/access/add-powerful-command-role" method="POST" class="access-form">
                 <div>
