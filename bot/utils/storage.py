@@ -4,6 +4,7 @@ import logging
 import re
 import time
 import glob
+import datetime
 
 from pymongo import ReturnDocument
 
@@ -414,14 +415,63 @@ def is_on_cooldown(user_id: str):
         return False, None
 
 
-def add_to_blacklist(user_id: str):
+def _normalize_blacklist_entry(entry, default_reason="No reason provided."):
+    """Support both the old flat-string format and the new dict format,
+    always returning a dict with at least user_id/reason/added_at/expires_ts."""
+    if isinstance(entry, dict):
+        entry.setdefault("user_id", str(entry.get("user_id", "")))
+        entry.setdefault("reason", default_reason)
+        entry.setdefault("added_by", None)
+        entry.setdefault("added_at", None)
+        entry.setdefault("expires_ts", None)
+        return entry
+    return {
+        "user_id": str(entry),
+        "reason": default_reason,
+        "added_by": None,
+        "added_at": None,
+        "expires_ts": None,
+    }
+
+
+def _prune_expired_blacklist(data: dict) -> bool:
+    """Remove blacklist entries whose expires_ts has passed. Permanent
+    entries (expires_ts is None) are never pruned. Returns True if the
+    list was actually changed, so the caller knows whether to persist."""
+    now = int(time.time())
+    users = [_normalize_blacklist_entry(e) for e in data.get("blacklisted_users", [])]
+    kept = [
+        e for e in users
+        if not e.get("expires_ts") or int(e["expires_ts"]) > now
+    ]
+    changed = kept != data.get("blacklisted_users", [])
+    data["blacklisted_users"] = kept
+    return changed
+
+
+def add_to_blacklist(user_id: str, reason: str = "No reason provided.",
+                      added_by: str = None, hours: float = None):
     data = get_blacklist_data()
-    if user_id not in data.get('blacklisted_users', []):
-        data['blacklisted_users'].append(str(user_id))
-        with open(BLACKLIST_FILE, 'w') as f:
-            json.dump(data, f, indent=2)
-        return True
-    return False
+    users = data.setdefault("blacklisted_users", [])
+    user_id = str(user_id)
+
+    expires_ts = int(time.time() + hours * 3600) if hours else None
+
+    # remove any existing entry for this user first, so re-blacklisting
+    # replaces the old reason/expiry instead of duplicating
+    users[:] = [
+        e for e in users if _normalize_blacklist_entry(e)["user_id"] != user_id
+    ]
+    users.append({
+        "user_id": user_id,
+        "reason": reason,
+        "added_by": str(added_by) if added_by else None,
+        "added_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "expires_ts": expires_ts,
+    })
+    with open(BLACKLIST_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+    return True
 
 
 # --- TICKET LOGS ---
@@ -578,14 +628,33 @@ def get_blacklist_data():
         return {"blacklisted_users": []}
     try:
         with open(BLACKLIST_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
     except Exception:
         return {"blacklisted_users": []}
 
+    data.setdefault("blacklisted_users", [])
+    # normalize legacy flat-string entries to the dict format, and drop
+    # any temporary blacklist entries that have already expired
+    normalized = [_normalize_blacklist_entry(e) for e in data["blacklisted_users"]]
+    changed = normalized != data["blacklisted_users"]
+    data["blacklisted_users"] = normalized
+    if _prune_expired_blacklist(data) or changed:
+        try:
+            with open(BLACKLIST_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+    return data
+
 def remove_from_blacklist(user_id: str):
     data = get_blacklist_data()
-    if user_id in data["blacklisted_users"]:
-        data["blacklisted_users"].remove(user_id)
+    user_id = str(user_id)
+    before = len(data["blacklisted_users"])
+    data["blacklisted_users"] = [
+        e for e in data["blacklisted_users"]
+        if _normalize_blacklist_entry(e)["user_id"] != user_id
+    ]
+    if len(data["blacklisted_users"]) != before:
         with open(BLACKLIST_FILE, "w") as f:
             json.dump(data, f, indent=4)
         return True
