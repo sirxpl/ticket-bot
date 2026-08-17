@@ -13,6 +13,8 @@ from utils.storage import (
     add_active_ticket,
     add_cooldown,
     add_to_blacklist,
+    remove_from_blacklist,
+    append_ticket_log,
     get_active_ticket,
     get_active_ticket_for_user,
     get_blacklist_data,
@@ -494,18 +496,18 @@ class TicketView(discord.ui.View):
         # check blacklist (individually-blacklisted user IDs)
         try:
             bl = get_blacklist_data()
-            blacklisted = [str(u) for u in bl.get("blacklisted_users", [])]
-            if str(interaction.user.id) in blacklisted:
-                guild = interaction.guild
-                role = (
-                    discord.utils.get(guild.roles, name="Ticket Blacklist")
-                    if guild
-                    else None
-                )
-                role_mention = role.mention if role else "@Ticket Blacklist"
+            my_entry = next(
+                (
+                    e for e in bl.get("blacklisted_users", [])
+                    if str(e.get("user_id")) == str(interaction.user.id)
+                ),
+                None,
+            )
+            if my_entry:
+                reason = my_entry.get("reason") or "No reason provided."
                 emb = discord.Embed(
-                    title="❌ Blocked Role",
-                    description=f"You cannot create tickets on this panel because you have the {role_mention} role.",
+                    title="❌ You're Blacklisted",
+                    description=f"You cannot create tickets on this panel.\n**Reason:** {reason}",
                     color=discord.Color.red(),
                 )
                 emb.set_footer(text="Tickety | Tickety.top")
@@ -1281,6 +1283,130 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 f"❌ Failed to remove user: {e}", ephemeral=True
             )
+
+    # Slash Command: /addticketblacklist — admin-only, dangerous: blocks a
+    # user from creating tickets, permanently or for a set duration
+    @app_commands.command(
+        name="addticketblacklist",
+        description="[Dangerous] Block a user from creating tickets",
+    )
+    @app_commands.describe(
+        user="The member to blacklist from creating tickets",
+        reason="Why this user is being blacklisted (required)",
+        duration_hours="Optional: hours until this expires (leave blank for permanent)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def add_ticket_blacklist_command(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        reason: str,
+        duration_hours: float = None,
+    ):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "❌ Only administrators can use this command.", ephemeral=True
+            )
+            return
+
+        if duration_hours is not None and duration_hours <= 0:
+            await interaction.response.send_message(
+                "❌ Duration must be a positive number of hours, or left blank for permanent.",
+                ephemeral=True,
+            )
+            return
+
+        add_to_blacklist(
+            str(user.id),
+            reason=reason,
+            added_by=str(interaction.user),
+            hours=duration_hours,
+        )
+
+        try:
+            append_ticket_log({
+                "ticket_id": "global",
+                "action": "blacklist_added",
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                "target": {"id": str(user.id), "name": str(user)},
+                "executor": {
+                    "id": str(interaction.user.id),
+                    "name": str(interaction.user),
+                },
+                "reason": reason,
+                "duration_hours": duration_hours,
+            })
+        except Exception:
+            pass
+
+        duration_text = (
+            f"{duration_hours} hour(s)" if duration_hours else "Permanent"
+        )
+        emb = discord.Embed(
+            title="🚫 User Blacklisted",
+            description=f"{user.mention} can no longer create tickets.",
+            color=discord.Color.red(),
+        )
+        emb.add_field(name="Reason", value=reason, inline=False)
+        emb.add_field(name="Duration", value=duration_text, inline=False)
+        emb.set_footer(text="Tickety | Tickety.top")
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    # Slash Command: /removeticketblacklist — admin-only, dangerous: lifts a
+    # user's ticket-creation blacklist
+    @app_commands.command(
+        name="removeticketblacklist",
+        description="[Dangerous] Remove a user's ticket-creation blacklist",
+    )
+    @app_commands.describe(
+        user="The member to unblacklist",
+        reason="Why this user is being unblacklisted (required)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def remove_ticket_blacklist_command(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        reason: str,
+    ):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "❌ Only administrators can use this command.", ephemeral=True
+            )
+            return
+
+        removed = remove_from_blacklist(str(user.id))
+
+        if not removed:
+            await interaction.response.send_message(
+                f"⚠️ {user.mention} wasn't on the ticket blacklist.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            append_ticket_log({
+                "ticket_id": "global",
+                "action": "blacklist_removed",
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                "target": {"id": str(user.id), "name": str(user)},
+                "executor": {
+                    "id": str(interaction.user.id),
+                    "name": str(interaction.user),
+                },
+                "reason": reason,
+            })
+        except Exception:
+            pass
+
+        emb = discord.Embed(
+            title="✅ Blacklist Removed",
+            description=f"{user.mention} can create tickets again.",
+            color=discord.Color.green(),
+        )
+        emb.add_field(name="Reason", value=reason, inline=False)
+        emb.set_footer(text="Tickety | Tickety.top")
+        await interaction.response.send_message(embed=emb, ephemeral=True)
 
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")
