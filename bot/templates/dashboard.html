@@ -729,9 +729,20 @@
         <div class="card">
             <h3><span class="card-icon">🚫</span> Blacklisted Users</h3>
             {% for b_user in blacklisted_users %}
+                {% set entry = b_user if b_user is mapping else {'user_id': b_user, 'reason': None, 'expires_ts': None} %}
                 <div class="list-item">
-                    <span><strong>User ID:</strong> {{ b_user }}</span>
-                    <button onclick="unblacklistUser('{{ b_user }}')" class="btn-danger">Unblacklist</button>
+                    <div>
+                        <div><strong>User ID:</strong> {{ entry.user_id }}</div>
+                        <div style="color: var(--text-dim); font-size: 0.9em;">
+                            <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
+                            {% if entry.expires_ts %}
+                                • <span class="local-time" data-ts="{{ entry.expires_ts }}">expires {{ entry.expires_ts }}</span>
+                            {% else %}
+                                • Permanent
+                            {% endif %}
+                        </div>
+                    </div>
+                    <button onclick="unblacklistUser('{{ entry.user_id }}')" class="btn-danger">Unblacklist</button>
                 </div>
             {% else %}
                 <p style="color: var(--text-dim);">No individually blacklisted users.</p>
