@@ -1148,6 +1148,29 @@ class TicketsCog(commands.Cog):
             return False
         return True
 
+    async def _basic_command_check(self, interaction: discord.Interaction) -> bool:
+        """Extra guard for the non-dangerous ticket-management commands
+        (/close, /requestclose, /disableautoclose, /enableautoclose, /add,
+        /remove, /rename) on top of the normal ticket-command check —
+        same shape as _powerful_command_check, restricting these to roles/
+        users configured in Access Control's Basic Command Access list,
+        once configured."""
+        if not await self._ticket_command_check(interaction):
+            return False
+
+        from utils.access import has_basic_command_access
+
+        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
+        if not has_basic_command_access(interaction.user.id, member_role_ids):
+            await interaction.response.send_message(
+                "❌ You don't have permission to use this command. Ask an admin to "
+                "add your role or user ID to the Basic Command Access list in "
+                "Access Control.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
     async def _dangerous_command_check(self, interaction: discord.Interaction) -> bool:
         """Guard for standalone dangerous commands that aren't tied to a
         ticket channel (/addticketblacklist, /removeticketblacklist).
@@ -1189,7 +1212,7 @@ class TicketsCog(commands.Cog):
     async def close_command(
         self, interaction: discord.Interaction, reason: str = None
     ):
-        if not await self._ticket_command_check(interaction):
+        if not await self._basic_command_check(interaction):
             return
 
         await interaction.response.send_message(
@@ -1218,7 +1241,7 @@ class TicketsCog(commands.Cog):
     async def request_close_command(
         self, interaction: discord.Interaction, reason: str = None
     ):
-        if not await self._ticket_command_check(interaction):
+        if not await self._basic_command_check(interaction):
             return
 
         ticket = get_active_ticket(interaction.channel.id)
@@ -1246,7 +1269,7 @@ class TicketsCog(commands.Cog):
         description="Stop this ticket from auto-closing after 24 hours of inactivity",
     )
     async def disable_autoclose_command(self, interaction: discord.Interaction):
-        if not await self._ticket_command_check(interaction):
+        if not await self._basic_command_check(interaction):
             return
 
         ticket = get_active_ticket(interaction.channel.id)
@@ -1268,7 +1291,7 @@ class TicketsCog(commands.Cog):
         description="Resume auto-closing this ticket after inactivity",
     )
     async def enable_autoclose_command(self, interaction: discord.Interaction):
-        if not await self._ticket_command_check(interaction):
+        if not await self._basic_command_check(interaction):
             return
 
         ticket = get_active_ticket(interaction.channel.id)
@@ -1298,7 +1321,7 @@ class TicketsCog(commands.Cog):
     async def add_command(
         self, interaction: discord.Interaction, user: discord.Member
     ):
-        if not await self._ticket_command_check(interaction):
+        if not await self._basic_command_check(interaction):
             return
 
         if user.bot:
@@ -1345,7 +1368,7 @@ class TicketsCog(commands.Cog):
     async def remove_command(
         self, interaction: discord.Interaction, user: discord.Member
     ):
-        if not await self._ticket_command_check(interaction):
+        if not await self._basic_command_check(interaction):
             return
 
         try:
@@ -1550,7 +1573,7 @@ class TicketsCog(commands.Cog):
     @app_commands.command(name="rename", description="Rename this ticket channel")
     @app_commands.describe(name="The new channel name")
     async def rename_command(self, interaction: discord.Interaction, name: str):
-        if not await self._ticket_command_check(interaction):
+        if not await self._basic_command_check(interaction):
             return
 
         new_name = slugify(name)[:90]
