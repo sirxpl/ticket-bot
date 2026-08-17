@@ -538,7 +538,12 @@ class TicketView(discord.ui.View):
         selection = select.values[0] if select.values else "General Support"
         outer_view = self
 
-        # check blacklist (individually-blacklisted user IDs)
+        # check blacklist (individually-blacklisted user IDs) — only
+        # "regular" type blocks ALL ticket categories outright. "voidcore"
+        # type intentionally does NOT block here; it instead relies on the
+        # Voidcore role (assigned alongside the blacklist) being set as a
+        # per-category blacklist role on whichever categories should stay
+        # off-limits, so the user can still open other ticket types.
         try:
             bl = get_blacklist_data()
             my_entry = next(
@@ -548,7 +553,7 @@ class TicketView(discord.ui.View):
                 ),
                 None,
             )
-            if my_entry:
+            if my_entry and my_entry.get("blacklist_type", "regular") != "voidcore":
                 reason = my_entry.get("reason") or "No reason provided."
                 emb = discord.Embed(
                     title="❌ You're Blacklisted",
