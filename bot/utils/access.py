@@ -12,6 +12,7 @@ _DEFAULTS = {
     "allowed_users": [],
     "allowed_roles": [],
     "log_channel_id": None,
+    "blacklist_log_channel_id": None,
     "blacklist_roles": [],
     "carry_manager_roles": [],
     "ticket_viewer_roles": [],
@@ -51,6 +52,7 @@ def get_access_settings():
         doc.setdefault("allowed_users", [])
         doc.setdefault("allowed_roles", [])
         doc.setdefault("log_channel_id", None)
+        doc.setdefault("blacklist_log_channel_id", None)
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
         doc.setdefault("ticket_viewer_roles", [])
@@ -66,6 +68,7 @@ def get_access_settings():
         data.setdefault("allowed_users", [])
         data.setdefault("allowed_roles", [])
         data.setdefault("log_channel_id", None)
+        data.setdefault("blacklist_log_channel_id", None)
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])
         data.setdefault("ticket_viewer_roles", [])
@@ -318,6 +321,19 @@ def set_log_channel(channel_id):
 
 def get_log_channel_id():
     return get_access_settings().get("log_channel_id")
+
+
+def set_blacklist_log_channel(channel_id):
+    """Separate log channel just for /addticketblacklist and
+    /removeticketblacklist — independent of the general ticket activity
+    log channel above."""
+    data = get_access_settings()
+    data["blacklist_log_channel_id"] = str(channel_id) if channel_id else None
+    _save(data)
+
+
+def get_blacklist_log_channel_id():
+    return get_access_settings().get("blacklist_log_channel_id")
 
 
 def has_dashboard_access(user_id: str, member_role_ids=None) -> bool:
