@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from typing import Literal
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -42,6 +43,10 @@ logger = logging.getLogger("tickets")
 # (30s reminder / 1min autoclose) so the feature can be verified quickly.
 # Set back to False for real 12h/24h behavior once confirmed working.
 AUTOCLOSE_TEST_MODE = False
+
+# Role granted/removed alongside the ticket blacklist when the "voidcore"
+# type is selected on /addticketblacklist and /removeticketblacklist.
+VOIDCORE_BLACKLIST_ROLE_ID = 1535963860203470858
 if not logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter(
@@ -1365,6 +1370,7 @@ class TicketsCog(commands.Cog):
     @app_commands.describe(
         user="The member to blacklist from creating tickets",
         reason="Why this user is being blacklisted (required)",
+        blacklist_type="Voidcore also assigns the Voidcore blacklist role; Regular does not",
         duration_hours="Optional: hours until this expires (leave blank for permanent)",
     )
     @app_commands.default_permissions(administrator=True)
@@ -1373,6 +1379,7 @@ class TicketsCog(commands.Cog):
         interaction: discord.Interaction,
         user: discord.Member,
         reason: str,
+        blacklist_type: Literal["voidcore", "regular"],
         duration_hours: float = None,
     ):
         if not await self._dangerous_command_check(interaction):
@@ -1390,7 +1397,24 @@ class TicketsCog(commands.Cog):
             reason=reason,
             added_by=str(interaction.user),
             hours=duration_hours,
+            blacklist_type=blacklist_type,
         )
+
+        role_note = ""
+        if blacklist_type == "voidcore":
+            role = interaction.guild.get_role(VOIDCORE_BLACKLIST_ROLE_ID)
+            if role:
+                try:
+                    await user.add_roles(
+                        role, reason=f"Voidcore ticket blacklist by {interaction.user}"
+                    )
+                except Exception:
+                    logger.exception(
+                        f"Failed to add Voidcore blacklist role to user={user.id}"
+                    )
+                    role_note = "\n⚠️ Couldn't assign the Voidcore role — check the bot's role position/permissions."
+            else:
+                role_note = "\n⚠️ Voidcore role not found in this server."
 
         try:
             append_ticket_log({
@@ -1404,6 +1428,7 @@ class TicketsCog(commands.Cog):
                 },
                 "reason": reason,
                 "duration_hours": duration_hours,
+                "blacklist_type": blacklist_type,
             })
         except Exception:
             pass
@@ -1418,14 +1443,16 @@ class TicketsCog(commands.Cog):
             user=f"{user} ({user.id})",
             reason=reason,
             duration=duration_text,
+            type=blacklist_type.title(),
             executor=str(interaction.user),
         )
 
         emb = discord.Embed(
             title="🚫 User Blacklisted",
-            description=f"{user.mention} can no longer create tickets.",
+            description=f"{user.mention} can no longer create tickets.{role_note}",
             color=discord.Color.red(),
         )
+        emb.add_field(name="Type", value=blacklist_type.title(), inline=False)
         emb.add_field(name="Reason", value=reason, inline=False)
         emb.add_field(name="Duration", value=duration_text, inline=False)
         emb.set_footer(text="Tickety | Tickety.top")
@@ -1440,6 +1467,7 @@ class TicketsCog(commands.Cog):
     @app_commands.describe(
         user="The member to unblacklist",
         reason="Why this user is being unblacklisted (required)",
+        blacklist_type="Voidcore also removes the Voidcore blacklist role; Regular does not",
     )
     @app_commands.default_permissions(administrator=True)
     async def remove_ticket_blacklist_command(
@@ -1447,6 +1475,7 @@ class TicketsCog(commands.Cog):
         interaction: discord.Interaction,
         user: discord.Member,
         reason: str,
+        blacklist_type: Literal["voidcore", "regular"],
     ):
         if not await self._dangerous_command_check(interaction):
             return
@@ -1460,6 +1489,22 @@ class TicketsCog(commands.Cog):
             )
             return
 
+        role_note = ""
+        if blacklist_type == "voidcore":
+            role = interaction.guild.get_role(VOIDCORE_BLACKLIST_ROLE_ID)
+            if role:
+                try:
+                    await user.remove_roles(
+                        role, reason=f"Voidcore ticket blacklist lifted by {interaction.user}"
+                    )
+                except Exception:
+                    logger.exception(
+                        f"Failed to remove Voidcore blacklist role from user={user.id}"
+                    )
+                    role_note = "\n⚠️ Couldn't remove the Voidcore role — check the bot's role position/permissions."
+            else:
+                role_note = "\n⚠️ Voidcore role not found in this server."
+
         try:
             append_ticket_log({
                 "ticket_id": "global",
@@ -1471,6 +1516,7 @@ class TicketsCog(commands.Cog):
                     "name": str(interaction.user),
                 },
                 "reason": reason,
+                "blacklist_type": blacklist_type,
             })
         except Exception:
             pass
@@ -1480,14 +1526,16 @@ class TicketsCog(commands.Cog):
             "blacklist_removed",
             user=f"{user} ({user.id})",
             reason=reason,
+            type=blacklist_type.title(),
             executor=str(interaction.user),
         )
 
         emb = discord.Embed(
             title="✅ Blacklist Removed",
-            description=f"{user.mention} can create tickets again.",
+            description=f"{user.mention} can create tickets again.{role_note}",
             color=discord.Color.green(),
         )
+        emb.add_field(name="Type", value=blacklist_type.title(), inline=False)
         emb.add_field(name="Reason", value=reason, inline=False)
         emb.set_footer(text="Tickety | Tickety.top")
         await interaction.response.send_message(embed=emb, ephemeral=True)
