@@ -959,6 +959,51 @@
                 <p style="color: var(--text-dim);">No user IDs added yet.</p>
             {% endfor %}
 
+            <h4 style="margin-top: 20px;">Basic Command Access</h4>
+            <p class="card-subtitle">
+                Controls who can use <code>/close</code>, <code>/requestclose</code>, <code>/disableautoclose</code>, <code>/enableautoclose</code>, <code>/add</code>, <code>/remove</code>, and <code>/rename</code> — on top of the normal Manage Channels requirement. These stay open to anyone with Manage Channels until you add a role or user ID here; once configured, only matching roles/users (or admins) can use them.
+            </p>
+            <form action="/dashboard/access/add-basic-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in basic_command_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-basic-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-basic-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in basic_command_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-basic-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
             <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
             <p class="card-subtitle">Opened and closed tickets get posted here. Leave unset to disable.</p>
             <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
