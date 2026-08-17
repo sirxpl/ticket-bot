@@ -972,6 +972,21 @@
                 </div>
                 <button type="submit" class="btn-view">Save</button>
             </form>
+
+            <h4 style="margin-top: 20px;">Blacklist Log Channel</h4>
+            <p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-blacklist-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="blacklist_log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if blacklist_log_channel_id and blacklist_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
         </div>
         {% else %}
         <div class="card">
