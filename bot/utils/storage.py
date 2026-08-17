@@ -283,6 +283,25 @@ def increment_ticket_counter():
     return data["ticket_counter"]
 
 
+def set_ticket_counter(value: int):
+    """Set (resume) the single global ticket counter shared by ALL
+    categories. The next ticket created/moved into any category will be
+    value+1."""
+    db = get_db()
+    if db is not None:
+        try:
+            db.tickets_data.update_one(
+                {"_id": "singleton"}, {"$set": {"ticket_counter": int(value)}},
+                upsert=True,
+            )
+            return
+        except Exception:
+            logger.exception("Failed to set ticket counter in MongoDB")
+    data = get_tickets_data()
+    data["ticket_counter"] = int(value)
+    _save_tickets_data(data)
+
+
 # --- PER-CATEGORY TICKET NUMBERING (e.g. fallen-carry-0001, fallen-carry-0002...) ---
 def get_category_counter(prefix: str) -> int:
     settings = get_settings()
