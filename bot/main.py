@@ -62,6 +62,7 @@ from utils.access import (
     add_powerful_command_user,
     remove_powerful_command_user,
     set_log_channel,
+    set_blacklist_log_channel,
     has_dashboard_access,
     has_carry_manager_access,
     is_admin,
@@ -373,7 +374,8 @@ def home():
         panel_draft=get_ticket_panel_draft(),
         redirect_message=get_redirect_message(),
         welcome_message=get_welcome_message(),
-        log_channel_id=access_settings.get("log_channel_id")
+        log_channel_id=access_settings.get("log_channel_id"),
+        blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id")
     )
 
 
@@ -848,6 +850,15 @@ def access_set_log_channel():
     channel_id = request.form.get("log_channel_id", "").strip()
     set_log_channel(channel_id or None)
     flash("✅ Ticket activity log channel updated.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/set-blacklist-log-channel", methods=["POST"])
+@admin_required
+def access_set_blacklist_log_channel():
+    channel_id = request.form.get("blacklist_log_channel_id", "").strip()
+    set_blacklist_log_channel(channel_id or None)
+    flash("✅ Blacklist log channel updated.", "success")
     return redirect(url_for("home"))
 
 
