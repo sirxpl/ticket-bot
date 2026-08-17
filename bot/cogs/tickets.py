@@ -25,6 +25,7 @@ from utils.storage import (
     get_tickets_data,
     get_welcome_message,
     increment_category_counter,
+    set_ticket_counter,
     is_on_cooldown,
     is_ticket_channel,
     remove_active_ticket,
@@ -791,8 +792,15 @@ class TicketView(discord.ui.View):
                 prefix = (category_cfg or {}).get("name_prefix") or slugify(
                     self.selection
                 )
-                category_number = increment_category_counter(prefix)
-                channel_name = f"{prefix}-{category_number:04d}"
+                from utils.storage import increment_ticket_counter
+
+                # Shared/combined numbering: every category draws from the
+                # SAME running sequence, so fallen-carry-0001 and
+                # frost-carry-0002 share one continuous count rather than
+                # each category numbering independently from 1.
+                ticket_number = increment_ticket_counter()
+                category_number = ticket_number
+                channel_name = f"{prefix}-{ticket_number:04d}"
 
                 try:
                     ticket_channel = await guild.create_text_channel(
@@ -904,16 +912,9 @@ class TicketView(discord.ui.View):
                     # Log creation
                     ticket_id = str(ticket_channel.id)
                     timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-
-                    try:
-                        from utils.storage import increment_ticket_counter
-
-                        ticket_number = increment_ticket_counter()
-                    except Exception as e:
-                        logger.exception(
-                            f"Failed to increment ticket counter for channel={ticket_channel.id}: {e}"
-                        )
-                        ticket_number = None
+                    # ticket_number was already drawn from the shared global
+                    # counter above (used for the channel name too) - reuse
+                    # it here rather than incrementing a second time.
 
                     # Record the active ticket in its OWN try/except, separate from
                     # logging below - this is what powers the "you already have a
@@ -1565,13 +1566,14 @@ class TicketsCog(commands.Cog):
                 f"❌ Failed to rename: {e}", ephemeral=True
             )
 
-    # Slash Command: /ticketnumber — resumes this ticket's category numbering
+    # Slash Command: /ticketnumber — resumes the SHARED numbering used by
+    # every category (all categories draw from one combined sequence)
     @app_commands.command(
         name="ticketnumber",
-        description="Set this ticket category's numbering to resume from a given number",
+        description="Set the shared ticket numbering (used by all categories) to resume from a given number",
     )
     @app_commands.describe(
-        number="The next new ticket in this category will continue counting up from this number"
+        number="The next new ticket, in any category, will continue counting up from this number"
     )
     async def ticket_number_command(
         self, interaction: discord.Interaction, number: int
@@ -1579,18 +1581,10 @@ class TicketsCog(commands.Cog):
         if not await self._powerful_command_check(interaction):
             return
 
-        ticket = get_active_ticket(interaction.channel.id)
-        prefix = (ticket or {}).get("category_prefix")
-        if not prefix:
-            await interaction.response.send_message(
-                "❌ Couldn't determine this ticket's category.", ephemeral=True
-            )
-            return
-
-        set_category_counter(prefix, number)
+        set_ticket_counter(number)
         await interaction.response.send_message(
-            f"✅ `{prefix}` numbering set to **{number}** — the next new ticket in "
-            f"this category will be `{prefix}-{number + 1:04d}`.",
+            f"✅ Shared ticket numbering set to **{number}** — the next new "
+            f"ticket, in any category, will be numbered `{number + 1:04d}`.",
             ephemeral=True,
         )
 
@@ -1614,7 +1608,11 @@ class TicketsCog(commands.Cog):
             return
 
         prefix = target.get("name_prefix") or slugify(category)
-        next_number = increment_category_counter(prefix)
+        # Shared/combined numbering, matching ticket creation - draw the
+        # next number from the same global sequence every category uses.
+        from utils.storage import increment_ticket_counter
+
+        next_number = increment_ticket_counter()
         new_name = f"{prefix}-{next_number:04d}"
 
         try:
