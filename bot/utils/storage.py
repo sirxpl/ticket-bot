@@ -424,6 +424,7 @@ def _normalize_blacklist_entry(entry, default_reason="No reason provided."):
         entry.setdefault("added_by", None)
         entry.setdefault("added_at", None)
         entry.setdefault("expires_ts", None)
+        entry.setdefault("blacklist_type", "regular")
         return entry
     return {
         "user_id": str(entry),
@@ -431,6 +432,7 @@ def _normalize_blacklist_entry(entry, default_reason="No reason provided."):
         "added_by": None,
         "added_at": None,
         "expires_ts": None,
+        "blacklist_type": "regular",
     }
 
 
@@ -450,7 +452,8 @@ def _prune_expired_blacklist(data: dict) -> bool:
 
 
 def add_to_blacklist(user_id: str, reason: str = "No reason provided.",
-                      added_by: str = None, hours: float = None):
+                      added_by: str = None, hours: float = None,
+                      blacklist_type: str = "regular"):
     data = get_blacklist_data()
     users = data.setdefault("blacklisted_users", [])
     user_id = str(user_id)
@@ -468,6 +471,7 @@ def add_to_blacklist(user_id: str, reason: str = "No reason provided.",
         "added_by": str(added_by) if added_by else None,
         "added_at": datetime.datetime.utcnow().isoformat() + "Z",
         "expires_ts": expires_ts,
+        "blacklist_type": blacklist_type,
     })
     with open(BLACKLIST_FILE, 'w') as f:
         json.dump(data, f, indent=2)
