@@ -1097,6 +1097,38 @@ class TicketsCog(commands.Cog):
             return False
         return True
 
+    async def _dangerous_command_check(self, interaction: discord.Interaction) -> bool:
+        """Guard for standalone dangerous commands that aren't tied to a
+        ticket channel (/addticketblacklist, /removeticketblacklist).
+        Allowed for real Discord Administrators, dashboard-configured
+        admins, and anyone in the Powerful Command Access list. Unlike
+        _powerful_command_check, this does NOT fall back to "anyone" when
+        that list is empty - blacklisting is high-impact enough that it
+        should stay admin-only until an admin explicitly grants access."""
+        from utils.access import (
+            get_powerful_command_role_ids,
+            get_powerful_command_user_ids,
+            is_admin,
+        )
+
+        if interaction.user.guild_permissions.administrator:
+            return True
+        if is_admin(interaction.user.id):
+            return True
+
+        member_role_ids = {str(r.id) for r in getattr(interaction.user, "roles", [])}
+        if str(interaction.user.id) in set(get_powerful_command_user_ids()):
+            return True
+        if member_role_ids.intersection(get_powerful_command_role_ids()):
+            return True
+
+        await interaction.response.send_message(
+            "❌ Only administrators, or roles/users granted Powerful Command "
+            "Access in the dashboard's Access Control page, can use this command.",
+            ephemeral=True,
+        )
+        return False
+
     # Slash Command: /close [reason] — closes immediately, no opener confirmation
     @app_commands.command(
         name="close",
@@ -1303,10 +1335,7 @@ class TicketsCog(commands.Cog):
         reason: str,
         duration_hours: float = None,
     ):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "❌ Only administrators can use this command.", ephemeral=True
-            )
+        if not await self._dangerous_command_check(interaction):
             return
 
         if duration_hours is not None and duration_hours <= 0:
@@ -1369,10 +1398,7 @@ class TicketsCog(commands.Cog):
         user: discord.Member,
         reason: str,
     ):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "❌ Only administrators can use this command.", ephemeral=True
-            )
+        if not await self._dangerous_command_check(interaction):
             return
 
         removed = remove_from_blacklist(str(user.id))
