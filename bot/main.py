@@ -61,6 +61,10 @@ from utils.access import (
     remove_powerful_command_role,
     add_powerful_command_user,
     remove_powerful_command_user,
+    add_basic_command_role,
+    remove_basic_command_role,
+    add_basic_command_user,
+    remove_basic_command_user,
     set_log_channel,
     set_blacklist_log_channel,
     has_dashboard_access,
@@ -327,6 +331,12 @@ def home():
         powerful_command_roles.append({"id": rid, "name": role.name if role else None})
     powerful_command_users = access_settings.get("powerful_command_users", [])
 
+    basic_command_roles = []
+    for rid in access_settings.get("basic_command_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        basic_command_roles.append({"id": rid, "name": role.name if role else None})
+    basic_command_users = access_settings.get("basic_command_users", [])
+
     # members who are blocked from creating tickets via a Ticket Blacklist Role
     # (in addition to the individually-blacklisted user IDs above)
     role_blacklisted_members = []
@@ -367,6 +377,8 @@ def home():
         ticket_viewer_roles=ticket_viewer_roles,
         powerful_command_roles=powerful_command_roles,
         powerful_command_users=powerful_command_users,
+        basic_command_roles=basic_command_roles,
+        basic_command_users=basic_command_users,
         carry_manager_roles=carry_manager_roles,
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
@@ -737,6 +749,46 @@ def access_add_powerful_command_user():
 def access_remove_powerful_command_user(user_id):
     remove_powerful_command_user(user_id)
     flash("🗑️ User removed from Powerful Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-basic-command-role", methods=["POST"])
+@admin_required
+def access_add_basic_command_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_basic_command_role(role_id)
+        flash("✅ Role added to Basic Command Access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-basic-command-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_basic_command_role(role_id):
+    remove_basic_command_role(role_id)
+    flash("🗑️ Role removed from Basic Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-basic-command-user", methods=["POST"])
+@admin_required
+def access_add_basic_command_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_basic_command_user(user_id)
+        flash("✅ User added to Basic Command Access.", "success")
+    else:
+        flash("❌ Please enter a valid user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-basic-command-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_basic_command_user(user_id):
+    remove_basic_command_user(user_id)
+    flash("🗑️ User removed from Basic Command Access.", "info")
     return redirect(url_for("home"))
 
 
