@@ -180,59 +180,34 @@ class UtilityCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="coffee", description="Brew a random coffee and have it delivered straight to your DMs")
-    @app_commands.describe(user="Optional: brew a coffee for someone else instead of yourself")
-    async def coffee(self, interaction: discord.Interaction, user: discord.Member = None):
-        recipient = user or interaction.user
-        gifting = recipient.id != interaction.user.id
-
-        order = roll_coffee_order(random.choice(COFFEE_STYLES))
-        dm_delivered = await deliver_coffee(recipient, order, gifted_by=interaction.user if gifting else None)
-
-        if gifting:
-            if dm_delivered:
-                await interaction.response.send_message(
-                    f"☕ {interaction.user.mention} brewed a **{order['style']}** for {recipient.mention} and delivered it to their DMs!"
-                )
-            else:
-                await interaction.response.send_message(
-                    f"☕ {interaction.user.mention} brewed a **{order['style']}** for {recipient.mention}, but their DMs are closed — here it is instead:",
-                    embed=build_coffee_embed(order, gifted_by=interaction.user),
-                )
-        else:
-            if dm_delivered:
-                await interaction.response.send_message(
-                    "☕ Brewing your coffee now... check your DMs!", ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(
-                    "☕ Your coffee's ready, but your DMs are closed — here it is instead:",
-                    embed=build_coffee_embed(order),
-                    ephemeral=True,
-                )
-
-    @app_commands.command(name="coffeemenu", description="Open an interactive coffee menu and pick exactly what you want")
-    @app_commands.describe(user="Optional: order for someone else instead of yourself")
-    async def coffeemenu(self, interaction: discord.Interaction, user: discord.Member = None):
-        recipient = user or interaction.user
-        gifting = recipient.id != interaction.user.id
-
+    def _make_on_order(self, recipient: discord.abc.User, invoker: discord.abc.User, gifting: bool):
+        """Builds the button-click handler for a coffee menu. Always edits the
+        original (ephemeral) menu message, so nothing about the order — or
+        whether delivery succeeded — is ever posted where anyone else can see it."""
         async def on_order(inter: discord.Interaction, style: str):
             order = roll_coffee_order(style)
-            dm_delivered = await deliver_coffee(recipient, order, gifted_by=inter.user if gifting else None)
+            dm_delivered = await deliver_coffee(recipient, order, gifted_by=invoker if gifting else None)
 
             if gifting:
                 if dm_delivered:
                     msg = f"☕ Order placed! A **{style}** is brewing for {recipient.mention} and on its way to their DMs."
                 else:
-                    msg = f"☕ Order placed for {recipient.mention}, but their DMs are closed."
+                    msg = f"❌ Couldn't deliver the coffee — {recipient.mention} has their DMs closed."
             else:
                 if dm_delivered:
                     msg = f"☕ Order placed! Your **{style}** is on its way to your DMs."
                 else:
-                    msg = "☕ Order placed, but your DMs are closed."
+                    msg = "❌ Couldn't deliver your coffee — your DMs are closed."
 
             await inter.response.edit_message(content=msg, view=None, embed=None)
+
+        return on_order
+
+    async def _send_coffee_menu(self, interaction: discord.Interaction, recipient: discord.abc.User):
+        gifting = recipient.id != interaction.user.id
+        on_order = self._make_on_order(recipient, interaction.user, gifting)
+
+        title = f"Pick a coffee for {recipient.mention}:" if gifting else "Pick your order below:"
 
         view = build_coffee_menu_view(on_order)
         if view is not None:
@@ -240,12 +215,24 @@ class UtilityCog(commands.Cog):
         else:
             embed = discord.Embed(
                 title="☕ Coffee Menu",
-                description="Pick your order below:",
+                description=title,
                 color=discord.Color.from_rgb(111, 78, 55),
             )
             await interaction.response.send_message(
                 embed=embed, view=CoffeeMenuFallbackView(on_order), ephemeral=True
             )
+
+    @app_commands.command(name="coffee", description="Open the coffee menu and order something, delivered straight to DMs")
+    @app_commands.describe(user="Optional: order a coffee for someone else instead of yourself")
+    async def coffee(self, interaction: discord.Interaction, user: discord.Member = None):
+        recipient = user or interaction.user
+        await self._send_coffee_menu(interaction, recipient)
+
+    @app_commands.command(name="coffeemenu", description="Open an interactive coffee menu and pick exactly what you want")
+    @app_commands.describe(user="Optional: order for someone else instead of yourself")
+    async def coffeemenu(self, interaction: discord.Interaction, user: discord.Member = None):
+        recipient = user or interaction.user
+        await self._send_coffee_menu(interaction, recipient)
 
     @app_commands.command(name="scan_url", description="Check a URL or domain against VirusTotal for security threats")
     @app_commands.describe(url="The web link or domain you want to check")
