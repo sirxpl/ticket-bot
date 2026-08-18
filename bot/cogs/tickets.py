@@ -1029,9 +1029,17 @@ class TicketsCog(commands.Cog):
 
     @tasks.loop(minutes=10)
     async def autoclose_watcher(self):
-        """Every 10 minutes: ping openers who've gone quiet for 12h with a
-        heads-up, then close tickets that hit 24h of inactivity with nobody
-        having disabled it via /disableautoclose."""
+        """Every 10 minutes: close any ticket whose opener has left the
+        server, ping openers who've gone quiet for 12h with a heads-up,
+        then close tickets that hit 24h of inactivity with nobody having
+        disabled it via /disableautoclose.
+
+        The "opener left" check uses a plain REST call (guild.fetch_member)
+        rather than the member-remove gateway event, since this bot runs
+        with the privileged Members intent disabled — see the intents note
+        in main.py. That means a departure is caught on the next loop tick,
+        not instantly, but it needs no privileged intent at all.
+        """
         try:
             data = get_tickets_data()
         except Exception:
@@ -1047,16 +1055,53 @@ class TicketsCog(commands.Cog):
             CLOSE_AFTER = 24 * 3600
 
         for ticket in list(data.get("active_tickets", [])):
-            if ticket.get("autoclose_disabled"):
-                continue
-
             channel_id = ticket.get("channel_id")
-            last_activity = ticket.get("last_activity") or ticket.get("created_at") or now
-            elapsed = now - float(last_activity)
+            user_id = ticket.get("user_id")
 
             channel = self.bot.get_channel(int(channel_id))
             if not channel:
                 continue
+            guild = channel.guild
+
+            # --- opener left the server? close regardless of autoclose ---
+            # settings, since there's no point keeping the ticket open once
+            # the person it belongs to is gone.
+            try:
+                member = guild.get_member(int(user_id))
+                if member is None:
+                    try:
+                        await guild.fetch_member(int(user_id))
+                    except discord.NotFound:
+                        try:
+                            await channel.send(
+                                "🔒 This ticket is being automatically closed "
+                                "because the person who opened it is no longer "
+                                "in the server."
+                            )
+                            await self.do_close(
+                                channel,
+                                self.bot.user,
+                                reason="Automatically closed — opener left the server.",
+                            )
+                        except Exception:
+                            logger.exception(
+                                f"autoclose_watcher: failed to close channel={channel_id} after opener left"
+                            )
+                        continue
+                    except discord.HTTPException:
+                        # transient API issue — don't assume they left, just
+                        # skip the rest of this tick's checks for this ticket
+                        pass
+            except Exception:
+                logger.exception(
+                    f"autoclose_watcher: membership check failed for channel={channel_id}"
+                )
+
+            if ticket.get("autoclose_disabled"):
+                continue
+
+            last_activity = ticket.get("last_activity") or ticket.get("created_at") or now
+            elapsed = now - float(last_activity)
 
             if elapsed >= CLOSE_AFTER:
                 try:
@@ -1077,7 +1122,6 @@ class TicketsCog(commands.Cog):
 
             if elapsed >= REMINDER_AFTER and not ticket.get("reminder_sent"):
                 try:
-                    user_id = ticket.get("user_id")
                     await channel.send(
                         content=(
                             f"<@{user_id}> ⏳ This ticket will **automatically close in 12 hours** "
