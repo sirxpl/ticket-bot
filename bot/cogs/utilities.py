@@ -185,6 +185,11 @@ class UtilityCog(commands.Cog):
         original (ephemeral) menu message, so nothing about the order — or
         whether delivery succeeded — is ever posted where anyone else can see it."""
         async def on_order(inter: discord.Interaction, style: str):
+            interim = (
+                f"☕ Delivering to {recipient.mention}..." if gifting else "☕ Check your DMs!"
+            )
+            await inter.response.edit_message(content=interim, view=None, embed=None)
+
             order = roll_coffee_order(style)
             dm_delivered = await deliver_coffee(recipient, order, gifted_by=invoker if gifting else None)
 
@@ -199,7 +204,7 @@ class UtilityCog(commands.Cog):
                 else:
                     msg = "❌ Couldn't deliver your coffee — your DMs are closed."
 
-            await inter.response.edit_message(content=msg, view=None, embed=None)
+            await inter.edit_original_response(content=msg, view=None, embed=None)
 
         return on_order
 
