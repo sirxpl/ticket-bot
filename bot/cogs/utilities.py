@@ -116,6 +116,34 @@ async def deliver_coffee(recipient: discord.abc.User, order: dict, gifted_by: di
         return False
 
 
+def build_simple_v2_text(text: str):
+    """A minimal one-line Components V2 message (just a TextDisplay inside
+    a LayoutView). Used to edit an existing Components V2 message with new
+    text - you can NEVER edit a V2 message back to plain content=, that's
+    permanently disabled for it once sent, so edits must stay in
+    components-land too. Returns None if V2 isn't supported."""
+    layout_cls = getattr(discord.ui, "LayoutView", None)
+    text_display_cls = getattr(discord.ui, "TextDisplay", None)
+    if not (layout_cls and text_display_cls):
+        return None
+
+    class SimpleTextView(layout_cls):
+        def __init__(self):
+            super().__init__()
+            self.add_item(text_display_cls(text))
+
+    return SimpleTextView()
+
+
+def components_v2_supported() -> bool:
+    """Cheap check for whether the running discord.py has Components V2
+    classes available, without constructing anything."""
+    return all(
+        getattr(discord.ui, name, None)
+        for name in ("LayoutView", "Container", "TextDisplay", "ActionRow")
+    )
+
+
 def build_coffee_menu_view(on_order):
     """Interactive Components V2 coffee menu with one button per style.
     `on_order(interaction, style)` is called when a button is clicked.
@@ -180,15 +208,24 @@ class UtilityCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def _make_on_order(self, recipient: discord.abc.User, invoker: discord.abc.User, gifting: bool):
+    def _make_on_order(self, recipient: discord.abc.User, invoker: discord.abc.User, gifting: bool, is_v2: bool):
         """Builds the button-click handler for a coffee menu. Always edits the
         original (ephemeral) menu message, so nothing about the order — or
-        whether delivery succeeded — is ever posted where anyone else can see it."""
+        whether delivery succeeded — is ever posted where anyone else can see it.
+
+        is_v2 matters because once a message is sent using Components V2, it
+        can NEVER be edited back to plain content= — that's permanently
+        disabled for that message. So V2 menus must be edited with another
+        V2 view, while the classic fallback menu edits with plain content=.
+        """
         async def on_order(inter: discord.Interaction, style: str):
             interim = (
                 f"☕ Delivering to {recipient.mention}..." if gifting else "☕ Check your DMs!"
             )
-            await inter.response.edit_message(content=interim, view=None, embed=None)
+            if is_v2:
+                await inter.response.edit_message(view=build_simple_v2_text(interim))
+            else:
+                await inter.response.edit_message(content=interim, view=None, embed=None)
 
             order = roll_coffee_order(style)
             dm_delivered = await deliver_coffee(recipient, order, gifted_by=invoker if gifting else None)
@@ -204,20 +241,29 @@ class UtilityCog(commands.Cog):
                 else:
                     msg = "❌ Couldn't deliver your coffee — your DMs are closed."
 
-            await inter.edit_original_response(content=msg, view=None, embed=None)
+            if is_v2:
+                await inter.edit_original_response(view=build_simple_v2_text(msg))
+            else:
+                await inter.edit_original_response(content=msg, view=None, embed=None)
 
         return on_order
 
     async def _send_coffee_menu(self, interaction: discord.Interaction, recipient: discord.abc.User):
         gifting = recipient.id != interaction.user.id
-        on_order = self._make_on_order(recipient, interaction.user, gifting)
-
         title = f"Pick a coffee for {recipient.mention}:" if gifting else "Pick your order below:"
 
-        view = build_coffee_menu_view(on_order)
+        # Build with is_v2=True only tentatively - confirm the view actually
+        # got built before trusting that, so on_order's edit style always
+        # matches how the message was really sent, never just how we hoped.
+        view = None
+        if components_v2_supported():
+            on_order = self._make_on_order(recipient, interaction.user, gifting, is_v2=True)
+            view = build_coffee_menu_view(on_order)
+
         if view is not None:
             await interaction.response.send_message(view=view, ephemeral=True)
         else:
+            on_order = self._make_on_order(recipient, interaction.user, gifting, is_v2=False)
             embed = discord.Embed(
                 title="☕ Coffee Menu",
                 description=title,
