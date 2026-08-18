@@ -279,12 +279,6 @@ class UtilityCog(commands.Cog):
         recipient = user or interaction.user
         await self._send_coffee_menu(interaction, recipient)
 
-    @app_commands.command(name="coffeemenu", description="Open an interactive coffee menu and pick exactly what you want")
-    @app_commands.describe(user="Optional: order for someone else instead of yourself")
-    async def coffeemenu(self, interaction: discord.Interaction, user: discord.Member = None):
-        recipient = user or interaction.user
-        await self._send_coffee_menu(interaction, recipient)
-
     @app_commands.command(name="scan_url", description="Check a URL or domain against VirusTotal for security threats")
     @app_commands.describe(url="The web link or domain you want to check")
     async def scan_url(self, interaction: discord.Interaction, url: str):
