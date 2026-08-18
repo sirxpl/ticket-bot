@@ -75,10 +75,12 @@ async def send_ticket_log(bot, action, **fields):
         colors = {
             "opened": discord.Color.green(),
             "closed": discord.Color.red(),
+            "renamed": discord.Color.blurple(),
         }
         titles = {
             "opened": "🎫 Ticket Opened",
             "closed": "🔒 Ticket Closed",
+            "renamed": "📝 Ticket Renamed",
         }
 
         embed = discord.Embed(
@@ -425,6 +427,44 @@ class RequestCloseView(discord.ui.View):
         await inter.response.edit_message(
             content="Ticket will stay open.", view=self
         )
+
+
+def build_rename_announcement(old_name: str, new_name: str, executor: discord.abc.User):
+    """Build the in-channel "ticket renamed" announcement using Components V2
+    (discord.ui.LayoutView) — a plain markdown-styled layout rather than a
+    classic embed. Returns None if the running discord.py version doesn't
+    support Components V2 yet, so callers can fall back to a normal message.
+    """
+    try:
+        layout_cls = getattr(discord.ui, "LayoutView", None)
+        container_cls = getattr(discord.ui, "Container", None)
+        text_display_cls = getattr(discord.ui, "TextDisplay", None)
+        separator_cls = getattr(discord.ui, "Separator", None)
+        if not (layout_cls and container_cls and text_display_cls):
+            return None
+
+        class RenameAnnouncement(layout_cls):
+            def __init__(self):
+                super().__init__()
+                container = container_cls(accent_color=discord.Color.blurple())
+                container.add_item(
+                    text_display_cls("### 📝 Ticket Renamed")
+                )
+                if separator_cls:
+                    container.add_item(separator_cls())
+                container.add_item(
+                    text_display_cls(
+                        f"**Before:** `{old_name}`\n"
+                        f"**After:** `{new_name}`\n"
+                        f"**Renamed by:** {executor.mention}"
+                    )
+                )
+                self.add_item(container)
+
+        return RenameAnnouncement()
+    except Exception:
+        logger.exception("Failed to build Components V2 rename announcement")
+        return None
 
 
 class CloseConfirmView(discord.ui.View):
@@ -1620,17 +1660,73 @@ class TicketsCog(commands.Cog):
         if not await self._basic_command_check(interaction):
             return
 
+        old_name = interaction.channel.name
         new_name = slugify(name)[:90]
+
+        if new_name == old_name:
+            await interaction.response.send_message(
+                f"⚠️ The channel is already named `{old_name}`.", ephemeral=True
+            )
+            return
+
         try:
             await interaction.channel.edit(
                 name=new_name, reason=f"Renamed by {interaction.user}"
             )
-            await interaction.response.send_message(
-                f"✅ Renamed to `{new_name}`.", ephemeral=True
-            )
         except Exception as e:
             await interaction.response.send_message(
                 f"❌ Failed to rename: {e}", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"✅ Renamed to `{new_name}`.", ephemeral=True
+        )
+
+        # Log the before/after name change — both to the persisted ticket
+        # logs (Ticket Logs page) and the configured Ticket Activity Log
+        # Channel, same as opened/closed/blacklist events.
+        ticket = get_active_ticket(interaction.channel.id)
+        ticket_id = ticket.get("ticket_id") if ticket else "unknown"
+        try:
+            append_ticket_log({
+                "ticket_id": ticket_id,
+                "action": "renamed",
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                "executor": {
+                    "id": str(interaction.user.id),
+                    "name": str(interaction.user),
+                },
+                "old_name": old_name,
+                "new_name": new_name,
+            })
+        except Exception:
+            pass
+
+        await send_ticket_log(
+            self.bot,
+            "renamed",
+            channel=interaction.channel.mention,
+            before=f"`{old_name}`",
+            after=f"`{new_name}`",
+            renamed_by=str(interaction.user),
+        )
+
+        # Post the in-channel announcement using Components V2 when the
+        # running discord.py version supports it; otherwise fall back to a
+        # plain message so the rename is still visible either way.
+        announcement = build_rename_announcement(old_name, new_name, interaction.user)
+        try:
+            if announcement is not None:
+                await interaction.channel.send(view=announcement)
+            else:
+                await interaction.channel.send(
+                    f"📝 **Ticket renamed** — `{old_name}` → `{new_name}` "
+                    f"(by {interaction.user.mention})"
+                )
+        except Exception:
+            logger.exception(
+                f"Failed to post rename announcement in channel={interaction.channel.id}"
             )
 
     # Slash Command: /ticketnumber — resumes the SHARED numbering used by
