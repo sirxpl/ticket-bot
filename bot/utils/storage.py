@@ -727,9 +727,10 @@ def verify_transcript_token(token: str) -> dict:
         return None
 
 
-def generate_transcript_url(filename: str, expires_seconds: int = 3600) -> str:
-    """Build a full absolute HTTPS URL to the transcripts route with a short-lived token."""
-    token = generate_transcript_token(filename, expires_seconds=expires_seconds)
+def get_dashboard_base_url() -> str:
+    """The site's own absolute HTTPS base URL, used to build links back to
+    the dashboard/docs/rules/etc. Shared by generate_transcript_url() and
+    anything else (like /panel) that needs to link to the site."""
     base_url = os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com'
     if base_url.endswith('/callback'):
         base_url = base_url.rsplit('/callback', 1)[0]
@@ -737,4 +738,10 @@ def generate_transcript_url(filename: str, expires_seconds: int = 3600) -> str:
         base_url = 'https://' + base_url
     if base_url.startswith('http://'):
         base_url = 'https://' + base_url[len('http://'):]
-    return f"{base_url.rstrip('/')}/transcripts/{filename}?token={token}"
+    return base_url.rstrip('/')
+
+
+def generate_transcript_url(filename: str, expires_seconds: int = 3600) -> str:
+    """Build a full absolute HTTPS URL to the transcripts route with a short-lived token."""
+    token = generate_transcript_token(filename, expires_seconds=expires_seconds)
+    return f"{get_dashboard_base_url()}/transcripts/{filename}?token={token}"
