@@ -80,6 +80,59 @@ def set_tickets_enabled(status: bool):
     save_settings(settings)
 
 
+COFFEE_PREFS_FILE = os.path.join(DATA_DIR, "coffee_prefs.json")
+
+# --- COFFEE DM PREFERENCES ---
+# Per-user opt-in/out for receiving *gifted* coffee via DM — ordering for
+# yourself always goes through regardless of this. Backed by MongoDB
+# (collection: coffee_prefs, one doc per user) when configured, else
+# coffee_prefs.json.
+def get_coffee_dm_enabled(user_id) -> bool:
+    """Defaults to True (enabled) for anyone who hasn't changed it."""
+    user_id = str(user_id)
+    db = get_db()
+    if db is not None:
+        try:
+            doc = db.coffee_prefs.find_one({"_id": user_id})
+            if doc is not None:
+                return bool(doc.get("dms_enabled", True))
+            return True
+        except Exception:
+            logger.exception("get_coffee_dm_enabled: Mongo read failed, falling back to file")
+
+    if not os.path.exists(COFFEE_PREFS_FILE):
+        return True
+    try:
+        with open(COFFEE_PREFS_FILE, "r") as f:
+            data = json.load(f)
+        return bool(data.get(user_id, True))
+    except Exception:
+        return True
+
+
+def set_coffee_dm_enabled(user_id, enabled: bool):
+    user_id = str(user_id)
+    db = get_db()
+    if db is not None:
+        try:
+            db.coffee_prefs.replace_one(
+                {"_id": user_id}, {"_id": user_id, "dms_enabled": bool(enabled)}, upsert=True
+            )
+        except Exception:
+            logger.exception("set_coffee_dm_enabled: Mongo write failed, falling back to file only")
+
+    data = {}
+    if os.path.exists(COFFEE_PREFS_FILE):
+        try:
+            with open(COFFEE_PREFS_FILE, "r") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+    data[user_id] = bool(enabled)
+    with open(COFFEE_PREFS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
 class _SafeDict(dict):
     """Used with str.format_map so an unknown {placeholder} in a
     user-edited template is left as-is instead of raising KeyError."""
