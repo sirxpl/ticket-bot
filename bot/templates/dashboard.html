@@ -495,6 +495,167 @@
         #previewPanel .pv-field-value{ color: #dbdee1; font-size: 0.85em; }
         #previewPanel .pv-footer{ color: #949ba4; font-size: 0.78em; margin-top: 8px; }
         #previewPanel img{ max-width: 100%; border-radius: 6px; margin-top: 8px; }
+
+        /* --- Components V2 Panel Builder blocks --- */
+        .pb-block{
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .pb-block[data-type="embed"]{ border-left: 3px solid var(--accent); }
+        .pb-block[data-type="divider"]{ border-left: 3px solid var(--text-dim); }
+        .pb-block[data-type="button"]{ border-left: 3px solid #3ed9a0; }
+        .pb-block[data-type="dropdown"]{ border-left: 3px solid #f6c453; }
+        .pb-block-header{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px 14px;
+            background: var(--raised);
+            border-bottom: 1px solid var(--border);
+        }
+        .pb-block-title{
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-weight: 700;
+            font-size: 0.92em;
+        }
+        .pb-block-icon{
+            width: 26px;
+            height: 26px;
+            border-radius: 7px;
+            background: var(--raised-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9em;
+            flex-shrink: 0;
+        }
+        .pb-block-body{
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+        }
+        .pb-block-body.pb-grid-2{
+            grid-template-columns: 1fr 1fr;
+        }
+        .pb-field label{
+            display: block;
+            font-size: 0.76em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-dim);
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        .pb-field input, .pb-field textarea{
+            width: 100%;
+            padding: 9px 10px;
+            background: var(--raised-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 7px;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 0.92em;
+        }
+        .pb-field input:focus, .pb-field textarea:focus{
+            outline: none;
+            border-color: var(--accent);
+        }
+        .pb-field input[type="color"]{
+            width: 52px;
+            height: 38px;
+            padding: 3px;
+            cursor: pointer;
+        }
+        .pb-color-row{ display: flex; align-items: center; gap: 10px; }
+        .pb-color-row input[type="text"]{ flex: 1; }
+        .pb-remove-btn{
+            background: var(--danger-soft);
+            color: var(--danger);
+            border: 1px solid transparent;
+            padding: 6px 12px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.82em;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .pb-remove-btn:hover{ border-color: var(--danger); }
+        .pb-children-wrap{
+            margin-top: 4px;
+            padding: 12px;
+            background: var(--raised);
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+        }
+        .pb-children-label{
+            font-size: 0.76em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-dim);
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .pb-children-add{
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .pb-children-add button{
+            background: var(--raised-2);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 6px 12px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.82em;
+        }
+        .pb-children-add button:hover{ border-color: var(--accent); color: var(--text); }
+        .pb-children-list{ display: grid; gap: 8px; }
+        .pb-children-list .pb-block{ margin-bottom: 0; }
+        .pb-divider-line{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px;
+            color: var(--text-dim);
+            font-size: 0.85em;
+        }
+        .pb-divider-line::before, .pb-divider-line::after{
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+        .pb-toolbar{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 16px 0;
+        }
+        .pb-toolbar button{
+            background: var(--raised);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 9px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.88em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .pb-toolbar button:hover{ border-color: var(--accent); }
     </style>
 </head>
 <body>
@@ -798,11 +959,11 @@
                 <input type="hidden" name="fields_json" value="[]">
                 <input type="hidden" name="components_json" id="components_json">
 
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin:18px 0;">
-                    <button type="button" class="btn-view" onclick="addPanelBlock('embed')">+ New Embed</button>
-                    <button type="button" class="btn-view" onclick="addPanelBlock('divider')">+ Divider</button>
-                    <button type="button" class="btn-view" onclick="addPanelBlock('button')">+ Button</button>
-                    <button type="button" class="btn-view" onclick="addPanelBlock('dropdown')">+ Dropdown</button>
+                <div class="pb-toolbar">
+                    <button type="button" onclick="addPanelBlock('embed')">📦 New Embed</button>
+                    <button type="button" onclick="addPanelBlock('divider')">➖ Divider</button>
+                    <button type="button" onclick="addPanelBlock('button')">🔘 Button</button>
+                    <button type="button" onclick="addPanelBlock('dropdown')">▾ Dropdown</button>
                 </div>
 
                 <div id="panelBlocks"></div>
@@ -1555,32 +1716,100 @@ function getBlock(path) {
 }
 function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
 function blockControls(path,b,inEmbed=false) {
-    const head=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong>${b.type==='embed'?'📦 Embed':b.type==='divider'?'➖ Divider':b.type==='button'?'🔘 Button':'▾ Dropdown'}</strong><button type="button" onclick="removePanelBlock('${path}')" style="background:var(--danger);color:white;border:0;border-radius:4px;padding:3px 8px;">Remove</button></div>`;
-    if(b.type==='divider') return `<div class="block-row">${head}</div>`;
-    if(b.type==='button') return `<div class="block-row">${head}
-        <input placeholder="Button Label" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
-        <input placeholder="Dropdown Variable (optional)" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
-        <input placeholder="Dropdown Variable Value (optional)" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
-    </div>`;
-    if(b.type==='dropdown') return `<div class="block-row">${head}
-        <input placeholder="Placeholder" value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
-        <input placeholder="Dropdown Variable (optional)" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
-        <input placeholder="Dropdown Variable Value (optional)" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
-    </div>`;
-    let children=(b.children||[]).map((c,i)=>blockControls(path+'.'+i,c,true)).join('');
-    return `<div class="block-row" style="border-left:3px solid var(--accent);">${head}
-        <input placeholder="Embed title" value="${esc(b.title||'')}" oninput="updateBlock('${path}','title',this.value)">
-        <textarea rows="3" placeholder="Embed description" oninput="updateBlock('${path}','description',this.value)">${esc(b.description||'')}</textarea>
-        <input placeholder="Accent color (#58b9ff)" value="${esc(b.color||'#58b9ff')}" oninput="updateBlock('${path}','color',this.value)">
-        <input placeholder="Footer (optional)" value="${esc(b.footer||'')}" oninput="updateBlock('${path}','footer',this.value)">
-        <div style="margin:8px 0;padding:8px;background:var(--panel);border-radius:6px;">
-            <strong>Inside this embed</strong>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
-                <button type="button" class="btn-view" onclick="addChild('${path}','button')">+ Button</button>
-                <button type="button" class="btn-view" onclick="addChild('${path}','dropdown')">+ Dropdown</button>
-                <button type="button" class="btn-view" onclick="addChild('${path}','divider')">+ Divider</button>
+    const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾'};
+    const labels = {embed:'Embed', divider:'Divider', button:'Button', dropdown:'Dropdown'};
+    const header = `
+        <div class="pb-block-header">
+            <div class="pb-block-title">
+                <span class="pb-block-icon">${icons[b.type]}</span>
+                <span>${labels[b.type]}</span>
             </div>
-            <div style="margin-top:8px;">${children}</div>
+            <button type="button" class="pb-remove-btn" onclick="removePanelBlock('${path}')">✕ Remove</button>
+        </div>`;
+
+    if (b.type === 'divider') {
+        return `<div class="pb-block" data-type="divider">${header}
+            <div class="pb-divider-line">divider — separates content above and below</div>
+        </div>`;
+    }
+
+    if (b.type === 'button') {
+        return `<div class="pb-block" data-type="button">${header}
+            <div class="pb-block-body">
+                <div class="pb-field">
+                    <label>Button Label</label>
+                    <input placeholder="Open Ticket" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
+                </div>
+                <div class="pb-block-body pb-grid-2" style="padding:0;">
+                    <div class="pb-field">
+                        <label>Dropdown Variable <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
+                        <input placeholder="e.g. mode" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
+                    </div>
+                    <div class="pb-field">
+                        <label>Variable Value <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
+                        <input placeholder="e.g. fallen" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    if (b.type === 'dropdown') {
+        return `<div class="pb-block" data-type="dropdown">${header}
+            <div class="pb-block-body">
+                <div class="pb-field">
+                    <label>Placeholder Text</label>
+                    <input placeholder="Choose ticket type..." value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
+                </div>
+                <div class="pb-block-body pb-grid-2" style="padding:0;">
+                    <div class="pb-field">
+                        <label>Dropdown Variable <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
+                        <input placeholder="e.g. mode" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
+                    </div>
+                    <div class="pb-field">
+                        <label>Variable Value <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
+                        <input placeholder="e.g. fallen" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // embed
+    let children = (b.children||[]).map((c,i)=>blockControls(path+'.'+i,c,true)).join('');
+    return `<div class="pb-block" data-type="embed">${header}
+        <div class="pb-block-body">
+            <div class="pb-field">
+                <label>Embed Title</label>
+                <input placeholder="e.g. Request Carry" value="${esc(b.title||'')}" oninput="updateBlock('${path}','title',this.value)">
+            </div>
+            <div class="pb-field">
+                <label>Embed Description</label>
+                <textarea rows="3" placeholder="Click below to request a carry ticket!" oninput="updateBlock('${path}','description',this.value)">${esc(b.description||'')}</textarea>
+            </div>
+            <div class="pb-block-body pb-grid-2" style="padding:0;">
+                <div class="pb-field">
+                    <label>Accent Color</label>
+                    <div class="pb-color-row">
+                        <input type="color" value="${esc(b.color||'#58b9ff')}" oninput="updateBlock('${path}','color',this.value); this.nextElementSibling.value=this.value;">
+                        <input type="text" value="${esc(b.color||'#58b9ff')}" oninput="updateBlock('${path}','color',this.value); this.previousElementSibling.value=this.value;">
+                    </div>
+                </div>
+                <div class="pb-field">
+                    <label>Footer <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
+                    <input placeholder="Powered by Carry Bot" value="${esc(b.footer||'')}" oninput="updateBlock('${path}','footer',this.value)">
+                </div>
+            </div>
+
+            <div class="pb-children-wrap">
+                <div class="pb-children-label">Inside this embed</div>
+                <div class="pb-children-add">
+                    <button type="button" onclick="addChild('${path}','button')">+ Button</button>
+                    <button type="button" onclick="addChild('${path}','dropdown')">+ Dropdown</button>
+                    <button type="button" onclick="addChild('${path}','divider')">+ Divider</button>
+                </div>
+                <div class="pb-children-list">${children || '<p style="color:var(--text-dim); font-size:0.85em; margin:0;">Nothing inside this embed yet.</p>'}</div>
+            </div>
         </div>
     </div>`;
 }
