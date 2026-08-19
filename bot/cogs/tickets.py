@@ -1812,6 +1812,128 @@ class TicketsCog(commands.Cog):
             if current.lower() in c["label"].lower()
         ][:25]
 
+    @staticmethod
+    def _safe_component_color(value, fallback="#58b9ff"):
+        try:
+            value = str(value or fallback).strip().lstrip("#")
+            return discord.Color(int(value, 16))
+        except Exception:
+            return discord.Color.blue()
+
+    @staticmethod
+    def _v2_text(value):
+        return str(value or "").strip()
+
+    def _build_v2_panel_view(self, components, legacy_embed=None):
+        """Build a Components V2 LayoutView.
+
+        V2 does not use discord.Embed. Each configured "embed" is represented
+        by a Discord Components V2 Container, which gives us an embed-like
+        bordered card. Divider blocks become Separator components.
+        """
+        layout_cls = getattr(discord.ui, "LayoutView", None)
+        container_cls = getattr(discord.ui, "Container", None)
+        text_cls = getattr(discord.ui, "TextDisplay", None)
+        separator_cls = getattr(discord.ui, "Separator", None)
+        action_row_cls = getattr(discord.ui, "ActionRow", None)
+
+        if not all((layout_cls, container_cls, text_cls)):
+            raise RuntimeError(
+                "This discord.py version does not support Components V2 "
+                "(LayoutView/Container/TextDisplay). Upgrade discord.py."
+            )
+
+        class TicketPanelV2(layout_cls):
+            def __init__(self, cog, blocks):
+                super().__init__(timeout=None)
+                self.cog = cog
+                added_visual_block = False
+
+                for block in blocks:
+                    if not isinstance(block, dict):
+                        continue
+                    kind = block.get("type", "embed")
+
+                    if kind == "divider":
+                        if separator_cls:
+                            self.add_item(separator_cls())
+                        continue
+
+                    if kind != "embed":
+                        continue
+
+                    container = container_cls(
+                        accent_color=cog._safe_component_color(
+                            block.get("color"), "#58b9ff"
+                        )
+                    )
+                    title = cog._v2_text(block.get("title"))
+                    description = cog._v2_text(block.get("description"))
+
+                    if title:
+                        container.add_item(text_cls(f"## {title}"))
+                    if title and description and separator_cls:
+                        container.add_item(separator_cls())
+                    if description:
+                        container.add_item(text_cls(description))
+
+                    for field in block.get("fields") or []:
+                        if not isinstance(field, dict):
+                            continue
+                        name = cog._v2_text(field.get("name"))
+                        value = cog._v2_text(field.get("value"))
+                        if name or value:
+                            text = f"**{name}**\n{value}" if name else value
+                            container.add_item(text_cls(text))
+
+                    footer = cog._v2_text(block.get("footer"))
+                    if footer:
+                        if separator_cls:
+                            container.add_item(separator_cls())
+                        container.add_item(text_cls(f"-# {footer}"))
+
+                    if block.get("image_url"):
+                        # V2 MediaGallery is optional across discord.py versions.
+                        media_cls = getattr(discord.ui, "MediaGallery", None)
+                        item_cls = getattr(discord.ui, "MediaGalleryItem", None)
+                        if media_cls and item_cls:
+                            container.add_item(
+                                media_cls(
+                                    item_cls(str(block["image_url"]))
+                                )
+                            )
+
+                    self.add_item(container)
+                    added_visual_block = True
+
+                # Keep the existing ticket dropdown as a V2 action row.
+                ticket_view = cog.get_ticket_view()
+                select_items = [
+                    child for child in ticket_view.children
+                    if isinstance(child, discord.ui.Select)
+                ]
+                if select_items:
+                    if action_row_cls:
+                        row = action_row_cls()
+                        row.add_item(select_items[0])
+                        self.add_item(row)
+                    else:
+                        # ActionRow is the preferred V2 API. If unavailable,
+                        # fail clearly instead of silently creating a V1 view.
+                        raise RuntimeError(
+                            "Components V2 ActionRow is unavailable in this discord.py version."
+                        )
+
+                if not added_visual_block and legacy_embed is not None:
+                    container = container_cls(accent_color=discord.Color.blue())
+                    if legacy_embed.title:
+                        container.add_item(text_cls(f"## {legacy_embed.title}"))
+                    if legacy_embed.description:
+                        container.add_item(text_cls(legacy_embed.description))
+                    self.add_item(container)
+
+        return TicketPanelV2(self, components)
+
     async def deploy_panel_from_dashboard(
         self,
         channel_id: int,
@@ -1824,6 +1946,7 @@ class TicketsCog(commands.Cog):
         thumbnail_url: str = None,
         footer_text: str = None,
         fields: list = None,
+        components: list = None,
     ):
         channel = self.bot.get_channel(channel_id)
         if not channel:
@@ -1838,49 +1961,38 @@ class TicketsCog(commands.Cog):
         if support_role_id:
             settings["support_role_id"] = support_role_id
 
-        from utils.storage import SETTINGS_FILE
+        from utils.storage import save_settings
+        save_settings(settings)
 
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f, indent=4)
+        # Backward-compatible drafts: if the new block list is empty, turn the
+        # old single embed fields into one Components V2 card.
+        blocks = components if isinstance(components, list) else []
+        if not blocks:
+            blocks = [{
+                "type": "embed",
+                "title": title,
+                "description": description,
+                "color": color,
+                "image_url": image_url,
+                "thumbnail_url": thumbnail_url,
+                "footer": footer_text,
+                "fields": fields or [],
+            }]
 
+        # If the user created new V2 blocks but left the old fields populated,
+        # don't duplicate the legacy card. The UI owns the block list.
         try:
-            hex_val = color.lstrip("#")
-            embed_color = discord.Color(int(hex_val, 16))
-        except Exception:
-            embed_color = discord.Color.blue()
-
-        embed = discord.Embed(
-            title=title, description=description, color=embed_color
-        )
-
-        if image_url:
-            embed.set_image(url=image_url)
-        if thumbnail_url:
-            embed.set_thumbnail(url=thumbnail_url)
-        if footer_text:
-            embed.set_footer(text=footer_text)
-
-        if fields and isinstance(fields, list):
-            for f in fields:
-                field_name = f.get("name", "").strip()
-                field_value = f.get("value", "").strip()
-                is_inline = bool(f.get("inline", False))
-
-                if field_name and field_value:
-                    embed.add_field(
-                        name=field_name, value=field_value, inline=is_inline
-                    )
-
-        try:
-            await channel.send(embed=embed, view=self.get_ticket_view())
-            return True, "Panel deployed successfully!"
+            view = self._build_v2_panel_view(blocks)
+            await channel.send(view=view)
+            return True, "Components V2 panel deployed successfully!"
         except discord.Forbidden:
             return (
                 False,
                 "Bot lacks permission to send messages in that channel.",
             )
         except Exception as e:
-            return False, f"Failed to send embed: {str(e)}"
+            logger.exception("Failed to deploy Components V2 ticket panel")
+            return False, f"Failed to deploy Components V2 panel: {e}"
 
     async def do_close(
         self,
