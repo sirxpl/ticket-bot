@@ -1903,6 +1903,10 @@ class TicketsCog(commands.Cog):
                             raise RuntimeError("Components V2 ActionRow is unavailable for the variable dropdown.")
                         from utils.storage import get_ticket_categories
                         categories = get_ticket_categories()[:25]
+                        filter_variable = str(block.get('variable') or '').strip()
+                        filter_value = str(block.get('variable_value') or '').strip()
+                        if filter_variable and filter_value:
+                            categories = [c for c in categories if str(cog._category_variable_context(c, guild).get(filter_variable, '')).strip().casefold() == filter_value.casefold()][:25]
                         label_template = str(block.get("label_template") or "{category_label}")
                         desc_template = str(block.get("description_template") or "{category_description}")
                         value_template = str(block.get("value_template") or "{category_label}")
@@ -1956,13 +1960,14 @@ class TicketsCog(commands.Cog):
                             "success": discord.ButtonStyle.success,
                             "danger": discord.ButtonStyle.danger,
                         }
-                        required_variable = str(block.get("required_variable") or "").strip()
+                        dropdown_variable = str(block.get("variable") or "").strip()
+                        dropdown_variable_value = str(block.get("variable_value") or "").strip()
                         button = discord.ui.Button(
                             label=label, style=style_map.get(str(block.get("style") or "primary"), discord.ButtonStyle.primary),
-                            custom_id=f"advanced_ticket_button_{id(self)}_{abs(hash(required_variable)) % 100000}"
+                            custom_id=f"advanced_ticket_button_{id(self)}_{abs(hash((dropdown_variable, dropdown_variable_value))) % 100000}"
                         )
 
-                        async def _advanced_button(interaction, button=button, required_variable=required_variable):
+                        async def _advanced_button(interaction, button=button, dropdown_variable=dropdown_variable, dropdown_variable_value=dropdown_variable_value):
                             selection = self.selected_by_user.get(interaction.user.id)
                             if not selection:
                                 await interaction.response.send_message("❌ Select a ticket type from the dropdown first.", ephemeral=True)
@@ -1972,10 +1977,14 @@ class TicketsCog(commands.Cog):
                             if not category:
                                 await interaction.response.send_message("❌ The selected ticket category no longer exists.", ephemeral=True)
                                 return
-                            if required_variable:
+                            if dropdown_variable and dropdown_variable_value:
                                 ctx = cog._category_variable_context(category, interaction.guild)
-                                if required_variable not in ctx or not str(ctx.get(required_variable, "")).strip():
-                                    await interaction.response.send_message(f"❌ This button requires **{{{required_variable}}}** to be set for the selected ticket category.", ephemeral=True)
+                                actual = str(ctx.get(dropdown_variable, "")).strip()
+                                if actual.casefold() != dropdown_variable_value.casefold():
+                                    await interaction.response.send_message(
+                                        f"❌ This button requires **{{{dropdown_variable}}}** to equal **{dropdown_variable_value}** for the selected ticket category.",
+                                        ephemeral=True
+                                    )
                                     return
                             class _Selected:
                                 values = [selection]
