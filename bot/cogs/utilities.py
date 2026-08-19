@@ -8,6 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View
 
+from utils.storage import get_dashboard_base_url
+
 class VirusTotalLinkView(View):
     def __init__(self, vt_url: str):
         super().__init__(timeout=None)
@@ -144,6 +146,83 @@ def components_v2_supported() -> bool:
     )
 
 
+SITE_ABOUT_TEXT = (
+    "This bot runs a full support-ticket system for the server — open a "
+    "ticket, get matched with the carry team, and everything's tracked on "
+    "a web dashboard staff can review anytime."
+)
+
+def _site_links():
+    base = get_dashboard_base_url()
+    return [
+        {"label": "Dashboard", "emoji": "🔗", "url": f"{base}/"},
+        {"label": "Docs", "emoji": "📘", "url": f"{base}/docs"},
+        {"label": "Rules & Regulations", "emoji": "📋", "url": f"{base}/rules"},
+        {"label": "Carry Guidelines", "emoji": "📖", "url": f"{base}/guidelines"},
+        {"label": "Privacy Policy", "emoji": "🔒", "url": f"{base}/privacy"},
+        {"label": "Status", "emoji": "🟢", "url": f"{base}/status"},
+    ]
+
+
+def build_panel_view():
+    """Components V2 layout introducing the site with a link button per
+    page. Returns None if Components V2 isn't supported."""
+    try:
+        layout_cls = getattr(discord.ui, "LayoutView", None)
+        container_cls = getattr(discord.ui, "Container", None)
+        text_display_cls = getattr(discord.ui, "TextDisplay", None)
+        separator_cls = getattr(discord.ui, "Separator", None)
+        action_row_cls = getattr(discord.ui, "ActionRow", None)
+        if not (layout_cls and container_cls and text_display_cls and action_row_cls):
+            return None
+
+        links = _site_links()
+
+        class PanelView(layout_cls):
+            def __init__(self):
+                super().__init__(timeout=None)
+                container = container_cls(accent_color=discord.Color.blurple())
+                container.add_item(text_display_cls("### 🎫 Carry Ticket Bot"))
+                container.add_item(text_display_cls(SITE_ABOUT_TEXT))
+                if separator_cls:
+                    container.add_item(separator_cls())
+
+                for i in range(0, len(links), 5):
+                    row = action_row_cls()
+                    for link in links[i:i + 5]:
+                        row.add_item(
+                            Button(
+                                label=link["label"],
+                                emoji=link["emoji"],
+                                url=link["url"],
+                                style=discord.ButtonStyle.link,
+                            )
+                        )
+                    container.add_item(row)
+
+                self.add_item(container)
+
+        return PanelView()
+    except Exception:
+        return None
+
+
+def build_panel_embed_and_view():
+    """Classic embed + link-button View fallback for when Components V2
+    isn't supported."""
+    embed = discord.Embed(
+        title="🎫 Carry Ticket Bot",
+        description=SITE_ABOUT_TEXT,
+        color=discord.Color.blurple(),
+    )
+    view = View(timeout=None)
+    for link in _site_links():
+        view.add_item(
+            Button(label=link["label"], emoji=link["emoji"], url=link["url"], style=discord.ButtonStyle.link)
+        )
+    return embed, view
+
+
 def build_coffee_menu_view(on_order):
     """Interactive Components V2 coffee menu with one button per style.
     `on_order(interaction, style)` is called when a button is clicked.
@@ -272,6 +351,15 @@ class UtilityCog(commands.Cog):
             await interaction.response.send_message(
                 embed=embed, view=CoffeeMenuFallbackView(on_order), ephemeral=True
             )
+
+    @app_commands.command(name="panel", description="Get a link to the dashboard and site")
+    async def panel(self, interaction: discord.Interaction):
+        view = build_panel_view()
+        if view is not None:
+            await interaction.response.send_message(view=view, ephemeral=True)
+        else:
+            embed, fallback_view = build_panel_embed_and_view()
+            await interaction.response.send_message(embed=embed, view=fallback_view, ephemeral=True)
 
     @app_commands.command(name="coffee", description="Open the coffee menu and order something, delivered straight to DMs")
     @app_commands.describe(user="Optional: order a coffee for someone else instead of yourself")
