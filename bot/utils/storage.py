@@ -225,9 +225,8 @@ def get_ticket_categories():
         c.setdefault("name_prefix", slugify(c.get("label", "ticket")))
         c.setdefault("open_note", "")
         c.setdefault("discord_category_id", None)
+        c.setdefault("dropdown_enabled", True)
         c.setdefault("variables", {})
-        if not isinstance(c.get("variables"), dict):
-            c["variables"] = {}
     return categories
 
 def save_ticket_categories(categories: list):
