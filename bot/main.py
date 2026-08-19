@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import re
 import asyncio
 import time
 from functools import wraps
@@ -608,7 +609,6 @@ def deploy_ticket_panel():
     thumbnail_url = draft["thumbnail_url"]
     footer_text = draft["footer_text"]
     fields = draft["fields"]
-    components = draft.get("components") or []
 
     cog = bot.get_cog("TicketsCog") or bot.get_cog("Tickets")
     if cog:
@@ -624,7 +624,7 @@ def deploy_ticket_panel():
                 thumbnail_url=thumbnail_url,
                 footer_text=footer_text,
                 fields=fields,
-                components=components,
+                components=draft.get("components") or []
             ),
             bot.loop
         )
@@ -812,38 +812,37 @@ def save_ticket_categories_route():
     name_prefixes = request.form.getlist("cat_name_prefix")
     open_notes = request.form.getlist("cat_open_note")
     discord_category_ids = request.form.getlist("cat_discord_category_id")
-    variable_jsons = request.form.getlist("cat_variables")
+    dropdown_enabled_raw = request.form.getlist("cat_dropdown_enabled")
+    variables_raw = request.form.getlist("cat_variables")
 
     # these lists aren't guaranteed to line up 1:1 with the other lists
     # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, variable_jsons):
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw):
         while len(lst) < len(labels):
             lst.append("")
 
     from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, vars_raw in zip(
+    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw in zip(
         labels, descriptions, emojis, blacklist_roles_raw,
-        name_prefixes, open_notes, discord_category_ids, variable_jsons,
+        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw,
     ):
         label = label.strip()
         if not label:
             continue
         blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
         prefix = slugify(prefix_raw.strip() or label)
+        variables = {}
         try:
-            custom_variables = json.loads(vars_raw or "{}")
-            if not isinstance(custom_variables, dict):
-                custom_variables = {}
+            parsed_vars = json.loads(vars_raw or "{}")
+            if isinstance(parsed_vars, dict):
+                for k, v in parsed_vars.items():
+                    key = str(k).strip().lower()
+                    if key and re.match(r"^[a-z0-9_\-]{1,32}$", key):
+                        variables[key] = str(v)[:100]
         except Exception:
-            custom_variables = {}
-        # Keep variable names simple and safe for {name} placeholders.
-        cleaned_variables = {}
-        for key, value in custom_variables.items():
-            key = str(key).strip().lower().replace(" ", "_")
-            if key and key.replace("_", "").isalnum():
-                cleaned_variables[key[:40]] = str(value)[:500]
+            variables = {}
         categories.append({
             "label": label[:100],
             "description": desc.strip()[:100],
@@ -852,7 +851,8 @@ def save_ticket_categories_route():
             "name_prefix": prefix,
             "open_note": note_raw.strip()[:200],
             "discord_category_id": disc_cat_raw.strip() or None,
-            "variables": cleaned_variables,
+            "dropdown_enabled": dd_enabled == "true",
+            "variables": variables,
         })
 
     if not categories:
