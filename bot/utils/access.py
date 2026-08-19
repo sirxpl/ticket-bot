@@ -321,7 +321,7 @@ def has_powerful_command_access(user_id: str, member_role_ids=None) -> bool:
 
 def add_basic_command_role(role_id: str) -> bool:
     """Add a role allowed to use the "basic" ticket-management commands
-    (/close, /requestclose, /disableautoclose, /enableautoclose, /add,
+    (/close, /requestclose, /autoclose, /add,
     /remove, /rename) — same shape as Powerful Command Access, but for the
     non-dangerous commands."""
     data = get_access_settings()
@@ -374,7 +374,7 @@ def get_basic_command_user_ids():
 
 def has_basic_command_access(user_id: str, member_role_ids=None) -> bool:
     """Return True if this user can use the basic ticket-management
-    commands (/close, /requestclose, /disableautoclose, /enableautoclose,
+    commands (/close, /requestclose, /autoclose,
     /add, /remove, /rename).
 
     Same shape as has_powerful_command_access: admins always pass; while
