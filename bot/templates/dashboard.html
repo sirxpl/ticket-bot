@@ -762,11 +762,13 @@
             </form>
         </div>
 
-        <div class="card">
+                <div class="card">
             <h3><span class="card-icon">🚀</span> Advanced Carry Ticket Panel Builder</h3>
+            <p class="card-subtitle">
+                Components V2 builder. Add embeds (containers), dividers, buttons, and dropdowns. Buttons and dividers can be placed inside embeds or outside them.
+            </p>
             <form action="/dashboard/tickets" method="POST" id="embedForm">
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                     <div>
                         <label>Target Channel:</label>
                         <select name="channel_id" required>
@@ -776,18 +778,6 @@
                         </select>
                     </div>
                     <div>
-                        <label>Category for Opened Tickets:</label>
-                        <select name="category_id">
-                            <option value="">None</option>
-                            {% for cat in categories %}
-                                <option value="{{ cat.id }}" {% if panel_draft.category_id and cat.id|string == panel_draft.category_id|string %}selected{% endif %}>{{ cat.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div>
                         <label>Support Role:</label>
                         <select name="support_role_id">
                             <option value="">None</option>
@@ -796,86 +786,29 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div>
-                        <label>Embed Accent Color:</label>
-                        <input type="hidden" name="embed_color" id="embed_color_input" value="{{ panel_draft.embed_color or '#58b9ff' }}">
-                        <div style="margin-top: 5px;" id="color-picker-container"></div>
-                    </div>
                 </div>
 
-                <hr style="border: 0; border-top: 1px solid var(--border); margin: 20px 0;">
+                <input type="hidden" name="category_id" value="{{ panel_draft.category_id or '' }}">
+                <input type="hidden" name="title" value="{{ panel_draft.title or 'Request Carry' }}">
+                <input type="hidden" name="description" value="{{ panel_draft.description or '' }}">
+                <input type="hidden" name="embed_color" value="{{ panel_draft.embed_color or '#58b9ff' }}">
+                <input type="hidden" name="image_url" value="">
+                <input type="hidden" name="thumbnail_url" value="">
+                <input type="hidden" name="footer_text" value="">
+                <input type="hidden" name="fields_json" value="[]">
+                <input type="hidden" name="components_json" id="components_json">
 
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-                    <h4 style="margin:0;">Content Blocks</h4>
-                    <div style="display:flex; gap:6px;">
-                        <button type="button" id="styleToggleBtn" onclick="toggleStylePanel()" class="block-toolbar-btn" title="Toggle style options (image, thumbnail, footer)">🎨</button>
-                        <button type="button" id="previewToggleBtn" onclick="togglePreviewPanel()" class="block-toolbar-btn" title="Toggle live preview">👁️</button>
-                    </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin:18px 0;">
+                    <button type="button" class="btn-view" onclick="addPanelBlock('embed')">+ New Embed</button>
+                    <button type="button" class="btn-view" onclick="addPanelBlock('divider')">+ Divider</button>
+                    <button type="button" class="btn-view" onclick="addPanelBlock('button')">+ Button</button>
+                    <button type="button" class="btn-view" onclick="addPanelBlock('dropdown')">+ Dropdown</button>
                 </div>
 
-                <div class="block-stack">
-                    <div class="block-row" data-fixed="true">
-                        <span class="block-drag-handle" title="Fixed block">⠿</span>
-                        <div class="block-body">
-                            <div class="block-label">Title</div>
-                            <input type="text" name="title" value="{{ panel_draft.title or 'Request Carry' }}" placeholder="e.g. Carry Request Panel">
-                        </div>
-                    </div>
+                <div id="panelBlocks"></div>
 
-                    <div class="block-row" data-fixed="true">
-                        <span class="block-drag-handle" title="Fixed block">⠿</span>
-                        <div class="block-body">
-                            <div class="block-label">Description</div>
-                            <textarea name="description" rows="3" placeholder="Description content...">{{ panel_draft.description or 'Click the button below to request a carry ticket!' }}</textarea>
-                        </div>
-                    </div>
-
-                    <div id="stylePanel" style="display:none;">
-                        <div class="block-row" data-fixed="true">
-                            <span class="block-drag-handle" title="Fixed block">⠿</span>
-                            <div class="block-body">
-                                <div class="block-label">Main Image URL (Optional)</div>
-                                <input type="url" name="image_url" value="{{ panel_draft.image_url or '' }}" placeholder="https://example.com/banner.png">
-                            </div>
-                        </div>
-                        <div class="block-row" data-fixed="true">
-                            <span class="block-drag-handle" title="Fixed block">⠿</span>
-                            <div class="block-body">
-                                <div class="block-label">Thumbnail URL (Optional)</div>
-                                <input type="url" name="thumbnail_url" value="{{ panel_draft.thumbnail_url or '' }}" placeholder="https://example.com/logo.png">
-                            </div>
-                        </div>
-                        <div class="block-row" data-fixed="true">
-                            <span class="block-drag-handle" title="Fixed block">⠿</span>
-                            <div class="block-body">
-                                <div class="block-label">Footer Text (Optional)</div>
-                                <input type="text" name="footer_text" value="{{ panel_draft.footer_text or '' }}" placeholder="e.g. Powered by Carry Bot">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="block-separator"><span>Components V2 Blocks</span></div>
-                    <p class="card-subtitle" style="margin-top:0;">
-                        Components V2 replaces traditional Discord embeds with bordered Containers.
-                        Add multiple cards and dividers, then drag them into the order you want.
-                    </p>
-
-                    <div id="v2BlocksContainer"></div>
-
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <button type="button" onclick="addV2Embed()" class="block-add-btn">✚ New embed</button>
-                        <button type="button" onclick="addV2Divider()" class="block-add-btn">➖ Add divider</button>
-                        <button type="button" onclick="addV2Dropdown()" class="block-add-btn">▾ Add variable dropdown</button>
-                        <button type="button" onclick="addV2Button()" class="block-add-btn">🔘 Add variable button</button>
-                    </div>
-
-                    <input type="hidden" name="components_json" id="components_json" value="">
-                </div>
-
-                <div id="previewPanel" style="display:none;"></div>
-
-                <button type="submit" formaction="/dashboard/tickets/save-draft" class="btn-view" style="margin-bottom: 10px; display: block; width: 100%; text-align: center; margin-top: 20px;">💾 Save Draft</button>
-                <button type="submit" class="btn-submit">🚀 Deploy Custom Panel to Discord</button>
+                <button type="submit" formaction="/dashboard/tickets/save-draft" class="btn-view" style="width:100%;margin-top:18px;">💾 Save Draft</button>
+                <button type="submit" class="btn-submit" style="width:100%;margin-top:10px;">🚀 Deploy Components V2 Panel</button>
             </form>
         </div>
         {% else %}
@@ -1226,274 +1159,79 @@ function showPage(pageId, btn) {
 }
 
 // --- GLOBAL FUNCTIONS ---
-let v2BlockCount = 0;
-let v2DragSrc = null;
+let fieldCount = 0;
 
-function addV2Embed(data = {}) {
-    v2BlockCount++;
-    const id = `v2_embed_${v2BlockCount}`;
-    const container = document.getElementById('v2BlocksContainer');
+function addField(name, value, inline) {
+    fieldCount++;
+    const container = document.getElementById('fieldsContainer');
     if (!container) return;
 
     const row = document.createElement('div');
     row.className = 'block-row';
-    row.id = id;
+    row.id = `field_${fieldCount}`;
     row.draggable = true;
-    row.dataset.blockType = 'embed';
+
     row.innerHTML = `
         <span class="block-drag-handle" title="Drag to reorder">⠿</span>
         <div class="block-body">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div class="block-label">Components V2 Embed #${v2BlockCount}</div>
-                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span class="block-label" style="margin-bottom:0;">Field</span>
             </div>
-            <label>Title</label>
-            <input type="text" class="v2-title" value="">
-            <label>Description</label>
-            <textarea class="v2-description" rows="3"></textarea>
-            <label>Accent Color</label>
-            <input type="text" class="v2-color" value="${data.color || '#58b9ff'}" placeholder="#58b9ff">
-            <label>Footer <span style="color:var(--text-dim);font-weight:normal;">(optional)</span></label>
-            <input type="text" class="v2-footer" value="">
-            <label>Image URL <span style="color:var(--text-dim);font-weight:normal;">(optional)</span></label>
-            <input type="url" class="v2-image" value="">
-            <div style="margin-top:8px;">
-                <button type="button" class="btn-view" onclick="addV2Field('${id}')">✚ Add field</button>
-            </div>
-            <div class="v2-fields"></div>
+            <input type="text" class="field-name" placeholder="Field Name (Title)" required style="margin-bottom: 6px;">
+            <textarea class="field-value" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px;"></textarea>
+            <label style="display: inline-flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer; font-size:0.88em; color:var(--text-dim);">
+                <input type="checkbox" class="field-inline" style="width: auto;"> Display Inline
+            </label>
         </div>
+        <button type="button" class="block-remove" onclick="removeField('field_${fieldCount}')" title="Remove">✕</button>
     `;
     container.appendChild(row);
+    attachDragHandlers(row);
 
-    row.querySelector('.v2-title').value = data.title || '';
-    row.querySelector('.v2-description').value = data.description || '';
-    row.querySelector('.v2-footer').value = data.footer || '';
-    row.querySelector('.v2-image').value = data.image_url || '';
+    if (name) row.querySelector('.field-name').value = name;
+    if (value) row.querySelector('.field-value').value = value;
+    if (inline) row.querySelector('.field-inline').checked = true;
 
-    (data.fields || []).forEach(f => addV2Field(id, f));
-    attachV2DragHandlers(row);
     refreshPreview();
 }
 
-function addV2Field(blockId, data = {}) {
-    const block = document.getElementById(blockId);
-    if (!block) return;
-    const fields = block.querySelector('.v2-fields');
-    const row = document.createElement('div');
-    row.className = 'v2-field';
-    row.style.cssText = 'border:1px solid var(--border);padding:8px;margin-top:8px;border-radius:6px;background:var(--raised-2);';
-    row.innerHTML = `
-        <div style="display:flex;gap:6px;align-items:flex-start;">
-            <div style="flex:1;">
-                <input class="v2-field-name" type="text" placeholder="Field name" value="">
-                <textarea class="v2-field-value" rows="2" placeholder="Field value"></textarea>
-                <label style="display:flex;gap:6px;align-items:center;font-weight:normal;">
-                    <input class="v2-field-inline" type="checkbox" style="width:auto;"> Inline
-                </label>
-            </div>
-            <button type="button" class="block-remove" onclick="this.closest('.v2-field').remove();refreshPreview();">✕</button>
-        </div>
-    `;
-    fields.appendChild(row);
-    row.querySelector('.v2-field-name').value = data.name || '';
-    row.querySelector('.v2-field-value').value = data.value || '';
-    row.querySelector('.v2-field-inline').checked = !!data.inline;
+function removeField(fieldId) {
+    const elem = document.getElementById(fieldId);
+    if (elem) elem.remove();
     refreshPreview();
 }
 
-
-function variableCatalogHtml(selected=[]) {
-    const builtins = [
-        ['category_label','{category_label} — category name'],
-        ['category_description','{category_description} — category description'],
-        ['category_prefix','{category_prefix} — ticket name prefix'],
-        ['category_note','{category_note} — category open note'],
-        ['emoji','{emoji} — category emoji'],
-        ['guild_name','{guild_name} — server name'],
-        ['guild_id','{guild_id} — server ID'],
-        ['category','{category} — alias for category label']
-    ];
-    const custom = new Set();
-    (existingCategories || []).forEach(c => Object.keys(c.variables || {}).forEach(k => custom.add(k)));
-    let html = '';
-    [...builtins, ...[...custom].map(k => [k, `{${k}} — custom category variable`])].forEach(([key,label]) => {
-        html += `<option value="${key}" ${selected.includes(key) ? 'selected' : ''}>${label}</option>`;
-    });
-    return html;
-}
-
-function addV2Dropdown(data = {}) {
-    v2BlockCount++;
-    const id = `v2_dropdown_${v2BlockCount}`;
-    const container = document.getElementById('v2BlocksContainer');
-    if (!container) return;
-    const row = document.createElement('div');
-    row.className = 'block-row'; row.id = id; row.draggable = true; row.dataset.blockType = 'dropdown';
-    row.innerHTML = `
-        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
-        <div class="block-body">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div class="block-label">▾ Variable Dropdown #${v2BlockCount}</div>
-                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
-            </div>
-            <label>Placeholder</label>
-            <input type="text" class="v2-dd-placeholder" value="Choose a ticket type...">
-            <label>Option label template</label>
-            <input type="text" class="v2-dd-label" value="{category_label}">
-            <label>Option description template</label>
-            <input type="text" class="v2-dd-description" value="{category_description}">
-            <label>Option value template</label>
-            <input type="text" class="v2-dd-value" value="{category_label}">
-            <label>Dropdown variable</label>
-            <input type="text" class="v2-dd-variable" placeholder="e.g. mode" value="">
-            <label>Dropdown variable value</label>
-            <input type="text" class="v2-dd-variable-value" placeholder="e.g. fallen" value="">
-            <p class="card-subtitle" style="margin:5px 0 0;">Only categories whose <code>{variable}</code> matches this value are shown. Leave both blank to show all categories.</p>
-        </div>`;
-    container.appendChild(row);
-    row.querySelector('.v2-dd-placeholder').value = data.placeholder || 'Choose a ticket type...';
-    row.querySelector('.v2-dd-label').value = data.label_template || '{category_label}';
-    row.querySelector('.v2-dd-description').value = data.description_template || '{category_description}';
-    row.querySelector('.v2-dd-value').value = data.value_template || '{category_label}';
-    row.querySelector('.v2-dd-variable').value = data.variable || '';
-    row.querySelector('.v2-dd-variable-value').value = data.variable_value || '';
-    attachV2DragHandlers(row); refreshPreview();
-}
-
-function addV2Button(data = {}) {
-    v2BlockCount++;
-    const id = `v2_button_${v2BlockCount}`;
-    const container = document.getElementById('v2BlocksContainer');
-    if (!container) return;
-    const row = document.createElement('div');
-    row.className = 'block-row'; row.id = id; row.draggable = true; row.dataset.blockType = 'button';
-    row.innerHTML = `
-        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
-        <div class="block-body">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div class="block-label">🔘 Variable Button #${v2BlockCount}</div>
-                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
-            </div>
-            <label>Button label</label>
-            <input type="text" class="v2-btn-label" value="Create Ticket">
-            <label>Dropdown variable</label>
-            <input type="text" class="v2-btn-variable" placeholder="e.g. mode" value="">
-            <label>Dropdown variable value</label>
-            <input type="text" class="v2-btn-variable-value" placeholder="e.g. fallen" value="">
-            <p class="card-subtitle" style="margin:5px 0 0;">The selected category must have <code>{variable}</code> set to this value. Leave both blank for no requirement.</p>
-        </div>`;
-    container.appendChild(row);
-    row.querySelector('.v2-btn-label').value = data.label || 'Create Ticket';
-    row.querySelector('.v2-btn-variable').value = data.variable || '';
-    row.querySelector('.v2-btn-variable-value').value = data.variable_value || '';
-    attachV2DragHandlers(row); refreshPreview();
-}
-
-function addV2Divider() {
-    v2BlockCount++;
-    const id = `v2_divider_${v2BlockCount}`;
-    const container = document.getElementById('v2BlocksContainer');
-    if (!container) return;
-    const row = document.createElement('div');
-    row.className = 'block-row';
-    row.id = id;
-    row.draggable = true;
-    row.dataset.blockType = 'divider';
-    row.innerHTML = `
-        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
-        <div class="block-body">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div class="block-label">➖ Divider / Separator</div>
-                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
-            </div>
-            <div style="color:var(--text-dim);font-size:.88em;">Discord will render this as a Components V2 Separator.</div>
-        </div>
-    `;
-    container.appendChild(row);
-    attachV2DragHandlers(row);
-    refreshPreview();
-}
-
-function removeV2Block(id) {
-    document.getElementById(id)?.remove();
-    refreshPreview();
-}
-
-function attachV2DragHandlers(row) {
+// --- DRAG-TO-REORDER for embed field blocks ---
+let dragSrcEl = null;
+function attachDragHandlers(row) {
     row.addEventListener('dragstart', () => {
-        v2DragSrc = row;
+        dragSrcEl = row;
         row.classList.add('dragging');
     });
     row.addEventListener('dragend', () => {
         row.classList.remove('dragging');
-        document.querySelectorAll('#v2BlocksContainer .drag-over').forEach(e => e.classList.remove('drag-over'));
+        document.querySelectorAll('.block-row.drag-over').forEach(el => el.classList.remove('drag-over'));
         refreshPreview();
     });
-    row.addEventListener('dragover', e => {
+    row.addEventListener('dragover', (e) => {
         e.preventDefault();
-        if (v2DragSrc && v2DragSrc !== row) row.classList.add('drag-over');
+        if (row !== dragSrcEl) row.classList.add('drag-over');
     });
     row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
-    row.addEventListener('drop', e => {
+    row.addEventListener('drop', (e) => {
         e.preventDefault();
         row.classList.remove('drag-over');
-        if (!v2DragSrc || v2DragSrc === row) return;
-        const rows = [...document.getElementById('v2BlocksContainer').children];
-        if (rows.indexOf(v2DragSrc) < rows.indexOf(row)) row.after(v2DragSrc);
-        else row.before(v2DragSrc);
-        refreshPreview();
+        if (!dragSrcEl || dragSrcEl === row) return;
+        const container = document.getElementById('fieldsContainer');
+        const rows = Array.from(container.children);
+        const srcIdx = rows.indexOf(dragSrcEl);
+        const tgtIdx = rows.indexOf(row);
+        if (srcIdx < tgtIdx) {
+            row.after(dragSrcEl);
+        } else {
+            row.before(dragSrcEl);
+        }
     });
-}
-
-function collectV2Blocks() {
-    const result = [];
-    document.querySelectorAll('#v2BlocksContainer > .block-row').forEach(row => {
-        if (row.dataset.blockType === 'divider') {
-            result.push({type:'divider'});
-            return;
-        }
-        if (row.dataset.blockType === 'dropdown') {
-            result.push({
-                type:'dropdown',
-                placeholder: row.querySelector('.v2-dd-placeholder')?.value || 'Choose a ticket type...',
-                label_template: row.querySelector('.v2-dd-label')?.value || '{category_label}',
-                description_template: row.querySelector('.v2-dd-description')?.value || '{category_description}',
-                value_template: row.querySelector('.v2-dd-value')?.value || '{category_label}',
-                variable: row.querySelector('.v2-dd-variable')?.value.trim() || '',
-                variable_value: row.querySelector('.v2-dd-variable-value')?.value || ''
-            });
-            return;
-        }
-        if (row.dataset.blockType === 'button') {
-            result.push({
-                type:'button',
-                label: row.querySelector('.v2-btn-label')?.value || 'Create Ticket',
-                style: 'primary',
-                variable: row.querySelector('.v2-btn-variable')?.value.trim() || '',
-                variable_value: row.querySelector('.v2-btn-variable-value')?.value || ''
-            });
-            return;
-        }
-        const fields = [];
-        row.querySelectorAll('.v2-field').forEach(f => {
-            const name = f.querySelector('.v2-field-name')?.value.trim() || '';
-            const value = f.querySelector('.v2-field-value')?.value.trim() || '';
-            if (name || value) fields.push({
-                name, value,
-                inline: !!f.querySelector('.v2-field-inline')?.checked
-            });
-        });
-        result.push({
-            type:'embed',
-            title: row.querySelector('.v2-title')?.value || '',
-            description: row.querySelector('.v2-description')?.value || '',
-            color: row.querySelector('.v2-color')?.value || '#58b9ff',
-            footer: row.querySelector('.v2-footer')?.value || '',
-            image_url: row.querySelector('.v2-image')?.value || '',
-            fields
-        });
-    });
-    return result;
 }
 
 // --- STYLE / PREVIEW TOGGLES ---
@@ -1517,47 +1255,42 @@ function togglePreviewPanel() {
 function refreshPreview() {
     const panel = document.getElementById('previewPanel');
     if (!panel || panel.style.display === 'none') return;
-    const blocks = collectV2Blocks();
-    panel.innerHTML = blocks.map(block => {
-        if (block.type === 'divider') {
-            return '<div style="border-top:1px solid var(--border);margin:14px 0;"></div>';
+
+    const title = document.querySelector('[name="title"]')?.value || '';
+    const description = document.querySelector('[name="description"]')?.value || '';
+    const color = document.getElementById('embed_color_input')?.value || '#58b9ff';
+    const imageUrl = document.querySelector('[name="image_url"]')?.value || '';
+    const thumbUrl = document.querySelector('[name="thumbnail_url"]')?.value || '';
+    const footerText = document.querySelector('[name="footer_text"]')?.value || '';
+
+    panel.style.borderLeftColor = color;
+
+    let fieldsHtml = '';
+    document.querySelectorAll('#fieldsContainer .block-row').forEach(row => {
+        const n = row.querySelector('.field-name')?.value || '';
+        const v = row.querySelector('.field-value')?.value || '';
+        if (n || v) {
+            fieldsHtml += `<div><div class="pv-field-name">${n}</div><div class="pv-field-value">${v}</div></div>`;
         }
-        if (block.type === 'dropdown') {
-            return `<div style="padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;"><strong>▾ Variable Dropdown</strong><div style="margin-top:6px;color:var(--text-dim);">${block.placeholder || 'Choose a ticket type...'}</div><small>Filter: ${block.variable ? '{'+block.variable+'} = '+(block.variable_value || 'any') : 'none'}</small></div>`;
-        }
-        if (block.type === 'button') {
-            return `<div style="margin-bottom:10px;"><button type="button" class="btn-submit" disabled>${block.label || 'Create Ticket'}</button><small style="display:block;color:var(--text-dim);margin-top:4px;">Value: ${block.variable ? '{'+block.variable+'} = '+(block.variable_value || 'any') : 'none'}</small></div>`;
-        }
-        const fields = (block.fields || []).map(f =>
-            `<div style="margin-top:8px;"><strong>${f.name}</strong><div>${f.value}</div></div>`
-        ).join('');
-        return `<div style="border-left:4px solid ${block.color || '#58b9ff'};background:#2f3136;padding:12px;border-radius:6px;margin-bottom:10px;">
-            ${block.title ? `<div class="pv-title">${block.title}</div>` : ''}
-            ${block.description ? `<div class="pv-desc">${block.description}</div>` : ''}
-            ${fields}
-            ${block.image_url ? `<img src="${block.image_url}" style="max-width:100%;margin-top:10px;border-radius:6px;">` : ''}
-            ${block.footer ? `<div class="pv-footer">${block.footer}</div>` : ''}
-        </div>`;
-    }).join('');
+    });
+
+    panel.innerHTML = `
+        ${title ? `<div class="pv-title">${title}</div>` : ''}
+        ${description ? `<div class="pv-desc">${description}</div>` : ''}
+        ${thumbUrl ? `<img src="${thumbUrl}" style="max-width:70px; float:right; border-radius:6px;">` : ''}
+        ${fieldsHtml ? `<div class="pv-fields">${fieldsHtml}</div>` : ''}
+        ${imageUrl ? `<img src="${imageUrl}">` : ''}
+        ${footerText ? `<div class="pv-footer">${footerText}</div>` : ''}
+    `;
+    panel.style.borderLeftColor = color;
 }
 
-document.addEventListener('input', e => {
+document.addEventListener('input', (e) => {
     if (e.target.closest('#embedForm')) refreshPreview();
 });
 
-const panelDraftComponents = {{ ((panel_draft | default({})).components | default([])) | tojson }};
-if (panelDraftComponents.length) {
-    panelDraftComponents.forEach(b => b.type === 'divider' ? addV2Divider() : b.type === 'dropdown' ? addV2Dropdown(b) : b.type === 'button' ? addV2Button(b) : addV2Embed(b));
-} else {
-    addV2Embed({
-        title: {{ (panel_draft.title or 'Request Carry') | tojson }},
-        description: {{ (panel_draft.description or 'Click the button below to request a carry ticket!') | tojson }},
-        color: {{ (panel_draft.embed_color or '#58b9ff') | tojson }},
-        footer: {{ (panel_draft.footer_text or '') | tojson }},
-        image_url: {{ (panel_draft.image_url or '') | tojson }},
-        fields: {{ ((panel_draft.fields or []) | tojson) }}
-    });
-}
+const panelDraftFields = {{ ((panel_draft | default({})).fields | default([])) | tojson }};
+panelDraftFields.forEach(f => addField(f.name, f.value, f.inline));
 
 // --- TICKET DROPDOWN CATEGORIES ---
 const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.name | tojson }}}{% if not loop.last %}, {% endif %}{% endfor %}];
@@ -1625,7 +1358,7 @@ function addCatBlacklistChip(row, roleId, roleName) {
     list.appendChild(chip);
 }
 
-function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, variables) {
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -1633,45 +1366,42 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     const row = document.createElement('div');
     row.className = 'embed-field-row';
     row.id = `category_${categoryCount}`;
-    row.style.cssText = "background: var(--raised); padding: 12px; border-radius: 6px; margin-bottom: 10px; border: 1px solid var(--border);";
+    row.style.cssText = "background:var(--raised);padding:12px;border-radius:6px;margin-bottom:10px;border:1px solid var(--border);";
 
     row.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <strong>Category #${categoryCount}</strong>
-            <button type="button" onclick="removeCategoryRow('category_${categoryCount}')" style="background: var(--danger); color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
+            <button type="button" onclick="removeCategoryRow('category_${categoryCount}')" style="background:var(--danger);color:white;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">Remove</button>
         </div>
-        <div style="display:grid; grid-template-columns: 60px 1fr 1fr; gap:6px;">
-            <input type="text" name="cat_emoji" placeholder="❓" maxlength="4" style="padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; text-align:center;">
-            <input type="text" name="cat_label" placeholder="Label (e.g. Fallen Carry)" required maxlength="100" style="padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box;">
-            <input type="text" name="cat_description" placeholder="Description (e.g. Request fallen mode carry)" maxlength="100" style="padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box;">
+        <div style="display:grid;grid-template-columns:60px 1fr 1fr;gap:6px;">
+            <input type="text" name="cat_emoji" placeholder="❓" maxlength="4" style="padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;text-align:center;">
+            <input type="text" name="cat_label" placeholder="Label" required maxlength="100" style="padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+            <input type="text" name="cat_description" placeholder="Description" maxlength="100" style="padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
         </div>
-        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-            <strong style="font-size:0.9em;">Blacklist Roles</strong>
-            <p style="color:var(--text-dim); font-size:0.85em; margin:4px 0;">Members with these roles can't select this category.</p>
-            <div style="display:flex; gap:8px;">
-                <select class="cat-blacklist-select" style="flex:1; padding:8px; background:var(--raised-2); border:1px solid var(--border); color:white; border-radius:4px;">
-                    ${catRoleOptionsHtml()}
-                </select>
-                <button type="button" onclick="addCatBlacklistRole(this)" style="background:var(--accent); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-weight:bold;">+ Add</button>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;">
+            <input type="checkbox" class="cat-dropdown-enabled" name="cat_dropdown_enabled" value="true" ${dropdownEnabled !== false ? 'checked' : ''} style="width:auto;">
+            <strong>Enabled in dropdowns</strong>
+        </label>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Dropdown Variables</strong>
+            <p style="color:var(--text-dim);font-size:.85em;margin:4px 0;">One key/value per line. Example: <code>mode=fallen</code></p>
+            <textarea class="cat-variables" name="cat_variables" rows="3" placeholder="mode=fallen&#10;queue=priority" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;"></textarea>
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Blacklist Roles</strong>
+            <div style="display:flex;gap:8px;">
+                <select class="cat-blacklist-select" style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">${catRoleOptionsHtml()}</select>
+                <button type="button" onclick="addCatBlacklistRole(this)" style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">+ Add</button>
             </div>
             <div class="cat-blacklist-list"></div>
             <input type="hidden" name="cat_blacklist_roles" class="cat-blacklist-hidden" value="">
         </div>
-        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-            <strong style="font-size:0.9em;">Ticket Naming</strong>
-            <p style="color:var(--text-dim); font-size:0.85em; margin:4px 0;">Tickets in this category are auto-named &lt;prefix&gt;-0001, &lt;prefix&gt;-0002, etc. (counts up on its own, or resume it anytime with /ticketnumber).</p>
-            <input type="text" name="cat_name_prefix" placeholder="Name prefix (e.g. fallen-carry) — defaults to the label" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; margin-bottom:6px;">
-            <input type="text" name="cat_open_note" placeholder="Optional note shown in the ticket when it opens" maxlength="200" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; margin-bottom:6px;">
-            <input type="text" name="cat_discord_category_id" placeholder="Optional Discord category ID to move/create tickets under" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box;">
-        </div>
-        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-            <strong style="font-size:0.9em;">Dropdown Variables</strong>
-            <p style="color:var(--text-dim);font-size:0.85em;margin:4px 0;">Define category-specific values that can be used in Advanced Carry Panel dropdowns/buttons, e.g. <code>mode=Fallen</code> or <code>queue=priority</code>.</p>
-            <div class="cat-vars-list"></div>
-            <button type="button" class="btn-view" onclick="addCategoryVariable(this.closest('.embed-field-row'))">+ Add Variable</button>
-            <input type="hidden" name="cat_variables" class="cat-variables-hidden" value="{}">
-        </div>
-    `;
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Ticket Naming</strong>
+            <input type="text" name="cat_name_prefix" placeholder="Name prefix" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin:6px 0;">
+            <input type="text" name="cat_open_note" placeholder="Optional opening note" maxlength="200" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin-bottom:6px;">
+            <input type="text" name="cat_discord_category_id" placeholder="Optional Discord category ID" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+        </div>`;
     container.appendChild(row);
 
     if (label) row.querySelector('[name="cat_label"]').value = label;
@@ -1680,38 +1410,17 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     if (namePrefix) row.querySelector('[name="cat_name_prefix"]').value = namePrefix;
     if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
     if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
-    Object.entries(variables || {}).forEach(([key, value]) => addCategoryVariable(row, key, value));
 
+    const varText = Object.entries(variables || {}).map(([k,v]) => `${k}=${v}`).join('\\n');
+    row.querySelector('.cat-variables').value = varText;
     (blacklistRoles || []).forEach(roleId => {
         const role = ALL_ROLES.find(r => r.id === roleId);
         addCatBlacklistChip(row, roleId, role ? role.name : roleId);
     });
 }
 
-
-function syncCategoryVariables(row) {
-    const obj = {};
-    row.querySelectorAll('.cat-variable-row').forEach(v => {
-        const key = v.querySelector('.cat-variable-key')?.value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'_');
-        const value = v.querySelector('.cat-variable-value')?.value || '';
-        if (key) obj[key] = value;
-    });
-    row.querySelector('.cat-variables-hidden').value = JSON.stringify(obj);
-}
-function addCategoryVariable(row, key='', value='') {
-    const list = row.querySelector('.cat-vars-list');
-    const item = document.createElement('div'); item.className='cat-variable-row'; item.style.cssText='display:flex;gap:6px;margin-top:6px;';
-    item.innerHTML = `<input class="cat-variable-key" type="text" placeholder="variable_name" value=""><input class="cat-variable-value" type="text" placeholder="Value or template" value=""><button type="button" class="block-remove">✕</button>`;
-    list.appendChild(item);
-    item.querySelector('.cat-variable-key').value = key || '';
-    item.querySelector('.cat-variable-value').value = value || '';
-    item.querySelector('.block-remove').onclick = () => { item.remove(); syncCategoryVariables(row); saveCategoriesNow(); };
-    item.querySelectorAll('input').forEach(i => i.addEventListener('input', () => syncCategoryVariables(row)));
-    syncCategoryVariables(row);
-}
-
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.variables));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables));
 if (existingCategories.length === 0) addCategoryRow();
 
 
@@ -1789,31 +1498,118 @@ setInterval(updateTimes, 1000);
 updateTimes();
 
 // --- INITIALIZATION ON LOAD ---
+
+// --- COMPONENTS V2 ADVANCED PANEL BUILDER ---
+let panelBlocks = [];
+const savedPanelComponents = {{ ((panel_draft | default({})).components | default([])) | tojson }};
+
+function esc(v) {
+    return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function addPanelBlock(type, parent=null, data={}) {
+    const block = Object.assign({type}, data);
+    if (type === 'embed' && !block.children) block.children = [];
+    if (parent) parent.children = parent.children || [], parent.children.push(block);
+    else panelBlocks.push(block);
+    renderPanelBlocks();
+}
+function removePanelBlock(path) {
+    const parts = path.split('.').map(Number);
+    let arr = panelBlocks;
+    for (let i=0;i<parts.length-1;i++) arr=arr[parts[i]].children || [];
+    arr.splice(parts[parts.length-1],1);
+    renderPanelBlocks();
+}
+function addChild(path,type) {
+    const parts=path.split('.').map(Number); let b=panelBlocks[parts[0]];
+    for(let i=1;i<parts.length;i++) b=b.children[parts[i]];
+    b.children=b.children||[]; b.children.push({type, children:type==='embed'?[]:undefined});
+    renderPanelBlocks();
+}
+function getBlock(path) {
+    const p=path.split('.').map(Number); let b=panelBlocks[p[0]];
+    for(let i=1;i<p.length;i++) b=b.children[p[i]];
+    return b;
+}
+function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
+function blockControls(path,b,inEmbed=false) {
+    const head=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong>${b.type==='embed'?'📦 Embed':b.type==='divider'?'➖ Divider':b.type==='button'?'🔘 Button':'▾ Dropdown'}</strong><button type="button" onclick="removePanelBlock('${path}')" style="background:var(--danger);color:white;border:0;border-radius:4px;padding:3px 8px;">Remove</button></div>`;
+    if(b.type==='divider') return `<div class="block-row">${head}</div>`;
+    if(b.type==='button') return `<div class="block-row">${head}
+        <input placeholder="Button Label" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
+        <input placeholder="Dropdown Variable (optional)" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
+        <input placeholder="Dropdown Variable Value (optional)" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
+    </div>`;
+    if(b.type==='dropdown') return `<div class="block-row">${head}
+        <input placeholder="Placeholder" value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
+        <input placeholder="Dropdown Variable (optional)" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
+        <input placeholder="Dropdown Variable Value (optional)" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
+    </div>`;
+    let children=(b.children||[]).map((c,i)=>blockControls(path+'.'+i,c,true)).join('');
+    return `<div class="block-row" style="border-left:3px solid var(--accent);">${head}
+        <input placeholder="Embed title" value="${esc(b.title||'')}" oninput="updateBlock('${path}','title',this.value)">
+        <textarea rows="3" placeholder="Embed description" oninput="updateBlock('${path}','description',this.value)">${esc(b.description||'')}</textarea>
+        <input placeholder="Accent color (#58b9ff)" value="${esc(b.color||'#58b9ff')}" oninput="updateBlock('${path}','color',this.value)">
+        <input placeholder="Footer (optional)" value="${esc(b.footer||'')}" oninput="updateBlock('${path}','footer',this.value)">
+        <div style="margin:8px 0;padding:8px;background:var(--panel);border-radius:6px;">
+            <strong>Inside this embed</strong>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+                <button type="button" class="btn-view" onclick="addChild('${path}','button')">+ Button</button>
+                <button type="button" class="btn-view" onclick="addChild('${path}','dropdown')">+ Dropdown</button>
+                <button type="button" class="btn-view" onclick="addChild('${path}','divider')">+ Divider</button>
+            </div>
+            <div style="margin-top:8px;">${children}</div>
+        </div>
+    </div>`;
+}
+function renderPanelBlocks() {
+    const root=document.getElementById('panelBlocks'); if(!root) return;
+    root.innerHTML=panelBlocks.map((b,i)=>blockControls(String(i),b)).join('');
+    syncComponents();
+}
+function syncComponents() {
+    const input=document.getElementById('components_json');
+    if(input) input.value=JSON.stringify(panelBlocks);
+}
+if (Array.isArray(savedPanelComponents) && savedPanelComponents.length) {
+    panelBlocks=savedPanelComponents;
+} else {
+    panelBlocks=[{type:'embed',title:'Request Carry',description:'Click below to request a carry ticket!',color:'#58b9ff',footer:'',children:[]},{type:'dropdown',placeholder:'Choose ticket type...',variable:'',value:''}];
+}
+renderPanelBlocks();
+
 document.addEventListener('DOMContentLoaded', () => {
     const embedForm = document.getElementById('embedForm');
     if (embedForm) {
         embedForm.addEventListener('submit', function(e) {
-            let hiddenInput = document.getElementById('components_json');
+            const fieldRows = document.querySelectorAll('#fieldsContainer .block-row');
+            const fieldsData = [];
+
+            fieldRows.forEach(row => {
+                const nameInput = row.querySelector('.field-name');
+                const valueInput = row.querySelector('.field-value');
+                const inlineCheckbox = row.querySelector('.field-inline');
+
+                if (nameInput && valueInput) {
+                    const name = nameInput.value.trim();
+                    const value = valueInput.value.trim();
+                    const inline = inlineCheckbox ? inlineCheckbox.checked : false;
+
+                    if (name && value) {
+                        fieldsData.push({ name, value, inline });
+                    }
+                }
+            });
+
+            let hiddenInput = document.getElementById('fields_json');
             if (!hiddenInput) {
                 hiddenInput = document.createElement('input');
                 hiddenInput.type = 'hidden';
-                hiddenInput.name = 'components_json';
-                hiddenInput.id = 'components_json';
+                hiddenInput.name = 'fields_json';
+                hiddenInput.id = 'fields_json';
                 this.appendChild(hiddenInput);
             }
-            hiddenInput.value = JSON.stringify(collectV2Blocks());
-
-            // Keep legacy fields_json populated for old saved drafts/versions.
-            let legacyInput = document.getElementById('fields_json');
-            if (!legacyInput) {
-                legacyInput = document.createElement('input');
-                legacyInput.type = 'hidden';
-                legacyInput.name = 'fields_json';
-                legacyInput.id = 'fields_json';
-                this.appendChild(legacyInput);
-            }
-            const firstEmbed = collectV2Blocks().find(b => b.type === 'embed');
-            legacyInput.value = JSON.stringify(firstEmbed?.fields || []);
+            hiddenInput.value = JSON.stringify(fieldsData);
         });
     }
 
