@@ -865,6 +865,8 @@
                     <div style="display:flex; gap:8px; flex-wrap:wrap;">
                         <button type="button" onclick="addV2Embed()" class="block-add-btn">✚ New embed</button>
                         <button type="button" onclick="addV2Divider()" class="block-add-btn">➖ Add divider</button>
+                        <button type="button" onclick="addV2Dropdown()" class="block-add-btn">▾ Add variable dropdown</button>
+                        <button type="button" onclick="addV2Button()" class="block-add-btn">🔘 Add variable button</button>
                     </div>
 
                     <input type="hidden" name="components_json" id="components_json" value="">
@@ -1299,6 +1301,92 @@ function addV2Field(blockId, data = {}) {
     refreshPreview();
 }
 
+
+function variableCatalogHtml(selected=[]) {
+    const builtins = [
+        ['category_label','{category_label} — category name'],
+        ['category_description','{category_description} — category description'],
+        ['category_prefix','{category_prefix} — ticket name prefix'],
+        ['category_note','{category_note} — category open note'],
+        ['emoji','{emoji} — category emoji'],
+        ['guild_name','{guild_name} — server name'],
+        ['guild_id','{guild_id} — server ID'],
+        ['category','{category} — alias for category label']
+    ];
+    const custom = new Set();
+    (existingCategories || []).forEach(c => Object.keys(c.variables || {}).forEach(k => custom.add(k)));
+    let html = '';
+    [...builtins, ...[...custom].map(k => [k, `{${k}} — custom category variable`])].forEach(([key,label]) => {
+        html += `<option value="${key}" ${selected.includes(key) ? 'selected' : ''}>${label}</option>`;
+    });
+    return html;
+}
+
+function addV2Dropdown(data = {}) {
+    v2BlockCount++;
+    const id = `v2_dropdown_${v2BlockCount}`;
+    const container = document.getElementById('v2BlocksContainer');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'block-row'; row.id = id; row.draggable = true; row.dataset.blockType = 'dropdown';
+    row.innerHTML = `
+        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
+        <div class="block-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div class="block-label">▾ Variable Dropdown #${v2BlockCount}</div>
+                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
+            </div>
+            <label>Placeholder</label>
+            <input type="text" class="v2-dd-placeholder" value="Choose a ticket type...">
+            <label>Option label template</label>
+            <input type="text" class="v2-dd-label" value="{category_label}">
+            <label>Option description template</label>
+            <input type="text" class="v2-dd-description" value="{category_description}">
+            <label>Option value template</label>
+            <input type="text" class="v2-dd-value" value="{category_label}">
+            <label>Variables used by this dropdown <span style="color:var(--text-dim);font-weight:normal;">(multiple allowed)</span></label>
+            <select class="v2-dd-variables" multiple size="5">${variableCatalogHtml(data.variables || ['category_label','category_description','category_prefix'])}</select>
+            <p class="card-subtitle" style="margin:5px 0 0;">Use any selected variable as <code>{name}</code> in the templates. Custom variables come from each ticket category.</p>
+        </div>`;
+    container.appendChild(row);
+    row.querySelector('.v2-dd-placeholder').value = data.placeholder || 'Choose a ticket type...';
+    row.querySelector('.v2-dd-label').value = data.label_template || '{category_label}';
+    row.querySelector('.v2-dd-description').value = data.description_template || '{category_description}';
+    row.querySelector('.v2-dd-value').value = data.value_template || '{category_label}';
+    attachV2DragHandlers(row); refreshPreview();
+}
+
+function addV2Button(data = {}) {
+    v2BlockCount++;
+    const id = `v2_button_${v2BlockCount}`;
+    const container = document.getElementById('v2BlocksContainer');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'block-row'; row.id = id; row.draggable = true; row.dataset.blockType = 'button';
+    row.innerHTML = `
+        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
+        <div class="block-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div class="block-label">🔘 Variable Button #${v2BlockCount}</div>
+                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
+            </div>
+            <label>Button label</label>
+            <input type="text" class="v2-btn-label" value="Create Ticket">
+            <label>Style</label>
+            <select class="v2-btn-style">
+                <option value="primary">Primary</option><option value="secondary">Secondary</option><option value="success">Success</option><option value="danger">Danger</option>
+            </select>
+            <label>Required dropdown variable</label>
+            <select class="v2-btn-required-variable"><option value="">None</option>${variableCatalogHtml(data.required_variable ? [data.required_variable] : [])}</select>
+            <p class="card-subtitle" style="margin:5px 0 0;">The button uses the variable selected here as a requirement. A custom category variable must exist before the button can proceed.</p>
+        </div>`;
+    container.appendChild(row);
+    row.querySelector('.v2-btn-label').value = data.label || 'Create Ticket';
+    row.querySelector('.v2-btn-style').value = data.style || 'primary';
+    if (data.required_variable) row.querySelector('.v2-btn-required-variable').value = data.required_variable;
+    attachV2DragHandlers(row); refreshPreview();
+}
+
 function addV2Divider() {
     v2BlockCount++;
     const id = `v2_divider_${v2BlockCount}`;
@@ -1362,6 +1450,26 @@ function collectV2Blocks() {
             result.push({type:'divider'});
             return;
         }
+        if (row.dataset.blockType === 'dropdown') {
+            result.push({
+                type:'dropdown',
+                placeholder: row.querySelector('.v2-dd-placeholder')?.value || 'Choose a ticket type...',
+                label_template: row.querySelector('.v2-dd-label')?.value || '{category_label}',
+                description_template: row.querySelector('.v2-dd-description')?.value || '{category_description}',
+                value_template: row.querySelector('.v2-dd-value')?.value || '{category_label}',
+                variables: [...(row.querySelector('.v2-dd-variables')?.selectedOptions || [])].map(o => o.value)
+            });
+            return;
+        }
+        if (row.dataset.blockType === 'button') {
+            result.push({
+                type:'button',
+                label: row.querySelector('.v2-btn-label')?.value || 'Create Ticket',
+                style: row.querySelector('.v2-btn-style')?.value || 'primary',
+                required_variable: row.querySelector('.v2-btn-required-variable')?.value || ''
+            });
+            return;
+        }
         const fields = [];
         row.querySelectorAll('.v2-field').forEach(f => {
             const name = f.querySelector('.v2-field-name')?.value.trim() || '';
@@ -1410,6 +1518,12 @@ function refreshPreview() {
         if (block.type === 'divider') {
             return '<div style="border-top:1px solid var(--border);margin:14px 0;"></div>';
         }
+        if (block.type === 'dropdown') {
+            return `<div style="padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;"><strong>▾ Variable Dropdown</strong><div style="margin-top:6px;color:var(--text-dim);">${block.placeholder || 'Choose a ticket type...'}</div><small>Variables: ${(block.variables || []).map(v => '{'+v+'}').join(', ') || 'none'}</small></div>`;
+        }
+        if (block.type === 'button') {
+            return `<div style="margin-bottom:10px;"><button type="button" class="btn-submit" disabled>${block.label || 'Create Ticket'}</button><small style="display:block;color:var(--text-dim);margin-top:4px;">Required variable: ${block.required_variable ? '{'+block.required_variable+'}' : 'none'}</small></div>`;
+        }
         const fields = (block.fields || []).map(f =>
             `<div style="margin-top:8px;"><strong>${f.name}</strong><div>${f.value}</div></div>`
         ).join('');
@@ -1429,7 +1543,7 @@ document.addEventListener('input', e => {
 
 const panelDraftComponents = {{ ((panel_draft | default({})).components | default([])) | tojson }};
 if (panelDraftComponents.length) {
-    panelDraftComponents.forEach(b => b.type === 'divider' ? addV2Divider() : addV2Embed(b));
+    panelDraftComponents.forEach(b => b.type === 'divider' ? addV2Divider() : b.type === 'dropdown' ? addV2Dropdown(b) : b.type === 'button' ? addV2Button(b) : addV2Embed(b));
 } else {
     addV2Embed({
         title: {{ (panel_draft.title or 'Request Carry') | tojson }},
@@ -1507,7 +1621,7 @@ function addCatBlacklistChip(row, roleId, roleName) {
     list.appendChild(chip);
 }
 
-function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId) {
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, variables) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -1546,6 +1660,13 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
             <input type="text" name="cat_open_note" placeholder="Optional note shown in the ticket when it opens" maxlength="200" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; margin-bottom:6px;">
             <input type="text" name="cat_discord_category_id" placeholder="Optional Discord category ID to move/create tickets under" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box;">
         </div>
+        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+            <strong style="font-size:0.9em;">Dropdown Variables</strong>
+            <p style="color:var(--text-dim);font-size:0.85em;margin:4px 0;">Define category-specific values that can be used in Advanced Carry Panel dropdowns/buttons, e.g. <code>mode=Fallen</code> or <code>queue=priority</code>.</p>
+            <div class="cat-vars-list"></div>
+            <button type="button" class="btn-view" onclick="addCategoryVariable(this.closest('.embed-field-row'))">+ Add Variable</button>
+            <input type="hidden" name="cat_variables" class="cat-variables-hidden" value="{}">
+        </div>
     `;
     container.appendChild(row);
 
@@ -1555,6 +1676,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     if (namePrefix) row.querySelector('[name="cat_name_prefix"]').value = namePrefix;
     if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
     if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
+    Object.entries(variables || {}).forEach(([key, value]) => addCategoryVariable(row, key, value));
 
     (blacklistRoles || []).forEach(roleId => {
         const role = ALL_ROLES.find(r => r.id === roleId);
@@ -1562,8 +1684,30 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     });
 }
 
+
+function syncCategoryVariables(row) {
+    const obj = {};
+    row.querySelectorAll('.cat-variable-row').forEach(v => {
+        const key = v.querySelector('.cat-variable-key')?.value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'_');
+        const value = v.querySelector('.cat-variable-value')?.value || '';
+        if (key) obj[key] = value;
+    });
+    row.querySelector('.cat-variables-hidden').value = JSON.stringify(obj);
+}
+function addCategoryVariable(row, key='', value='') {
+    const list = row.querySelector('.cat-vars-list');
+    const item = document.createElement('div'); item.className='cat-variable-row'; item.style.cssText='display:flex;gap:6px;margin-top:6px;';
+    item.innerHTML = `<input class="cat-variable-key" type="text" placeholder="variable_name" value=""><input class="cat-variable-value" type="text" placeholder="Value or template" value=""><button type="button" class="block-remove">✕</button>`;
+    list.appendChild(item);
+    item.querySelector('.cat-variable-key').value = key || '';
+    item.querySelector('.cat-variable-value').value = value || '';
+    item.querySelector('.block-remove').onclick = () => { item.remove(); syncCategoryVariables(row); saveCategoriesNow(); };
+    item.querySelectorAll('input').forEach(i => i.addEventListener('input', () => syncCategoryVariables(row)));
+    syncCategoryVariables(row);
+}
+
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.variables));
 if (existingCategories.length === 0) addCategoryRow();
 
 
