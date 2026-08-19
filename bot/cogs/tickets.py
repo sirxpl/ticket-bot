@@ -864,20 +864,6 @@ class TicketView(discord.ui.View):
                         "display_name": self.display_name.value or "",
                         "can_join": self.can_join.value or "",
                     }
-                    if category_cfg:
-                        template_vars.update({
-                            "category_label": category_cfg.get("label", self.selection),
-                            "category_description": category_cfg.get("description", ""),
-                            "category_prefix": category_cfg.get("name_prefix", ""),
-                            "category_note": category_cfg.get("open_note", ""),
-                            "emoji": category_cfg.get("emoji", "") or "",
-                        })
-                        custom_vars = category_cfg.get("variables") or {}
-                        if isinstance(custom_vars, dict):
-                            template_vars.update({str(k): str(v) for k, v in custom_vars.items()})
-                            for _ in range(2):
-                                for key, value in list(custom_vars.items()):
-                                    template_vars[str(key)] = render_ticket_template(str(value), **template_vars)
 
                     welcome_cfg = get_welcome_message()
 
@@ -1826,260 +1812,11 @@ class TicketsCog(commands.Cog):
             if current.lower() in c["label"].lower()
         ][:25]
 
-    @staticmethod
-    def _safe_component_color(value, fallback="#58b9ff"):
-        try:
-            value = str(value or fallback).strip().lstrip("#")
-            return discord.Color(int(value, 16))
-        except Exception:
-            return discord.Color.blue()
-
-    @staticmethod
-    def _v2_text(value):
-        return str(value or "").strip()
-
-    def _category_variable_context(self, category, guild=None):
-        category = category or {}
-        ctx = {
-            "category": category.get("label", "Ticket"),
-            "category_label": category.get("label", "Ticket"),
-            "category_description": category.get("description", ""),
-            "category_prefix": category.get("name_prefix", ""),
-            "category_note": category.get("open_note", ""),
-            "emoji": category.get("emoji", "") or "",
-            "guild_name": getattr(guild, "name", "") if guild else "",
-            "guild_id": str(getattr(guild, "id", "")) if guild else "",
-        }
-        custom = category.get("variables") or {}
-        if isinstance(custom, dict):
-            ctx.update({str(k): str(v) for k, v in custom.items()})
-            # Allow custom variable values to reference built-in/custom vars.
-            for _ in range(2):
-                for key, value in list(custom.items()):
-                    ctx[str(key)] = render_ticket_template(str(value), **ctx)
-        return ctx
-
-    def _build_v2_panel_view(self, components, legacy_embed=None, guild=None):
-        """Build a Components V2 LayoutView.
-
-        V2 does not use discord.Embed. Each configured "embed" is represented
-        by a Discord Components V2 Container, which gives us an embed-like
-        bordered card. Divider blocks become Separator components.
-        """
-        layout_cls = getattr(discord.ui, "LayoutView", None)
-        container_cls = getattr(discord.ui, "Container", None)
-        text_cls = getattr(discord.ui, "TextDisplay", None)
-        separator_cls = getattr(discord.ui, "Separator", None)
-        action_row_cls = getattr(discord.ui, "ActionRow", None)
-
-        if not all((layout_cls, container_cls, text_cls)):
-            raise RuntimeError(
-                "This discord.py version does not support Components V2 "
-                "(LayoutView/Container/TextDisplay). Upgrade discord.py."
-            )
-
-        class TicketPanelV2(layout_cls):
-            def __init__(self, cog, blocks, guild=None):
-                super().__init__(timeout=None)
-                self.cog = cog
-                self.guild = guild
-                self.selected_by_user = {}
-                self.ticket_helper = cog.get_ticket_view()
-                self.advanced_has_button = any(isinstance(b, dict) and b.get("type") == "button" for b in blocks)
-                added_visual_block = False
-
-                for block in blocks:
-                    if not isinstance(block, dict):
-                        continue
-                    kind = block.get("type", "embed")
-
-                    if kind == "divider":
-                        if separator_cls:
-                            self.add_item(separator_cls())
-                        continue
-
-                    if kind == "dropdown":
-                        if not action_row_cls:
-                            raise RuntimeError("Components V2 ActionRow is unavailable for the variable dropdown.")
-                        from utils.storage import get_ticket_categories
-                        categories = get_ticket_categories()[:25]
-                        filter_variable = str(block.get('variable') or '').strip()
-                        filter_value = str(block.get('variable_value') or '').strip()
-                        if filter_variable and filter_value:
-                            categories = [c for c in categories if str(cog._category_variable_context(c, guild).get(filter_variable, '')).strip().casefold() == filter_value.casefold()][:25]
-                        label_template = str(block.get("label_template") or "{category_label}")
-                        desc_template = str(block.get("description_template") or "{category_description}")
-                        value_template = str(block.get("value_template") or "{category_label}")
-                        options = []
-                        for category in categories:
-                            vars_ctx = cog._category_variable_context(category, guild)
-                            label = render_ticket_template(label_template, **vars_ctx)[:100] or category.get("label", "Ticket")[:100]
-                            desc = render_ticket_template(desc_template, **vars_ctx)[:100] or None
-                            value = render_ticket_template(value_template, **vars_ctx)[:100] or category.get("label", "Ticket")[:100]
-                            options.append(discord.SelectOption(label=label, description=desc, value=value, emoji=category.get("emoji") or None))
-
-                        select = discord.ui.Select(
-                            placeholder=str(block.get("placeholder") or "Choose a ticket type...")[:150],
-                            min_values=1, max_values=1,
-                            custom_id=f"advanced_ticket_dropdown_{id(self)}",
-                            options=options or [discord.SelectOption(label="No ticket categories configured", value="__none__")]
-                        )
-
-                        async def _advanced_select(interaction, select=select):
-                            value = select.values[0] if select.values else ""
-                            categories_now = get_ticket_categories()
-                            # The option value can be templated, so resolve it back to the
-                            # category by label or by the rendered value.
-                            category = next((c for c in categories_now if c.get("label") == value), None)
-                            if category is None:
-                                category = next((c for c in categories_now if render_ticket_template(value_template, **cog._category_variable_context(c, interaction.guild)) == value), None)
-                            if not category:
-                                await interaction.response.send_message("❌ That ticket category is no longer available.", ephemeral=True)
-                                return
-                            self.selected_by_user[interaction.user.id] = category.get("label")
-                            if self.advanced_has_button:
-                                await interaction.response.send_message(f"✅ Selected **{category.get('label')}**. Use the button below to continue.", ephemeral=True)
-                            else:
-                                class _Selected:
-                                    values = [category.get("label")]
-                                await self.ticket_helper.ticket_select(interaction, _Selected())
-
-                        select.callback = _advanced_select
-                        row = action_row_cls()
-                        row.add_item(select)
-                        self.add_item(row)
-                        continue
-
-                    if kind == "button":
-                        if not action_row_cls:
-                            raise RuntimeError("Components V2 ActionRow is unavailable for the variable button.")
-                        label = str(block.get("label") or "Create Ticket")[:80]
-                        style_map = {
-                            "primary": discord.ButtonStyle.primary,
-                            "secondary": discord.ButtonStyle.secondary,
-                            "success": discord.ButtonStyle.success,
-                            "danger": discord.ButtonStyle.danger,
-                        }
-                        dropdown_variable = str(block.get("variable") or "").strip()
-                        dropdown_variable_value = str(block.get("variable_value") or "").strip()
-                        button = discord.ui.Button(
-                            label=label, style=style_map.get(str(block.get("style") or "primary"), discord.ButtonStyle.primary),
-                            custom_id=f"advanced_ticket_button_{id(self)}_{abs(hash((dropdown_variable, dropdown_variable_value))) % 100000}"
-                        )
-
-                        async def _advanced_button(interaction, button=button, dropdown_variable=dropdown_variable, dropdown_variable_value=dropdown_variable_value):
-                            selection = self.selected_by_user.get(interaction.user.id)
-                            if not selection:
-                                await interaction.response.send_message("❌ Select a ticket type from the dropdown first.", ephemeral=True)
-                                return
-                            categories_now = get_ticket_categories()
-                            category = next((c for c in categories_now if c.get("label") == selection), None)
-                            if not category:
-                                await interaction.response.send_message("❌ The selected ticket category no longer exists.", ephemeral=True)
-                                return
-                            if dropdown_variable and dropdown_variable_value:
-                                ctx = cog._category_variable_context(category, interaction.guild)
-                                actual = str(ctx.get(dropdown_variable, "")).strip()
-                                if actual.casefold() != dropdown_variable_value.casefold():
-                                    await interaction.response.send_message(
-                                        f"❌ This button requires **{{{dropdown_variable}}}** to equal **{dropdown_variable_value}** for the selected ticket category.",
-                                        ephemeral=True
-                                    )
-                                    return
-                            class _Selected:
-                                values = [selection]
-                            await self.ticket_helper.ticket_select(interaction, _Selected())
-
-                        button.callback = _advanced_button
-                        row = action_row_cls()
-                        row.add_item(button)
-                        self.add_item(row)
-                        continue
-
-                    if kind != "embed":
-                        continue
-
-                    container = container_cls(
-                        accent_color=cog._safe_component_color(
-                            block.get("color"), "#58b9ff"
-                        )
-                    )
-                    title = cog._v2_text(block.get("title"))
-                    description = cog._v2_text(block.get("description"))
-
-                    if title:
-                        container.add_item(text_cls(f"## {title}"))
-                    if title and description and separator_cls:
-                        container.add_item(separator_cls())
-                    if description:
-                        container.add_item(text_cls(description))
-
-                    for field in block.get("fields") or []:
-                        if not isinstance(field, dict):
-                            continue
-                        name = cog._v2_text(field.get("name"))
-                        value = cog._v2_text(field.get("value"))
-                        if name or value:
-                            text = f"**{name}**\n{value}" if name else value
-                            container.add_item(text_cls(text))
-
-                    footer = cog._v2_text(block.get("footer"))
-                    if footer:
-                        if separator_cls:
-                            container.add_item(separator_cls())
-                        container.add_item(text_cls(f"-# {footer}"))
-
-                    if block.get("image_url"):
-                        # V2 MediaGallery is optional across discord.py versions.
-                        media_cls = getattr(discord.ui, "MediaGallery", None)
-                        item_cls = getattr(discord.ui, "MediaGalleryItem", None)
-                        if media_cls and item_cls:
-                            container.add_item(
-                                media_cls(
-                                    item_cls(str(block["image_url"]))
-                                )
-                            )
-
-                    self.add_item(container)
-                    added_visual_block = True
-
-                # Keep the existing ticket dropdown as a V2 action row when
-                # the advanced panel did not define its own variable dropdown.
-                if not any(isinstance(b, dict) and b.get("type") == "dropdown" for b in blocks):
-                    ticket_view = cog.get_ticket_view()
-                else:
-                    ticket_view = None
-                select_items = [
-                    child for child in (ticket_view.children if ticket_view else [])
-                    if isinstance(child, discord.ui.Select)
-                ]
-                if select_items:
-                    if action_row_cls:
-                        row = action_row_cls()
-                        row.add_item(select_items[0])
-                        self.add_item(row)
-                    else:
-                        # ActionRow is the preferred V2 API. If unavailable,
-                        # fail clearly instead of silently creating a V1 view.
-                        raise RuntimeError(
-                            "Components V2 ActionRow is unavailable in this discord.py version."
-                        )
-
-                if not added_visual_block and legacy_embed is not None:
-                    container = container_cls(accent_color=discord.Color.blue())
-                    if legacy_embed.title:
-                        container.add_item(text_cls(f"## {legacy_embed.title}"))
-                    if legacy_embed.description:
-                        container.add_item(text_cls(legacy_embed.description))
-                    self.add_item(container)
-
-        return TicketPanelV2(self, components, guild)
-
     async def deploy_panel_from_dashboard(
         self,
         channel_id: int,
-        title: str,
-        description: str,
+        title: str = "Request Carry",
+        description: str = "",
         category_id: int = None,
         support_role_id: int = None,
         color: str = "#58b9ff",
@@ -2089,6 +1826,12 @@ class TicketsCog(commands.Cog):
         fields: list = None,
         components: list = None,
     ):
+        """Deploy the Advanced Carry panel using Discord Components V2.
+
+        The dashboard stores a list of blocks.  Supported blocks are:
+        embed (a V2 Container), divider (Separator), button and dropdown.
+        Buttons/dropdowns can live at the top level or inside an embed.
+        """
         channel = self.bot.get_channel(channel_id)
         if not channel:
             try:
@@ -2102,38 +1845,172 @@ class TicketsCog(commands.Cog):
         if support_role_id:
             settings["support_role_id"] = support_role_id
 
-        from utils.storage import save_settings
-        save_settings(settings)
+        from utils.storage import SETTINGS_FILE
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=4)
 
-        # Backward-compatible drafts: if the new block list is empty, turn the
-        # old single embed fields into one Components V2 card.
-        blocks = components if isinstance(components, list) else []
-        if not blocks:
-            blocks = [{
-                "type": "embed",
-                "title": title,
-                "description": description,
-                "color": color,
-                "image_url": image_url,
-                "thumbnail_url": thumbnail_url,
-                "footer": footer_text,
-                "fields": fields or [],
-            }]
-
-        # If the user created new V2 blocks but left the old fields populated,
-        # don't duplicate the legacy card. The UI owns the block list.
         try:
-            view = self._build_v2_panel_view(blocks, guild=getattr(channel, "guild", None))
+            hex_val = (color or "#58b9ff").lstrip("#")
+            accent = discord.Color(int(hex_val, 16))
+        except Exception:
+            accent = discord.Color.blurple()
+
+        categories = get_ticket_categories()
+        enabled_categories = [c for c in categories if c.get("dropdown_enabled", True)]
+
+        def matches(cat, variable, value):
+            if not variable:
+                return True
+            vars_ = cat.get("variables") or {}
+            return str(vars_.get(variable, "")).strip().lower() == str(value or "").strip().lower()
+
+        class AdvancedCarryView(discord.ui.LayoutView):
+            def __init__(self, bot):
+                super().__init__(timeout=None)
+                self.bot = bot
+                self._custom_counter = 0
+                self.build(components or self._legacy_components())
+
+            def _legacy_components(self):
+                # Keep old saved drafts usable.
+                blocks = [{
+                    "type": "embed",
+                    "title": title,
+                    "description": description,
+                    "color": color,
+                    "image_url": image_url,
+                    "thumbnail_url": thumbnail_url,
+                    "footer": footer_text,
+                    "fields": fields or [],
+                    "children": []
+                }]
+                blocks.append({"type": "dropdown", "placeholder": "Choose ticket type...", "variable": "", "value": ""})
+                return blocks
+
+            def _text(self, value):
+                return discord.ui.TextDisplay(str(value or ""))
+
+            def _add_button(self, parent, cfg):
+                label = str(cfg.get("label") or "Open Ticket")[:80]
+                variable = str(cfg.get("variable") or "").strip().lower()
+                value = str(cfg.get("value") or "").strip()
+
+                async def callback(interaction: discord.Interaction):
+                    if not get_settings().get("tickets_enabled", True):
+                        await interaction.response.send_message(
+                            "🚫 Ticket creation is currently disabled by administrators.", ephemeral=True
+                        )
+                        return
+                    matches_ = [c for c in enabled_categories if matches(c, variable, value)]
+                    if not matches_:
+                        await interaction.response.send_message(
+                            "❌ No enabled ticket category matches this button.", ephemeral=True
+                        )
+                        return
+                    if len(matches_) > 1 and not variable:
+                        await interaction.response.send_message(
+                            "❌ This button needs a Dropdown Variable and Dropdown Variable Value when more than one category is available.",
+                            ephemeral=True
+                        )
+                        return
+                    selection = matches_[0]["label"]
+                    fake_select = type("_ButtonSelection", (), {"values": [selection]})()
+                    await TicketView(self.bot).ticket_select(interaction, fake_select)
+
+                btn = discord.ui.Button(
+                    label=label,
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"carry_btn_{self._custom_counter}"
+                )
+                self._custom_counter += 1
+                btn.callback = callback
+                parent.add_item(btn)
+
+            def _add_dropdown(self, parent, cfg):
+                variable = str(cfg.get("variable") or "").strip().lower()
+                value = str(cfg.get("value") or "").strip()
+                cats = [c for c in enabled_categories if matches(c, variable, value)][:25]
+                options = []
+                for c in cats:
+                    options.append(discord.SelectOption(
+                        label=str(c.get("label", "Ticket"))[:100],
+                        description=str(c.get("description", ""))[:100] or None,
+                        emoji=c.get("emoji") or None,
+                        value=str(c.get("label", "Ticket"))[:100],
+                    ))
+                if not options:
+                    options = [discord.SelectOption(label="No matching ticket types", value="__none__", description="No enabled categories match this filter.")]
+
+                select = discord.ui.Select(
+                    placeholder=str(cfg.get("placeholder") or "Choose ticket type...")[:150],
+                    min_values=1, max_values=1,
+                    options=options,
+                    custom_id=f"carry_dd_{self._custom_counter}"
+                )
+                self._custom_counter += 1
+
+                async def callback(interaction: discord.Interaction):
+                    if select.values[0] == "__none__":
+                        await interaction.response.send_message("❌ No matching ticket types are enabled.", ephemeral=True)
+                        return
+                    await TicketView(self.bot).ticket_select(interaction, select)
+
+                select.callback = callback
+                parent.add_item(select)
+
+            def _fill(self, parent, children):
+                for cfg in children or []:
+                    typ = cfg.get("type")
+                    if typ == "divider":
+                        parent.add_item(discord.ui.Separator())
+                    elif typ in ("button", "dropdown"):
+                        # Containers may contain ActionRows, not buttons/selects directly.
+                        row = discord.ui.ActionRow()
+                        if typ == "button":
+                            self._add_button(row, cfg)
+                        else:
+                            self._add_dropdown(row, cfg)
+                        parent.add_item(row)
+
+            def _make_container(self, cfg):
+                container = discord.ui.Container(accent_color=accent)
+                if cfg.get("title"):
+                    container.add_item(self._text(cfg["title"]))
+                if cfg.get("description"):
+                    container.add_item(self._text(cfg["description"]))
+                for f in cfg.get("fields") or []:
+                    n, v = str(f.get("name") or "").strip(), str(f.get("value") or "").strip()
+                    if n and v:
+                        container.add_item(self._text(f"**{n}**\n{v}"))
+                self._fill(container, cfg.get("children"))
+                if cfg.get("footer"):
+                    container.add_item(self._text(cfg["footer"]))
+                return container
+
+            def build(self, blocks):
+                for cfg in blocks or []:
+                    typ = cfg.get("type")
+                    if typ == "embed":
+                        self.add_item(self._make_container(cfg))
+                    elif typ == "divider":
+                        self.add_item(discord.ui.Separator())
+                    elif typ == "button":
+                        row = discord.ui.ActionRow()
+                        self._add_button(row, cfg)
+                        self.add_item(row)
+                    elif typ == "dropdown":
+                        row = discord.ui.ActionRow()
+                        self._add_dropdown(row, cfg)
+                        self.add_item(row)
+
+        view = AdvancedCarryView(self.bot)
+        try:
             await channel.send(view=view)
-            return True, "Components V2 panel deployed successfully!"
+            return True, "Components V2 Carry Panel deployed successfully!"
         except discord.Forbidden:
-            return (
-                False,
-                "Bot lacks permission to send messages in that channel.",
-            )
+            return False, "Bot lacks permission to send messages in that channel."
         except Exception as e:
-            logger.exception("Failed to deploy Components V2 ticket panel")
-            return False, f"Failed to deploy Components V2 panel: {e}"
+            return False, f"Failed to deploy Components V2 panel: {str(e)}"
 
     async def do_close(
         self,
