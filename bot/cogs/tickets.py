@@ -1855,6 +1855,8 @@ class TicketsCog(commands.Cog):
         except Exception:
             accent = discord.Color.blurple()
 
+        from utils.storage import get_ticket_categories
+
         categories = get_ticket_categories()
         enabled_categories = [c for c in categories if c.get("dropdown_enabled", True)]
 
