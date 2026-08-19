@@ -1,967 +1,1623 @@
-import os
-import glob
-import json
-import asyncio
-import time
-from functools import wraps
-from dotenv import load_dotenv
-
-import discord
-from discord.ext import commands
-from flask import (
-    Flask, 
-    render_template, 
-    request, 
-    redirect, 
-    flash, 
-    session, 
-    url_for, 
-    jsonify, 
-    send_from_directory
-)
-from requests_oauthlib import OAuth2Session
-
-# Import storage helpers
-from utils.storage import (
-    get_tickets_data, 
-    get_blacklist_data, 
-    remove_from_blacklist, 
-    TRANSCRIPTS_DIR,
-    get_settings,
-    set_tickets_enabled,
-    get_ticket_logs,
-    get_logs_for_ticket,
-    get_transcript_info,
-    get_transcript_html,
-    list_transcript_filenames,
-    get_ticket_categories,
-    save_ticket_categories,
-    get_ticket_panel_draft,
-    save_ticket_panel_draft,
-    get_redirect_message,
-    save_redirect_message,
-    get_welcome_message,
-    save_welcome_message,
-)
-
-# Import access-control helpers
-from utils.access import (
-    get_access_settings,
-    add_allowed_user,
-    remove_allowed_user,
-    add_allowed_role,
-    remove_allowed_role,
-    add_blacklist_role,
-    remove_blacklist_role,
-    add_carry_manager_role,
-    remove_carry_manager_role,
-    add_ticket_viewer_role,
-    remove_ticket_viewer_role,
-    add_powerful_command_role,
-    remove_powerful_command_role,
-    add_powerful_command_user,
-    remove_powerful_command_user,
-    add_basic_command_role,
-    remove_basic_command_role,
-    add_basic_command_user,
-    remove_basic_command_user,
-    set_log_channel,
-    set_blacklist_log_channel,
-    has_dashboard_access,
-    has_carry_manager_access,
-    is_admin,
-)
-
-# Environment & OAuth Setup
-load_dotenv()
-TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
-CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
-CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/callback")
-
-AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
-TOKEN_URL = 'https://discord.com/api/oauth2/token'
-
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
-
-# Flask App
-app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
-
-# Discord Bot
-intents = discord.Intents.default()
-# NOTE: message_content and members are privileged intents. This app is now
-# past Discord's "high user count" threshold and can't self-toggle them until
-# the Privileged Intents review is approved - temporarily disabled so the bot
-# can start. Ticket blacklist-role checks still work fine without these (they
-# read interaction.user.roles from the interaction payload, not the member
-# cache). What's degraded: transcript message text will save blank, and the
-# dashboard's "members blocked by role" preview list will be empty. Re-enable
-# both the moment the intents review is approved.
-intents.message_content = False
-intents.members = False
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# Tracks when the bot last became ready, used by the public /status page and
-# /api/status JSON endpoint below. None means it hasn't connected yet since
-# this process started.
-bot_ready_since = None
-
-
-def make_oauth_session(state=None):
-    return OAuth2Session(
-        client_id=CLIENT_ID,
-        state=state,
-        scope=['identify', 'guilds', 'guilds.members.read'],
-        redirect_uri=REDIRECT_URI
-    )
-
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get("user"):
-            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-def get_member_role_ids(user_id):
-    """Look up a logged-in user's role IDs in the bot's guild, used to check
-    access-control role matches. Returns [] if the guild/member isn't found.
-
-    Tries the local member cache first (instant, no API call), and falls
-    back to a direct REST fetch if the member isn't cached — this matters
-    because the Members privileged intent is currently disabled (see the
-    NOTE above), so the cache is mostly empty and get_member() alone would
-    silently return [] for anyone the bot hasn't recently seen a gateway
-    event for, even though they do have the role. fetch_member() is a plain
-    REST call and works fine without that intent.
-    """
-    guild = bot.guilds[0] if bot.guilds else None
-    if not guild:
-        return []
-    member = guild.get_member(int(user_id))
-    if not member:
-        try:
-            future = asyncio.run_coroutine_threadsafe(
-                guild.fetch_member(int(user_id)), bot.loop
-            )
-            member = future.result(timeout=10)
-        except Exception:
-            member = None
-    if not member:
-        return []
-    return [str(r.id) for r in member.roles]
-
-
-def access_required(f):
-    """Like login_required, but also enforces the Access Control allow-list."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        user_data = session.get("user")
-        if not user_data:
-            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
-            return redirect(url_for("login"))
-        role_ids = get_member_role_ids(user_data["id"])
-        if not has_dashboard_access(user_data["id"], role_ids):
-            flash("⛔ You don't have permission to view this dashboard.", "danger")
-            session.pop("user", None)
-            return redirect(url_for("home"))
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-def carry_manager_required(f):
-    """Like access_required, but also requires Carry Manager Settings access
-    (either an admin, or a matching role from carry_manager_roles)."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        user_data = session.get("user")
-        if not user_data:
-            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
-            return redirect(url_for("login"))
-        role_ids = get_member_role_ids(user_data["id"])
-        if not has_dashboard_access(user_data["id"], role_ids):
-            flash("⛔ You don't have permission to view this dashboard.", "danger")
-            session.pop("user", None)
-            return redirect(url_for("home"))
-        if not has_carry_manager_access(user_data["id"], role_ids):
-            flash("⛔ You don't have permission to use Carry Manager Settings.", "danger")
-            return redirect(url_for("home"))
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-def admin_required(f):
-    """Restricts a route to admins only (see utils.access.is_admin) — used
-    for the Access Control page and its management routes."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        user_data = session.get("user")
-        if not user_data:
-            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
-            return redirect(url_for("login"))
-        role_ids = get_member_role_ids(user_data["id"])
-        if not has_dashboard_access(user_data["id"], role_ids):
-            flash("⛔ You don't have permission to view this dashboard.", "danger")
-            session.pop("user", None)
-            return redirect(url_for("home"))
-        if not is_admin(user_data["id"]):
-            flash("⛔ Access Control is restricted to admins only.", "danger")
-            return redirect(url_for("home"))
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-# --- FLASK ROUTES ---
-@app.route("/privacy")
-def privacy_policy():
-    return render_template("privacy.html")
-
-
-@app.route("/docs")
-def docs():
-    return render_template("docs.html")
-
-
-@app.route("/rules")
-def rules():
-    return render_template("rules.html")
-
-
-@app.route("/guidelines")
-def guidelines():
-    return render_template("guidelines.html")
-
-
-@app.route("/api/status")
-def api_status():
-    online = bool(bot.is_ready()) and not bot.is_closed()
-    latency_ms = None
-    if online:
-        try:
-            lat = bot.latency
-            if lat is not None and lat == lat:  # filters out NaN
-                latency_ms = round(lat * 1000)
-        except Exception:
-            latency_ms = None
-    uptime_seconds = None
-    if online and bot_ready_since:
-        uptime_seconds = round(time.time() - bot_ready_since)
-    guild_count = len(bot.guilds) if online else 0
-    return jsonify({
-        "online": online,
-        "latency_ms": latency_ms,
-        "uptime_seconds": uptime_seconds,
-        "guild_count": guild_count,
-    })
-
-
-@app.route("/api/status-history")
-def api_status_history():
-    from utils.status_history import get_daily_uptime, get_overall_uptime_pct, get_incidents_by_month
-    return jsonify({
-        "daily": get_daily_uptime(90),
-        "overall_uptime_pct": get_overall_uptime_pct(90),
-        "months": get_incidents_by_month(3),
-    })
-
-
-@app.route("/status")
-def status_page():
-    return render_template("status.html")
-
-
-@app.route("/")
-def home():
-    user_data = session.get("user", None)
-    if not user_data:
-        return render_template("dashboard.html", user=None, panel_draft={}, redirect_message={"content": ""}, welcome_message={})
-
-    role_ids = get_member_role_ids(user_data["id"])
-    if not has_dashboard_access(user_data["id"], role_ids):
-        flash("⛔ You don't have permission to view this dashboard. Ask an admin to add your user ID or role in Access Control.", "danger")
-        session.pop("user", None)
-        return redirect(url_for("home"))
-
-    guild = bot.guilds[0] if bot.guilds else None
-    channels = guild.text_channels if guild else []
-    categories = guild.categories if guild else []
-    roles = guild.roles if guild else []
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carry Bot Control Panel</title>
     
-    tickets_info = get_tickets_data()
-    blacklist_info = get_blacklist_data()
-    settings = get_settings()
-    access_settings = get_access_settings()
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    allowed_users = []
-    for uid in access_settings.get("allowed_users", []):
-        member = guild.get_member(int(uid)) if guild else None
-        allowed_users.append({"id": uid, "name": str(member) if member else None})
+    <style>
+        :root {
+            --void: #0a0b0f;
+            --panel: #121319;
+            --raised: #171922;
+            --raised-2: #1d2029;
+            --border: #242732;
+            --accent: #6e5ef6;
+            --accent-hover: #7d6dff;
+            --accent-soft: rgba(110, 94, 246, 0.14);
+            --text: #f3f4f8;
+            --text-dim: #8b90a0;
+            --success: #3ed9a0;
+            --success-soft: rgba(62, 217, 160, 0.14);
+            --danger: #f1556c;
+            --danger-soft: rgba(241, 85, 108, 0.14);
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            background-color: var(--void);
+            background-image: radial-gradient(circle at 15% 0%, rgba(110, 94, 246, 0.08), transparent 45%);
+            color: var(--text);
+            margin: 0;
+            padding: 28px 20px;
+        }
+        h1, h2, h3, h4 { font-family: 'Sora', 'Inter', sans-serif; letter-spacing: -0.01em; margin: 0; }
+        .container {
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            margin-bottom: 24px;
+        }
+        header h2 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.3em;
+            font-weight: 700;
+        }
+        .brand-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            background: linear-gradient(145deg, var(--accent), #4c3fd6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.05em;
+            flex-shrink: 0;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 6px 14px 6px 6px;
+            border-radius: 999px;
+        }
+        .user-info img {
+            border-radius: 50%;
+        }
+        .user-info span { font-size: 0.92em; color: var(--text-dim); }
+        .user-info strong { color: var(--text); }
+        .btn-logout {
+            color: var(--danger);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9em;
+            margin-left: 4px;
+        }
+        .btn-login {
+            background: linear-gradient(145deg, var(--accent), #4c3fd6);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 700;
+            display: inline-block;
+        }
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 22px;
+            border-radius: 12px;
+            margin-bottom: 18px;
+        }
+        .card > h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.05em;
+            font-weight: 700;
+        }
+        .card > h3 .card-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1em;
+            flex-shrink: 0;
+        }
+        .card-subtitle {
+            color: var(--text-dim);
+            margin: 6px 0 16px 0;
+            font-size: 0.9em;
+        }
+        form label {
+            display: block;
+            margin-top: 10px;
+            font-weight: 600;
+            font-size: 0.92em;
+        }
+        form input, form select, form textarea {
+            width: 100%;
+            padding: 10px 12px;
+            margin-top: 6px;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+        form input:focus, form select:focus, form textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        button.btn-submit {
+            background: linear-gradient(145deg, var(--accent), #4c3fd6);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            margin-top: 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+            width: 100%;
+            font-family: inherit;
+        }
+        .btn-view {
+            background: var(--raised-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 7px 14px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: 600;
+            text-decoration: none;
+            font-size: 0.85em;
+            font-family: 'Inter', monospace;
+            transition: border-color 0.15s ease;
+        }
+        .btn-view:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger {
+            background: var(--danger-soft);
+            color: var(--danger);
+            border: 1px solid transparent;
+            padding: 7px 14px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: inherit;
+            font-size: 0.85em;
+        }
+        .btn-danger:hover { border-color: var(--danger); }
+        .gatekeeper {
+            text-align: center;
+            padding: 50px 20px;
+        }
+        .list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            background: var(--raised);
+            margin-top: 8px;
+            border-radius: 9px;
+            border: 1px solid var(--border);
+        }
+        .pickr .pcr-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+        }
+        .layout {
+            display: flex;
+            align-items: flex-start;
+            gap: 22px;
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            width: 240px;
+            flex-shrink: 0;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+        }
+        .sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .sidebar-footer {
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .sidebar-footer-label {
+            color: var(--text-dim);
+            font-size: 0.72em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0 10px 6px 10px;
+        }
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-dim);
+            text-decoration: none;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 0.85em;
+            font-weight: 600;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .sidebar-link:hover {
+            background: var(--raised);
+            color: var(--text);
+        }
+        .sidebar-link .nav-icon {
+            width: 22px;
+            height: 22px;
+            font-size: 0.85em;
+            background: var(--raised-2);
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            padding: 9px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.92em;
+            font-weight: 600;
+            text-align: left;
+            width: 100%;
+            font-family: 'Inter', sans-serif;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .nav-item:hover {
+            background: var(--raised);
+            color: var(--text);
+        }
+        .nav-item.active {
+            background: var(--accent-soft);
+            color: var(--text);
+        }
+        .nav-item.active .nav-icon {
+            background: var(--accent);
+            color: white;
+        }
+        .nav-icon {
+            font-size: 0.95em;
+            width: 26px;
+            height: 26px;
+            border-radius: 7px;
+            background: var(--raised-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.15s ease;
+        }
+        .pages {
+            flex: 1;
+            min-width: 0;
+        }
+        .page {
+            display: none;
+        }
+        .page.active {
+            display: block;
+        }
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .stat-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px 20px;
+        }
+        .stat-card .stat-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-dim);
+            font-size: 0.82em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .stat-card .stat-value {
+            font-family: 'Sora', sans-serif;
+            font-size: 2em;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .stat-card.accent-success .stat-value { color: var(--success); }
+        .stat-card.accent-warn .stat-value { color: #f6c453; }
+        @media (max-width: 720px) {
+            .stat-grid { grid-template-columns: 1fr; }
+            .layout {
+                flex-direction: column;
+            }
+            .sidebar {
+                flex-direction: row;
+                overflow-x: auto;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            .nav-item {
+                flex-shrink: 0;
+                width: auto;
+            }
+        }
+        .access-form {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        .access-form > div {
+            flex: 1;
+        }
+        .access-form button {
+            height: 42px;
+            white-space: nowrap;
+        }
+        /* --- BLOCK-BASED CONTENT EDITOR (panel builder) --- */
+        .block-stack{
+            position: relative;
+            padding-left: 22px;
+        }
+        .block-stack::before{
+            content: "";
+            position: absolute;
+            left: 9px;
+            top: 4px;
+            bottom: 4px;
+            width: 2px;
+            background: var(--accent-2, #2dd4bf);
+            opacity: 0.55;
+            border-radius: 2px;
+        }
+        .block-row{
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .block-drag-handle{
+            cursor: grab;
+            color: var(--text-dim);
+            font-size: 1.1em;
+            line-height: 1;
+            padding-top: 12px;
+            user-select: none;
+            flex-shrink: 0;
+            width: 18px;
+            text-align: center;
+        }
+        .block-row.dragging{ opacity: 0.4; }
+        .block-row.drag-over{ outline: 1px dashed var(--accent-2, #2dd4bf); border-radius: 8px; }
+        .block-body{
+            flex: 1;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+        .block-label{
+            font-size: 0.78em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        .block-body input, .block-body textarea{
+            width: 100%;
+            padding: 8px;
+            background: var(--raised-2);
+            border: 1px solid var(--border);
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+            margin: 0;
+        }
+        .block-remove{
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1em;
+            padding: 12px 2px 0 2px;
+            flex-shrink: 0;
+        }
+        .block-remove:hover{ color: var(--danger); }
+        .block-separator{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 18px 0 12px -22px;
+            padding-left: 0;
+            color: var(--text-dim);
+            font-size: 0.78em;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            font-weight: 700;
+        }
+        .block-separator::before{ content:""; flex:0 0 22px; }
+        .block-separator::after{ content:""; flex:1; height:1px; background: var(--border); }
+        .block-add-btn{
+            width: 100%;
+            background: var(--raised);
+            border: 1px dashed var(--border);
+            color: var(--text-dim);
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        .block-add-btn:hover{ border-color: var(--accent-2, #2dd4bf); color: var(--text); }
+        .block-toolbar-btn{
+            background: var(--raised);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        .block-toolbar-btn.active{ border-color: var(--accent-2, #2dd4bf); color: var(--text); background: rgba(45,212,191,0.12); }
+        #previewPanel{
+            background: #313338;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            border-left: 4px solid #58b9ff;
+        }
+        #previewPanel .pv-title{ color: #fff; font-weight: 700; margin-bottom: 6px; }
+        #previewPanel .pv-desc{ color: #dbdee1; font-size: 0.92em; white-space: pre-wrap; margin-bottom: 8px; }
+        #previewPanel .pv-fields{ display: grid; gap: 8px; margin-bottom: 8px; }
+        #previewPanel .pv-field-name{ color: #fff; font-weight: 600; font-size: 0.85em; }
+        #previewPanel .pv-field-value{ color: #dbdee1; font-size: 0.85em; }
+        #previewPanel .pv-footer{ color: #949ba4; font-size: 0.78em; margin-top: 8px; }
+        #previewPanel img{ max-width: 100%; border-radius: 6px; margin-top: 8px; }
+    </style>
+</head>
+<body>
 
-    allowed_roles = []
-    for rid in access_settings.get("allowed_roles", []):
-        role = guild.get_role(int(rid)) if guild else None
-        allowed_roles.append({"id": rid, "name": role.name if role else None})
+<div class="container">
+    {% if user %}
+        <header>
+            <h2><span class="brand-mark">🎫</span> Carry Bot Control Panel</h2>
+            <div class="user-info">
+                <a href="/status" style="display:flex; align-items:center; gap:6px; text-decoration:none; margin-right:8px;" title="View status page">
+                    <span id="dashBotDot" style="width:9px; height:9px; border-radius:50%; background:var(--text-dim); display:inline-block;"></span>
+                    <span id="dashBotStatus" style="font-size:0.85em; color:var(--text-dim);">Checking...</span>
+                </a>
+                <img src="{{ user.avatar_url }}" width="30" height="30" alt="Avatar">
+                <span>Welcome, <strong>{{ user.username }}</strong></span>
+                <a href="/logout" class="btn-logout">Logout</a>
+            </div>
+        </header>
+        <script>
+        (function(){
+            const dot = document.getElementById('dashBotDot');
+            const label = document.getElementById('dashBotStatus');
+            async function refresh(){
+                try{
+                    const res = await fetch('/api/status', {cache: 'no-store'});
+                    const data = await res.json();
+                    if (data.online){
+                        dot.style.background = 'var(--success)';
+                        label.textContent = 'Bot Online';
+                        label.style.color = 'var(--success)';
+                    } else {
+                        dot.style.background = 'var(--danger)';
+                        label.textContent = 'Bot Offline';
+                        label.style.color = 'var(--danger)';
+                    }
+                } catch(e){
+                    dot.style.background = 'var(--danger)';
+                    label.textContent = 'Status unknown';
+                }
+            }
+            refresh();
+            setInterval(refresh, 15000);
+        })();
+        </script>
 
-    carry_manager_roles = []
-    for rid in access_settings.get("carry_manager_roles", []):
-        role = guild.get_role(int(rid)) if guild else None
-        carry_manager_roles.append({"id": rid, "name": role.name if role else None})
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div style="padding: 10px; margin-bottom: 15px; border-radius: 4px; background-color: {% if category == 'success' %}var(--success){% else %}var(--danger){% endif %}; color: white;">
+                {{ message }}
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
 
-    is_admin_user = is_admin(user_data["id"])
-    can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
+        <div class="layout">
+            <nav class="sidebar">
+                <div class="sidebar-nav">
+                    <button type="button" class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
+                        <span class="nav-icon">📊</span><span class="nav-text">Overview</span>
+                    </button>
+                    {% if can_access_carry_settings %}
+                    <button type="button" class="nav-item" data-page="carry-settings" onclick="showPage('carry-settings', this)">
+                        <span class="nav-icon">⚙️</span><span class="nav-text">Carry Manager Settings</span>
+                    </button>
+                    {% endif %}
+                    <button type="button" class="nav-item" data-page="blacklist" onclick="showPage('blacklist', this)">
+                        <span class="nav-icon">🚫</span><span class="nav-text">Blacklist</span>
+                    </button>
+                    <button type="button" class="nav-item" data-page="transcripts" onclick="showPage('transcripts', this)">
+                        <span class="nav-icon">📜</span><span class="nav-text">Transcripts</span>
+                    </button>
+                    {% if is_admin_user %}
+                    <button type="button" class="nav-item" data-page="access" onclick="showPage('access', this)">
+                        <span class="nav-icon">🔐</span><span class="nav-text">Access Control</span>
+                    </button>
+                    {% endif %}
+                </div>
 
-    blacklist_roles = []
-    for rid in access_settings.get("blacklist_roles", []):
-        role = guild.get_role(int(rid)) if guild else None
-        blacklist_roles.append({"id": rid, "name": role.name if role else None})
+                <div class="sidebar-footer">
+                    <div class="sidebar-footer-label">Site Links</div>
+                    <a href="{{ url_for('status_page', _external=True) }}" target="_blank" class="sidebar-link">
+                        <span class="nav-icon">🟢</span><span>Status</span>
+                    </a>
+                    <a href="{{ url_for('privacy_policy', _external=True) }}" target="_blank" class="sidebar-link">
+                        <span class="nav-icon">🔒</span><span>Privacy Policy</span>
+                    </a>
+                    <a href="{{ url_for('docs', _external=True) }}" target="_blank" class="sidebar-link">
+                        <span class="nav-icon">📘</span><span>Docs</span>
+                    </a>
+                    <a href="{{ url_for('rules', _external=True) }}" target="_blank" class="sidebar-link">
+                        <span class="nav-icon">📋</span><span>Rules</span>
+                    </a>
+                    <a href="{{ url_for('guidelines', _external=True) }}" target="_blank" class="sidebar-link">
+                        <span class="nav-icon">📖</span><span>Carry Guidelines</span>
+                    </a>
+                </div>
+            </nav>
 
-    ticket_viewer_roles = []
-    for rid in access_settings.get("ticket_viewer_roles", []):
-        role = guild.get_role(int(rid)) if guild else None
-        ticket_viewer_roles.append({"id": rid, "name": role.name if role else None})
+            <div class="pages">
 
-    powerful_command_roles = []
-    for rid in access_settings.get("powerful_command_roles", []):
-        role = guild.get_role(int(rid)) if guild else None
-        powerful_command_roles.append({"id": rid, "name": role.name if role else None})
-    powerful_command_users = access_settings.get("powerful_command_users", [])
+        <section class="page active" id="page-overview">
 
-    basic_command_roles = []
-    for rid in access_settings.get("basic_command_roles", []):
-        role = guild.get_role(int(rid)) if guild else None
-        basic_command_roles.append({"id": rid, "name": role.name if role else None})
-    basic_command_users = access_settings.get("basic_command_users", [])
+        <div class="stat-grid">
+            <div class="stat-card accent-success">
+                <div class="stat-label">🎫 Active Now</div>
+                <div class="stat-value">{{ active_tickets|length }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">📈 Total Lifetime</div>
+                <div class="stat-value">{{ total_tickets }}</div>
+            </div>
+            <div class="stat-card accent-warn">
+                <div class="stat-label">⏳ Cooldowns</div>
+                <div class="stat-value">{{ cooldowns|length }}</div>
+            </div>
+        </div>
 
-    # members who are blocked from creating tickets via a Ticket Blacklist Role
-    # (in addition to the individually-blacklisted user IDs above)
-    role_blacklisted_members = []
-    if guild:
-        blacklist_role_id_set = {str(rid) for rid in access_settings.get("blacklist_roles", [])}
-        if blacklist_role_id_set:
-            for member in guild.members:
-                member_role_ids = {str(r.id) for r in member.roles}
-                matched = member_role_ids.intersection(blacklist_role_id_set)
-                if matched:
-                    matched_role = guild.get_role(int(next(iter(matched))))
-                    role_blacklisted_members.append({
-                        "id": str(member.id),
-                        "name": str(member),
-                        "role_name": matched_role.name if matched_role else None,
-                    })
+        <div class="card">
+            <h3><span class="card-icon">🎫</span> Live Active Tickets</h3>
+            <p class="card-subtitle">Currently open carry tickets across the server.</p>
+            {% for ticket in active_tickets %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User ID:</strong> {{ ticket.user_id }}</div>
+                        <div style="color:var(--text-dim);font-size:0.9em;">Opened: <span class="local-time" data-ts="{{ ticket.created_at }}">{{ ticket.created_at }}</span> • <span class="age" data-ts="{{ ticket.created_at }}">...</span></div>
+                    </div>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No active carry tickets open right now.</p>
+            {% endfor %}
+        </div>
 
-    transcripts = [
-        get_transcript_info(fn) for fn in list_transcript_filenames()
-    ]
+        <div class="card">
+            <h3><span class="card-icon">⏳</span> Active Service Cooldowns</h3>
+            <p class="card-subtitle">Members currently on cooldown before their next request.</p>
+            {% for cd in cooldowns %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>User ID:</strong> {{ cd.user_id }}</div>
+                        <div style="color:var(--text-dim);font-size:0.9em;">Expires: <span class="local-time" data-ts="{{ cd.expires_ts }}">{{ cd.expires_at }}</span> • <span class="countdown" data-ts="{{ cd.expires_ts }}">...</span></div>
+                    </div>
+                    <button onclick="removeCooldown('{{ cd.user_id }}')" class="btn-danger">Remove Cooldown</button>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No active user cooldowns.</p>
+            {% endfor %}
+        </div>
+        </section>
 
-    return render_template(
-        "dashboard.html",
-        user=user_data,
-        channels=channels,
-        categories=categories,
-        roles=roles,
-        tickets_enabled=settings.get("tickets_enabled", True),
-        total_tickets=tickets_info.get("ticket_counter", 0),
-        active_tickets=tickets_info.get("active_tickets", []),
-        transcripts=transcripts,
-        cooldowns=tickets_info.get("cooldowns", []),
-        blacklisted_users=blacklist_info.get("blacklisted_users", []),
-        role_blacklisted_members=role_blacklisted_members,
-        allowed_users=allowed_users,
-        allowed_roles=allowed_roles,
-        blacklist_roles=blacklist_roles,
-        ticket_viewer_roles=ticket_viewer_roles,
-        powerful_command_roles=powerful_command_roles,
-        powerful_command_users=powerful_command_users,
-        basic_command_roles=basic_command_roles,
-        basic_command_users=basic_command_users,
-        carry_manager_roles=carry_manager_roles,
-        is_admin_user=is_admin_user,
-        can_access_carry_settings=can_access_carry_settings,
-        ticket_categories=get_ticket_categories(),
-        panel_draft=get_ticket_panel_draft(),
-        redirect_message=get_redirect_message(),
-        welcome_message=get_welcome_message(),
-        log_channel_id=access_settings.get("log_channel_id"),
-        blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id")
-    )
+        <section class="page" id="page-carry-settings">
+        {% if can_access_carry_settings %}
+        <div class="card">
+            <h3><span class="card-icon">⚙️</span> System Settings</h3>
+            <form action="/dashboard/toggle-tickets" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <strong>Enable Ticket Creation:</strong>
+                    <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
+                        When toggled off, users cannot open new tickets from Discord.
+                    </p>
+                </div>
+                
+                <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 10px;">
+                    <input type="checkbox" name="tickets_enabled" value="true" onchange="this.form.submit()" {% if tickets_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);">
+                    <span style="font-weight: bold; color: {% if tickets_enabled %}var(--success){% else %}var(--danger){% endif %};">
+                        {% if tickets_enabled %}ENABLED{% else %}DISABLED{% endif %}
+                    </span>
+                </label>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3><span class="card-icon">📋</span> Ticket Dropdown Categories</h3>
+            <p class="card-subtitle">
+                Customize the options shown in the "Choose ticket type..." dropdown. New panels you deploy use these immediately; panels already posted in Discord pick up changes after the bot restarts.
+            </p>
+            <form action="/dashboard/ticket-categories/save" method="POST" id="categoriesForm">
+                <div id="categoriesContainer"></div>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button type="button" onclick="addNewCategoryRow()" class="btn-submit" style="width:auto;">+ Add Category</button>
+                    <button type="submit" class="btn-submit" style="width:auto;">💾 Save Categories</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3><span class="card-icon">📨</span> "Ticket Created" Redirect Message</h3>
+            <p class="card-subtitle">
+                Sent privately (only they can see it) to the member right after they submit the ticket form, pointing them to their new channel.
+            </p>
+            <form action="/dashboard/ticket-messages/save-redirect" method="POST">
+                <label>Message:</label>
+                <textarea name="redirect_content" rows="2" maxlength="1000" placeholder="e.g. ✅ Ticket created! Please head over to {channel}.">{{ (redirect_message | default({})).content | default('') }}</textarea>
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code>
+                </p>
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Redirect Message</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3><span class="card-icon">💬</span> Ticket-Channel Welcome Message</h3>
+            <p class="card-subtitle">
+                Sent inside the new ticket channel itself, right after it's created — this is what the opener and staff first see.
+            </p>
+            <form action="/dashboard/ticket-messages/save-welcome" method="POST">
+                <label>Format:</label>
+                <select name="welcome_use_embed">
+                    <option value="yes" {% if welcome_message.use_embed %}selected{% endif %}>Embed (styled box)</option>
+                    <option value="no" {% if not welcome_message.use_embed %}selected{% endif %}>Plain text (no embed)</option>
+                </select>
+
+                <label>Message Content <span style="font-weight:normal; color:var(--text-dim);">(sent above/outside the embed — usually the mention)</span>:</label>
+                <input type="text" name="welcome_content" maxlength="500" value="{{ welcome_message.content }}" placeholder="{user_mention}">
+
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Embed Title:</label>
+                        <input type="text" name="welcome_title" maxlength="256" value="{{ welcome_message.title }}" placeholder="🎫 {category} - {user_name}">
+                    </div>
+                    <div>
+                        <label>Embed Color:</label>
+                        <input type="text" name="welcome_color" maxlength="7" value="{{ welcome_message.color or '#3498db' }}" placeholder="#3498db">
+                    </div>
+                </div>
+
+                <label>Embed Description (optional):</label>
+                <textarea name="welcome_description" rows="2" maxlength="2000" placeholder="Optional description text...">{{ welcome_message.description }}</textarea>
+
+                <label>Embed Footer (optional):</label>
+                <input type="text" name="welcome_footer" maxlength="200" value="{{ welcome_message.footer }}" placeholder="e.g. Powered by Carry Bot">
+
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{user}</code> <code>{user_name}</code> <code>{channel}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code>
+                </p>
+
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0;">
+
+                <p class="card-subtitle" style="margin-bottom:8px;">Which of the opener's form answers should be shown as fields?</p>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                    <div>
+                        <label>Show Timezone:</label>
+                        <select name="welcome_show_timezone">
+                            <option value="yes" {% if welcome_message.show_timezone %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_timezone %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show Display Name:</label>
+                        <select name="welcome_show_display_name">
+                            <option value="yes" {% if welcome_message.show_display_name %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_display_name %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show "Can Join?":</label>
+                        <select name="welcome_show_can_join">
+                            <option value="yes" {% if welcome_message.show_can_join %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_can_join %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Welcome Message</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3><span class="card-icon">🚀</span> Advanced Carry Ticket Panel Builder</h3>
+            <form action="/dashboard/tickets" method="POST" id="embedForm">
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Target Channel:</label>
+                        <select name="channel_id" required>
+                            {% for channel in channels %}
+                                <option value="{{ channel.id }}" {% if panel_draft.channel_id and channel.id|string == panel_draft.channel_id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Category for Opened Tickets:</label>
+                        <select name="category_id">
+                            <option value="">None</option>
+                            {% for cat in categories %}
+                                <option value="{{ cat.id }}" {% if panel_draft.category_id and cat.id|string == panel_draft.category_id|string %}selected{% endif %}>{{ cat.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Support Role:</label>
+                        <select name="support_role_id">
+                            <option value="">None</option>
+                            {% for role in roles %}
+                                <option value="{{ role.id }}" {% if panel_draft.support_role_id and role.id|string == panel_draft.support_role_id|string %}selected{% endif %}>@{{ role.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Embed Accent Color:</label>
+                        <input type="hidden" name="embed_color" id="embed_color_input" value="{{ panel_draft.embed_color or '#58b9ff' }}">
+                        <div style="margin-top: 5px;" id="color-picker-container"></div>
+                    </div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 20px 0;">
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                    <h4 style="margin:0;">Content Blocks</h4>
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" id="styleToggleBtn" onclick="toggleStylePanel()" class="block-toolbar-btn" title="Toggle style options (image, thumbnail, footer)">🎨</button>
+                        <button type="button" id="previewToggleBtn" onclick="togglePreviewPanel()" class="block-toolbar-btn" title="Toggle live preview">👁️</button>
+                    </div>
+                </div>
+
+                <div class="block-stack">
+                    <div class="block-row" data-fixed="true">
+                        <span class="block-drag-handle" title="Fixed block">⠿</span>
+                        <div class="block-body">
+                            <div class="block-label">Title</div>
+                            <input type="text" name="title" value="{{ panel_draft.title or 'Request Carry' }}" placeholder="e.g. Carry Request Panel">
+                        </div>
+                    </div>
+
+                    <div class="block-row" data-fixed="true">
+                        <span class="block-drag-handle" title="Fixed block">⠿</span>
+                        <div class="block-body">
+                            <div class="block-label">Description</div>
+                            <textarea name="description" rows="3" placeholder="Description content...">{{ panel_draft.description or 'Click the button below to request a carry ticket!' }}</textarea>
+                        </div>
+                    </div>
+
+                    <div id="stylePanel" style="display:none;">
+                        <div class="block-row" data-fixed="true">
+                            <span class="block-drag-handle" title="Fixed block">⠿</span>
+                            <div class="block-body">
+                                <div class="block-label">Main Image URL (Optional)</div>
+                                <input type="url" name="image_url" value="{{ panel_draft.image_url or '' }}" placeholder="https://example.com/banner.png">
+                            </div>
+                        </div>
+                        <div class="block-row" data-fixed="true">
+                            <span class="block-drag-handle" title="Fixed block">⠿</span>
+                            <div class="block-body">
+                                <div class="block-label">Thumbnail URL (Optional)</div>
+                                <input type="url" name="thumbnail_url" value="{{ panel_draft.thumbnail_url or '' }}" placeholder="https://example.com/logo.png">
+                            </div>
+                        </div>
+                        <div class="block-row" data-fixed="true">
+                            <span class="block-drag-handle" title="Fixed block">⠿</span>
+                            <div class="block-body">
+                                <div class="block-label">Footer Text (Optional)</div>
+                                <input type="text" name="footer_text" value="{{ panel_draft.footer_text or '' }}" placeholder="e.g. Powered by Carry Bot">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="block-separator"><span>Embed Fields</span></div>
+
+                    <div id="fieldsContainer"></div>
+
+                    <button type="button" onclick="addField()" class="block-add-btn">✛ Add content</button>
+                </div>
+
+                <div id="previewPanel" style="display:none;"></div>
+
+                <button type="submit" formaction="/dashboard/tickets/save-draft" class="btn-view" style="margin-bottom: 10px; display: block; width: 100%; text-align: center; margin-top: 20px;">💾 Save Draft</button>
+                <button type="submit" class="btn-submit">🚀 Deploy Custom Panel to Discord</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="card">
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to access Carry Manager Settings. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
+        </section>
+
+        <section class="page" id="page-blacklist">
+        <div class="card">
+            <h3><span class="card-icon">🚫</span> Blacklisted Users</h3>
+            {% for b_user in blacklisted_users %}
+                {% set entry = b_user if b_user is mapping else {'user_id': b_user, 'reason': None, 'expires_ts': None} %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>User ID:</strong> {{ entry.user_id }}</div>
+                        <div style="color: var(--text-dim); font-size: 0.9em;">
+                            <strong>Type:</strong> {{ (entry.blacklist_type or "regular")|title }} •
+                            <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
+                            {% if entry.expires_ts %}
+                                • <span class="local-time" data-ts="{{ entry.expires_ts }}">expires {{ entry.expires_ts }}</span>
+                            {% else %}
+                                • Permanent
+                            {% endif %}
+                        </div>
+                    </div>
+                    <button onclick="unblacklistUser('{{ entry.user_id }}')" class="btn-danger">Unblacklist</button>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No individually blacklisted users.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Blacklisted via Role</h4>
+            <p class="card-subtitle">
+                Members blocked from creating tickets because they hold a Ticket Blacklist Role. Manage the roles themselves in Access Control.
+            </p>
+            {% for member in role_blacklisted_members %}
+                <div class="list-item">
+                    <span><strong>{{ member.name }}</strong> ({{ member.id }}) — @{{ member.role_name or 'Unknown role' }}</span>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No members currently blacklisted via a role.</p>
+            {% endfor %}
+        </div>
+        </section>
+
+        <section class="page" id="page-transcripts">
+        <div class="card">
+            <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
+            <div style="background: var(--danger); color: white; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; font-weight: 600;">
+                ⚠️ Transcripts are currently saving without message text. The Message Content privileged intent is not enabled yet (pending Discord's verification review), so saved transcripts will only show attachments/embeds — no message content — until it's approved and turned on.
+            </div>
+           {% for transcript in transcripts %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>Ticket #{{ transcript.ticket_number or '—' }}</strong> • {{ transcript.username }}</div>
+                    </div>
+                    <a href="/transcripts/{{ transcript.filename }}" target="_blank" class="btn-view">View Transcript</a>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No transcripts saved yet.</p>
+            {% endfor %}
+        </div>
+        </section>
+
+        <section class="page" id="page-access">
+        {% if is_admin_user %}
+        <div class="card">
+            <h3><span class="card-icon">🔐</span> Access Control</h3>
+            <p class="card-subtitle">
+                Add a user ID or role below to let them view this dashboard. While this list is empty, anyone who logs in with Discord can see it — once you add someone, only matching users/roles get in.
+            </p>
+
+            <h4 style="margin-top: 20px;">Allowed Users</h4>
+            <form action="/dashboard/access/add-user" method="POST" class="access-form">
+                <div>
+                    <label>Discord User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for u in allowed_users %}
+                <div class="list-item">
+                    <span><strong>{{ u.name or 'Unknown user' }}</strong> ({{ u.id }})</span>
+                    <form action="/dashboard/access/remove-user/{{ u.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No users added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Allowed Roles</h4>
+            <form action="/dashboard/access/add-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in allowed_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Carry Manager Settings Access</h4>
+            <p class="card-subtitle">
+                Only members with one of these roles (or admins) can view and use the Carry Manager Settings page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-carry-manager-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in carry_manager_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-carry-manager-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can use Carry Manager Settings.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Blacklist Role</h4>
+            <p class="card-subtitle">
+                Members holding any of these roles are blocked from creating new tickets. Add another role below to blacklist more than one.
+            </p>
+            <form action="/dashboard/access/add-blacklist-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in blacklist_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-blacklist-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No ticket blacklist roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Viewer Roles</h4>
+            <p class="card-subtitle">
+                Roles added here can see and chat in every ticket, with permission to send embeds and attachments. This is separate from the single Support Role set on the panel — add as many as you need.
+            </p>
+            <form action="/dashboard/access/add-viewer-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in ticket_viewer_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-viewer-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No ticket viewer roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Powerful Command Access</h4>
+            <p class="card-subtitle">
+                Controls who can use <code>/move</code>, <code>/ticketnumber</code>, <code>/addticketblacklist</code>, and <code>/removeticketblacklist</code> — on top of the normal Manage Channels requirement for the first two. <code>/addticketblacklist</code> and <code>/removeticketblacklist</code> stay admin-only until you add a role or user ID here; <code>/move</code>/<code>/ticketnumber</code> stay open to anyone with Manage Channels until configured.
+            </p>
+            <form action="/dashboard/access/add-powerful-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in powerful_command_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-powerful-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-powerful-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in powerful_command_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-powerful-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Basic Command Access</h4>
+            <p class="card-subtitle">
+                Controls who can use <code>/close</code>, <code>/requestclose</code>, <code>/autoclose</code>, <code>/add</code>, <code>/remove</code>, and <code>/rename</code> — on top of the normal Manage Channels requirement. These stay open to anyone with Manage Channels until you add a role or user ID here; once configured, only matching roles/users (or admins) can use them.
+            </p>
+            <form action="/dashboard/access/add-basic-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in basic_command_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-basic-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-basic-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in basic_command_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-basic-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
+            <p class="card-subtitle">Opened and closed tickets get posted here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if log_channel_id and log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            <h4 style="margin-top: 20px;">Blacklist Log Channel</h4>
+            <p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-blacklist-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="blacklist_log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if blacklist_log_channel_id and blacklist_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="card">
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">Access Control is restricted to admins only.</p>
+        </div>
+        {% endif %}
+        </section>
+
+            </div>
+        </div>
+
+    {% else %}
+        <div class="gatekeeper">
+            <h2>🔒 Restricted Control Panel</h2>
+            <p style="color: var(--text-dim); margin-bottom: 25px;">You must authorize with Discord OAuth2 to view ticket controls and server options.</p>
+            <a href="/login" class="btn-login">🔑 Login with Discord</a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+// --- SIDEBAR NAVIGATION ---
+function showPage(pageId, btn) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const page = document.getElementById('page-' + pageId);
+    if (page) page.classList.add('active');
+    if (btn) btn.classList.add('active');
+}
+
+// --- GLOBAL FUNCTIONS ---
+let fieldCount = 0;
+
+function addField(name, value, inline) {
+    fieldCount++;
+    const container = document.getElementById('fieldsContainer');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'block-row';
+    row.id = `field_${fieldCount}`;
+    row.draggable = true;
+
+    row.innerHTML = `
+        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
+        <div class="block-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span class="block-label" style="margin-bottom:0;">Field</span>
+            </div>
+            <input type="text" class="field-name" placeholder="Field Name (Title)" required style="margin-bottom: 6px;">
+            <textarea class="field-value" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px;"></textarea>
+            <label style="display: inline-flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer; font-size:0.88em; color:var(--text-dim);">
+                <input type="checkbox" class="field-inline" style="width: auto;"> Display Inline
+            </label>
+        </div>
+        <button type="button" class="block-remove" onclick="removeField('field_${fieldCount}')" title="Remove">✕</button>
+    `;
+    container.appendChild(row);
+    attachDragHandlers(row);
+
+    if (name) row.querySelector('.field-name').value = name;
+    if (value) row.querySelector('.field-value').value = value;
+    if (inline) row.querySelector('.field-inline').checked = true;
+
+    refreshPreview();
+}
+
+function removeField(fieldId) {
+    const elem = document.getElementById(fieldId);
+    if (elem) elem.remove();
+    refreshPreview();
+}
+
+// --- DRAG-TO-REORDER for embed field blocks ---
+let dragSrcEl = null;
+function attachDragHandlers(row) {
+    row.addEventListener('dragstart', () => {
+        dragSrcEl = row;
+        row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        document.querySelectorAll('.block-row.drag-over').forEach(el => el.classList.remove('drag-over'));
+        refreshPreview();
+    });
+    row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (row !== dragSrcEl) row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        if (!dragSrcEl || dragSrcEl === row) return;
+        const container = document.getElementById('fieldsContainer');
+        const rows = Array.from(container.children);
+        const srcIdx = rows.indexOf(dragSrcEl);
+        const tgtIdx = rows.indexOf(row);
+        if (srcIdx < tgtIdx) {
+            row.after(dragSrcEl);
+        } else {
+            row.before(dragSrcEl);
+        }
+    });
+}
+
+// --- STYLE / PREVIEW TOGGLES ---
+function toggleStylePanel() {
+    const panel = document.getElementById('stylePanel');
+    const btn = document.getElementById('styleToggleBtn');
+    const showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : 'block';
+    btn.classList.toggle('active', !showing);
+}
+
+function togglePreviewPanel() {
+    const panel = document.getElementById('previewPanel');
+    const btn = document.getElementById('previewToggleBtn');
+    const showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : 'block';
+    btn.classList.toggle('active', !showing);
+    if (!showing) refreshPreview();
+}
+
+function refreshPreview() {
+    const panel = document.getElementById('previewPanel');
+    if (!panel || panel.style.display === 'none') return;
+
+    const title = document.querySelector('[name="title"]')?.value || '';
+    const description = document.querySelector('[name="description"]')?.value || '';
+    const color = document.getElementById('embed_color_input')?.value || '#58b9ff';
+    const imageUrl = document.querySelector('[name="image_url"]')?.value || '';
+    const thumbUrl = document.querySelector('[name="thumbnail_url"]')?.value || '';
+    const footerText = document.querySelector('[name="footer_text"]')?.value || '';
+
+    panel.style.borderLeftColor = color;
+
+    let fieldsHtml = '';
+    document.querySelectorAll('#fieldsContainer .block-row').forEach(row => {
+        const n = row.querySelector('.field-name')?.value || '';
+        const v = row.querySelector('.field-value')?.value || '';
+        if (n || v) {
+            fieldsHtml += `<div><div class="pv-field-name">${n}</div><div class="pv-field-value">${v}</div></div>`;
+        }
+    });
+
+    panel.innerHTML = `
+        ${title ? `<div class="pv-title">${title}</div>` : ''}
+        ${description ? `<div class="pv-desc">${description}</div>` : ''}
+        ${thumbUrl ? `<img src="${thumbUrl}" style="max-width:70px; float:right; border-radius:6px;">` : ''}
+        ${fieldsHtml ? `<div class="pv-fields">${fieldsHtml}</div>` : ''}
+        ${imageUrl ? `<img src="${imageUrl}">` : ''}
+        ${footerText ? `<div class="pv-footer">${footerText}</div>` : ''}
+    `;
+    panel.style.borderLeftColor = color;
+}
+
+document.addEventListener('input', (e) => {
+    if (e.target.closest('#embedForm')) refreshPreview();
+});
+
+const panelDraftFields = {{ ((panel_draft | default({})).fields | default([])) | tojson }};
+panelDraftFields.forEach(f => addField(f.name, f.value, f.inline));
+
+// --- TICKET DROPDOWN CATEGORIES ---
+const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.name | tojson }}}{% if not loop.last %}, {% endif %}{% endfor %}];
+
+let categoryCount = 0;
+
+function saveCategoriesNow() {
+    const form = document.getElementById('categoriesForm');
+    if (!form) return;
+    fetch(form.action, { method: 'POST', body: new FormData(form) })
+        .catch(err => console.error('Auto-save failed:', err));
+}
+
+function addNewCategoryRow() {
+    addCategoryRow();
+    saveCategoriesNow();
+}
+
+function removeCategoryRow(fieldId) {
+    removeField(fieldId);
+    saveCategoriesNow();
+}
+
+function catRoleOptionsHtml() {
+    let html = '<option value="">Select a role...</option>';
+    ALL_ROLES.forEach(r => {
+        html += `<option value="${r.id}">@${r.name}</option>`;
+    });
+    return html;
+}
+
+function addCatBlacklistRole(btn) {
+    const row = btn.closest('.embed-field-row');
+    const select = row.querySelector('.cat-blacklist-select');
+    const roleId = select.value;
+    if (!roleId) return;
+    const role = ALL_ROLES.find(r => r.id === roleId);
+    addCatBlacklistChip(row, roleId, role ? role.name : roleId);
+    select.value = "";
+    saveCategoriesNow();
+}
+
+function addCatBlacklistChip(row, roleId, roleName) {
+    const hidden = row.querySelector('.cat-blacklist-hidden');
+    const list = row.querySelector('.cat-blacklist-list');
+    const current = hidden.value ? hidden.value.split(",") : [];
+    if (current.includes(roleId)) return;
+    current.push(roleId);
+    hidden.value = current.join(",");
+
+    const chip = document.createElement('div');
+    chip.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:var(--raised-2); padding:6px 10px; border-radius:4px; margin-top:6px;";
+    chip.innerHTML = `<span>@${roleName}</span>`;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.cssText = "background:var(--danger); color:white; border:none; padding:2px 8px; border-radius:4px; cursor:pointer;";
+    removeBtn.onclick = function() {
+        const updated = hidden.value.split(",").filter(id => id !== roleId);
+        hidden.value = updated.join(",");
+        chip.remove();
+        saveCategoriesNow();
+    };
+    chip.appendChild(removeBtn);
+    list.appendChild(chip);
+}
+
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId) {
+    categoryCount++;
+    const container = document.getElementById('categoriesContainer');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'embed-field-row';
+    row.id = `category_${categoryCount}`;
+    row.style.cssText = "background: var(--raised); padding: 12px; border-radius: 6px; margin-bottom: 10px; border: 1px solid var(--border);";
+
+    row.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <strong>Category #${categoryCount}</strong>
+            <button type="button" onclick="removeCategoryRow('category_${categoryCount}')" style="background: var(--danger); color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
+        </div>
+        <div style="display:grid; grid-template-columns: 60px 1fr 1fr; gap:6px;">
+            <input type="text" name="cat_emoji" placeholder="❓" maxlength="4" style="padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; text-align:center;">
+            <input type="text" name="cat_label" placeholder="Label (e.g. Fallen Carry)" required maxlength="100" style="padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box;">
+            <input type="text" name="cat_description" placeholder="Description (e.g. Request fallen mode carry)" maxlength="100" style="padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box;">
+        </div>
+        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+            <strong style="font-size:0.9em;">Blacklist Roles</strong>
+            <p style="color:var(--text-dim); font-size:0.85em; margin:4px 0;">Members with these roles can't select this category.</p>
+            <div style="display:flex; gap:8px;">
+                <select class="cat-blacklist-select" style="flex:1; padding:8px; background:var(--raised-2); border:1px solid var(--border); color:white; border-radius:4px;">
+                    ${catRoleOptionsHtml()}
+                </select>
+                <button type="button" onclick="addCatBlacklistRole(this)" style="background:var(--accent); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-weight:bold;">+ Add</button>
+            </div>
+            <div class="cat-blacklist-list"></div>
+            <input type="hidden" name="cat_blacklist_roles" class="cat-blacklist-hidden" value="">
+        </div>
+        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+            <strong style="font-size:0.9em;">Ticket Naming</strong>
+            <p style="color:var(--text-dim); font-size:0.85em; margin:4px 0;">Tickets in this category are auto-named &lt;prefix&gt;-0001, &lt;prefix&gt;-0002, etc. (counts up on its own, or resume it anytime with /ticketnumber).</p>
+            <input type="text" name="cat_name_prefix" placeholder="Name prefix (e.g. fallen-carry) — defaults to the label" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; margin-bottom:6px;">
+            <input type="text" name="cat_open_note" placeholder="Optional note shown in the ticket when it opens" maxlength="200" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box; margin-bottom:6px;">
+            <input type="text" name="cat_discord_category_id" placeholder="Optional Discord category ID to move/create tickets under" style="width:100%; padding: 8px; background: var(--raised-2); border: 1px solid var(--border); color: white; border-radius: 4px; box-sizing: border-box;">
+        </div>
+    `;
+    container.appendChild(row);
+
+    if (label) row.querySelector('[name="cat_label"]').value = label;
+    if (description) row.querySelector('[name="cat_description"]').value = description;
+    if (emoji) row.querySelector('[name="cat_emoji"]').value = emoji;
+    if (namePrefix) row.querySelector('[name="cat_name_prefix"]').value = namePrefix;
+    if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
+    if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
+
+    (blacklistRoles || []).forEach(roleId => {
+        const role = ALL_ROLES.find(r => r.id === roleId);
+        addCatBlacklistChip(row, roleId, role ? role.name : roleId);
+    });
+}
+
+const existingCategories = {{ ticket_categories | default([]) | tojson }};
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id));
+if (existingCategories.length === 0) addCategoryRow();
 
 
-@app.route("/login")
-def login():
-    discord_sess = make_oauth_session()
-    authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
-    session['oauth2_state'] = state
-    return redirect(authorization_url)
 
-
-@app.route("/callback")
-def callback():
-    if request.args.get('error'):
-        return request.args['error']
-    
-    discord_sess = make_oauth_session(state=session.get('oauth2_state'))
-    token = discord_sess.fetch_token(
-        TOKEN_URL,
-        client_secret=CLIENT_SECRET,
-        authorization_response=request.url
-    )
-    session['oauth2_token'] = token
-    
-    user_data = discord_sess.get('https://discord.com/api/users/@me').json()
-    user_id = user_data.get('id')
-    avatar_hash = user_data.get('avatar')
-    
-    avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png" if avatar_hash else "https://cdn.discordapp.com/embed/avatars/0.png"
-
-    session['user'] = {
-        'username': user_data.get('username'),
-        'id': user_id,
-        'avatar_url': avatar_url
+function unblacklistUser(userId) {
+    if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
+        fetch("/api/unblacklist/" + userId, { method: "POST" })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert("Failed to unblacklist user.");
+                }
+            });
     }
-    
-    flash(f"👋 Welcome back, {user_data.get('username')}!", "success")
-    return redirect(url_for('home'))
+}
 
+function removeCooldown(userId) {
+    if (confirm("Are you sure you want to remove a cooldown for " + userId + "?")) {
+        fetch("/api/remove-cooldown/" + userId, { method: "POST" })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert("Failed to remove cooldown.");
+                }
+            });
+    }
+}
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    flash("Logged out successfully.", "info")
-    return redirect(url_for('home'))
+// --- Local time formatting and countdowns ---
+function pad(n) { return n<10? '0'+n : n }
+function formatDuration(secs){
+    if(secs<=0) return '0s';
+    let days = Math.floor(secs/86400); secs%=86400;
+    let hrs = Math.floor(secs/3600); secs%=3600;
+    let mins = Math.floor(secs/60); let s = Math.floor(secs%60);
+    let parts = [];
+    if(days) parts.push(days+'d');
+    if(hrs) parts.push(hrs+'h');
+    if(mins) parts.push(mins+'m');
+    if(!parts.length) parts.push(s+'s');
+    return parts.join(' ');
+}
 
+function updateTimes(){
+    const now = Date.now();
+    document.querySelectorAll('.local-time').forEach(el=>{
+        const ts = parseFloat(el.dataset.ts);
+        if(isNaN(ts)) return;
+        // ts might be seconds or float epoch; normalize to ms
+        const ms = ts>1e12? ts : ts*1000;
+        const d = new Date(ms);
+        try{ el.textContent = d.toLocaleString(); }catch(e){}
+    });
+    document.querySelectorAll('.countdown').forEach(el=>{
+        const ts = parseFloat(el.dataset.ts);
+        if(isNaN(ts)) return;
+        const expires = (ts>1e12? ts : ts*1000);
+        let diff = Math.floor((expires - now)/1000);
+        if(diff<0){ el.textContent = 'expired'; return; }
+        el.textContent = formatDuration(diff);
+    });
+    document.querySelectorAll('.age').forEach(el=>{
+        const ts = parseFloat(el.dataset.ts);
+        if(isNaN(ts)) return;
+        const started = (ts>1e12? ts : ts*1000);
+        let diff = Math.floor((now - started)/1000);
+        el.textContent = formatDuration(diff);
+    });
+}
+setInterval(updateTimes, 1000);
+updateTimes();
 
-@app.route("/dashboard/toggle-tickets", methods=["POST"])
-@carry_manager_required
-def toggle_tickets():
-    is_enabled = request.form.get("tickets_enabled") in ["on", "true", "True"]
-    set_tickets_enabled(is_enabled)
-    
-    status_text = "enabled" if is_enabled else "disabled"
-    flash(f"⚙️ Ticket creation has been {status_text}.", "success" if is_enabled else "warning")
-    return redirect("/")
+// --- INITIALIZATION ON LOAD ---
+document.addEventListener('DOMContentLoaded', () => {
+    const embedForm = document.getElementById('embedForm');
+    if (embedForm) {
+        embedForm.addEventListener('submit', function(e) {
+            const fieldRows = document.querySelectorAll('#fieldsContainer .block-row');
+            const fieldsData = [];
 
+            fieldRows.forEach(row => {
+                const nameInput = row.querySelector('.field-name');
+                const valueInput = row.querySelector('.field-value');
+                const inlineCheckbox = row.querySelector('.field-inline');
 
-@app.route("/transcripts/<path:filename>")
-def get_transcript(filename):
-    # Allow access with a valid short-lived token (for DMed links); otherwise require login
-    from flask import request, abort, Response
+                if (nameInput && valueInput) {
+                    const name = nameInput.value.trim();
+                    const value = valueInput.value.trim();
+                    const inline = inlineCheckbox ? inlineCheckbox.checked : false;
 
-    def _serve():
-        html = get_transcript_html(filename)
-        if html is None:
-            abort(404)
-        return Response(html, mimetype="text/html")
+                    if (name && value) {
+                        fieldsData.push({ name, value, inline });
+                    }
+                }
+            });
 
-    token = request.args.get('token')
-    if token:
-        from utils.storage import verify_transcript_token
-        info = verify_transcript_token(token)
-        if not info or info.get('filename') != filename:
-            abort(403)
-        return _serve()
-
-    # no token, require logged-in session
-    if not session.get('user'):
-        flash("🔒 Please log in with Discord to access the transcript.", "warning")
-        return redirect(url_for('login'))
-    return _serve()
-
-
-@app.route("/tickets/logs")
-@access_required
-def view_ticket_logs():
-    logs = get_ticket_logs()
-    # sort descending
-    logs = sorted(logs, key=lambda l: l.get("timestamp", ""), reverse=True)
-    return render_template("ticket_logs.html", logs=logs)
-
-
-# Temporary unauthenticated debug endpoint to inspect ticket logs quickly
-@app.route("/debug/ticket-logs")
-def debug_ticket_logs():
-    try:
-        logs = get_ticket_logs()
-        # return last 100 entries
-        last = sorted(logs, key=lambda l: l.get("timestamp", ""), reverse=True)[:100]
-        return jsonify({"ok": True, "count": len(last), "logs": last})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@app.route("/tickets/<ticket_id>")
-@access_required
-def view_ticket(ticket_id):
-    logs = get_logs_for_ticket(ticket_id)
-    ticket = None
-    if logs:
-        # take earliest create log as ticket meta
-        ticket = logs[0]
-        created = next((l for l in logs if l.get("action") == "created"), None)
-    else:
-        ticket = {"ticket_id": ticket_id, "fields": {}, "ticket_name": None}
-        created = None
-
-    # try to find a transcript file containing the ticket name or id
-    transcript_url = None
-    try:
-        import glob
-        import os
-        for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html"):
-            name = os.path.basename(f)
-            if ticket_id in name or (ticket.get("ticket_name") and ticket.get("ticket_name") in name):
-                transcript_url = f"/transcripts/{name}"
-                break
-    except Exception:
-        transcript_url = None
-
-    created_at = created.get("timestamp") if created else None
-    return render_template("ticket_detail.html", ticket=ticket, logs=logs, transcript_url=transcript_url, created_at=created_at)
-
-
-@app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@access_required
-def api_unblacklist(user_id):
-    remove_from_blacklist(user_id)
-    return jsonify({"success": True})
-
-
-@app.route("/api/remove-cooldown/<user_id>", methods=["POST"])
-@access_required
-def api_remove_cooldown(user_id):
-    from utils.storage import remove_cooldown
-    ok = remove_cooldown(user_id)
-    return jsonify({"success": ok})
-
-
-def _safe_int(val):
-    try:
-        return int(val) if val and str(val).strip() else None
-    except ValueError:
-        return None
-
-
-def _panel_draft_from_form():
-    raw_fields_json = request.form.get("fields_json", "[]")
-    try:
-        fields = json.loads(raw_fields_json)
-    except Exception:
-        fields = []
-
-    return {
-        "channel_id": _safe_int(request.form.get("channel_id")),
-        "category_id": _safe_int(request.form.get("category_id")),
-        "support_role_id": _safe_int(request.form.get("support_role_id")),
-        "title": request.form.get("title", "Request Carry"),
-        "description": request.form.get(
-            "description", "Click below to request a carry ticket!"
-        ),
-        "embed_color": request.form.get("embed_color", "#58b9ff"),
-        "image_url": request.form.get("image_url", "").strip() or None,
-        "thumbnail_url": request.form.get("thumbnail_url", "").strip() or None,
-        "footer_text": request.form.get("footer_text", "").strip() or None,
-        "fields": fields,
+            let hiddenInput = document.getElementById('fields_json');
+            if (!hiddenInput) {
+                hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = 'fields_json';
+                hiddenInput.id = 'fields_json';
+                this.appendChild(hiddenInput);
+            }
+            hiddenInput.value = JSON.stringify(fieldsData);
+        });
     }
 
+    const pickerContainer = document.getElementById('color-picker-container');
+    if (pickerContainer && typeof Pickr !== 'undefined') {
+        try {
+            const pickr = Pickr.create({
+                el: '#color-picker-container',
+                theme: 'nano',
+                default: document.getElementById('embed_color_input')?.value || '#58b9ff',
+                components: {
+                    preview: true,
+                    opacity: false,
+                    hue: true,
+                    interaction: {
+                        hex: true,
+                        input: true,
+                        save: true
+                    }
+                }
+            });
 
-@app.route("/dashboard/tickets/save-draft", methods=["POST"])
-@carry_manager_required
-def save_ticket_panel_draft_route():
-    draft = _panel_draft_from_form()
-    save_ticket_panel_draft(draft)
-    flash("💾 Panel draft saved. It'll be pre-filled next time you open this builder.", "success")
-    return redirect("/")
+            pickr.on('change', (color) => {
+                const colorInput = document.getElementById('embed_color_input');
+                if (colorInput) colorInput.value = color.toHEXA().toString();
+            });
 
-
-@app.route("/dashboard/tickets", methods=["POST"])
-@carry_manager_required
-def deploy_ticket_panel():
-    draft = _panel_draft_from_form()
-    # Deploying also remembers this config, so it's pre-filled next time -
-    # not just an explicit "Save Draft" click.
-    save_ticket_panel_draft(draft)
-
-    channel_id = draft["channel_id"]
-    category_id = draft["category_id"]
-    support_role_id = draft["support_role_id"]
-
-    if not channel_id:
-        flash("❌ Please select a valid target channel.", "danger")
-        return redirect("/")
-
-    title = draft["title"]
-    description = draft["description"]
-    embed_color = draft["embed_color"]
-    image_url = draft["image_url"]
-    thumbnail_url = draft["thumbnail_url"]
-    footer_text = draft["footer_text"]
-    fields = draft["fields"]
-
-    cog = bot.get_cog("TicketsCog") or bot.get_cog("Tickets")
-    if cog:
-        future = asyncio.run_coroutine_threadsafe(
-            cog.deploy_panel_from_dashboard(
-                channel_id=channel_id,
-                title=title,
-                description=description,
-                category_id=category_id,
-                support_role_id=support_role_id,
-                color=embed_color,
-                image_url=image_url,
-                thumbnail_url=thumbnail_url,
-                footer_text=footer_text,
-                fields=fields
-            ),
-            bot.loop
-        )
-        try:
-            success, msg = future.result(timeout=10)
-            if success:
-                flash("🎉 Carry Panel deployed successfully!", "success")
-            else:
-                flash(f"❌ {msg}", "danger")
-        except Exception as e:
-            flash(f"❌ Error deploying panel: {e}", "danger")
-    else:
-        flash("❌ Ticket cog not found.", "danger")
-
-    return redirect("/")
-
-
-@app.route("/dashboard/access/add-user", methods=["POST"])
-@admin_required
-def access_add_user():
-    user_id = request.form.get("user_id", "").strip()
-    if user_id.isdigit():
-        add_allowed_user(user_id)
-        flash("✅ User added to the dashboard allow-list.", "success")
-    else:
-        flash("❌ Please enter a valid numeric Discord user ID.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-user/<user_id>", methods=["POST"])
-@admin_required
-def access_remove_user(user_id):
-    remove_allowed_user(user_id)
-    flash("🗑️ User removed from the allow-list.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-role", methods=["POST"])
-@admin_required
-def access_add_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_allowed_role(role_id)
-        flash("✅ Role added to the dashboard allow-list.", "success")
-    else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-role/<role_id>", methods=["POST"])
-@admin_required
-def access_remove_role(role_id):
-    remove_allowed_role(role_id)
-    flash("🗑️ Role removed from the allow-list.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-blacklist-role", methods=["POST"])
-@admin_required
-def access_add_blacklist_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_blacklist_role(role_id)
-        flash("✅ Role added to the Ticket Blacklist.", "success")
-    else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-blacklist-role/<role_id>", methods=["POST"])
-@admin_required
-def access_remove_blacklist_role(role_id):
-    remove_blacklist_role(role_id)
-    flash("🗑️ Role removed from the Ticket Blacklist.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-viewer-role", methods=["POST"])
-@admin_required
-def access_add_viewer_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_ticket_viewer_role(role_id)
-        flash("✅ Role added as a Ticket Viewer Role.", "success")
-    else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-viewer-role/<role_id>", methods=["POST"])
-@admin_required
-def access_remove_viewer_role(role_id):
-    remove_ticket_viewer_role(role_id)
-    flash("🗑️ Role removed from Ticket Viewer Roles.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-powerful-command-role", methods=["POST"])
-@admin_required
-def access_add_powerful_command_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_powerful_command_role(role_id)
-        flash("✅ Role added to Powerful Command Access.", "success")
-    else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-powerful-command-role/<role_id>", methods=["POST"])
-@admin_required
-def access_remove_powerful_command_role(role_id):
-    remove_powerful_command_role(role_id)
-    flash("🗑️ Role removed from Powerful Command Access.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-powerful-command-user", methods=["POST"])
-@admin_required
-def access_add_powerful_command_user():
-    user_id = request.form.get("user_id", "").strip()
-    if user_id.isdigit():
-        add_powerful_command_user(user_id)
-        flash("✅ User added to Powerful Command Access.", "success")
-    else:
-        flash("❌ Please enter a valid user ID.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-powerful-command-user/<user_id>", methods=["POST"])
-@admin_required
-def access_remove_powerful_command_user(user_id):
-    remove_powerful_command_user(user_id)
-    flash("🗑️ User removed from Powerful Command Access.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-basic-command-role", methods=["POST"])
-@admin_required
-def access_add_basic_command_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_basic_command_role(role_id)
-        flash("✅ Role added to Basic Command Access.", "success")
-    else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-basic-command-role/<role_id>", methods=["POST"])
-@admin_required
-def access_remove_basic_command_role(role_id):
-    remove_basic_command_role(role_id)
-    flash("🗑️ Role removed from Basic Command Access.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-basic-command-user", methods=["POST"])
-@admin_required
-def access_add_basic_command_user():
-    user_id = request.form.get("user_id", "").strip()
-    if user_id.isdigit():
-        add_basic_command_user(user_id)
-        flash("✅ User added to Basic Command Access.", "success")
-    else:
-        flash("❌ Please enter a valid user ID.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-basic-command-user/<user_id>", methods=["POST"])
-@admin_required
-def access_remove_basic_command_user(user_id):
-    remove_basic_command_user(user_id)
-    flash("🗑️ User removed from Basic Command Access.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/ticket-categories/save", methods=["POST"])
-@carry_manager_required
-def save_ticket_categories_route():
-    labels = request.form.getlist("cat_label")
-    descriptions = request.form.getlist("cat_description")
-    emojis = request.form.getlist("cat_emoji")
-    blacklist_roles_raw = request.form.getlist("cat_blacklist_roles")
-    name_prefixes = request.form.getlist("cat_name_prefix")
-    open_notes = request.form.getlist("cat_open_note")
-    discord_category_ids = request.form.getlist("cat_discord_category_id")
-
-    # these lists aren't guaranteed to line up 1:1 with the other lists
-    # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids):
-        while len(lst) < len(labels):
-            lst.append("")
-
-    from utils.storage import slugify
-
-    categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw in zip(
-        labels, descriptions, emojis, blacklist_roles_raw,
-        name_prefixes, open_notes, discord_category_ids,
-    ):
-        label = label.strip()
-        if not label:
-            continue
-        blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
-        prefix = slugify(prefix_raw.strip() or label)
-        categories.append({
-            "label": label[:100],
-            "description": desc.strip()[:100],
-            "emoji": emoji.strip() or None,
-            "blacklist_roles": blacklist_roles,
-            "name_prefix": prefix,
-            "open_note": note_raw.strip()[:200],
-            "discord_category_id": disc_cat_raw.strip() or None,
-        })
-
-    if not categories:
-        flash("❌ Add at least one category with a label.", "danger")
-        return redirect(url_for("home"))
-
-    if len(categories) > 25:
-        categories = categories[:25]
-        flash("⚠️ Only the first 25 categories were saved (Discord's dropdown limit).", "warning")
-
-    save_ticket_categories(categories)
-    flash("✅ Ticket dropdown categories saved. New panels you deploy will use them; existing panels update after the bot restarts.", "success")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/ticket-messages/save-redirect", methods=["POST"])
-@carry_manager_required
-def save_redirect_message_route():
-    content = request.form.get("redirect_content", "").strip()
-    if not content:
-        flash("❌ Redirect message can't be empty.", "danger")
-        return redirect(url_for("home"))
-    save_redirect_message(content[:1000])
-    flash("✅ 'Ticket created' redirect message saved.", "success")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/ticket-messages/save-welcome", methods=["POST"])
-@carry_manager_required
-def save_welcome_message_route():
-    use_embed = request.form.get("welcome_use_embed") == "yes"
-    data = {
-        "use_embed": use_embed,
-        "content": request.form.get("welcome_content", "").strip()[:500],
-        "title": request.form.get("welcome_title", "").strip()[:256],
-        "description": request.form.get("welcome_description", "").strip()[:2000],
-        "color": request.form.get("welcome_color", "#3498db").strip() or "#3498db",
-        "footer": request.form.get("welcome_footer", "").strip()[:200],
-        "show_timezone": request.form.get("welcome_show_timezone") == "yes",
-        "show_display_name": request.form.get("welcome_show_display_name") == "yes",
-        "show_can_join": request.form.get("welcome_show_can_join") == "yes",
+            pickr.on('save', (color) => {
+                const colorInput = document.getElementById('embed_color_input');
+                if (colorInput) colorInput.value = color.toHEXA().toString();
+                pickr.hide();
+            });
+        } catch (err) {
+            console.warn("Pickr initialization skipped:", err);
+        }
     }
-    save_welcome_message(data)
-    flash("✅ Ticket-channel welcome message saved.", "success")
-    return redirect(url_for("home"))
+});
+</script>
 
-
-@app.route("/dashboard/access/add-carry-manager-role", methods=["POST"])
-@admin_required
-def access_add_carry_manager_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_carry_manager_role(role_id)
-        flash("✅ Role added to Carry Manager Settings access.", "success")
-    else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-carry-manager-role/<role_id>", methods=["POST"])
-@admin_required
-def access_remove_carry_manager_role(role_id):
-    remove_carry_manager_role(role_id)
-    flash("🗑️ Role removed from Carry Manager Settings access.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/set-log-channel", methods=["POST"])
-@admin_required
-def access_set_log_channel():
-    channel_id = request.form.get("log_channel_id", "").strip()
-    set_log_channel(channel_id or None)
-    flash("✅ Ticket activity log channel updated.", "success")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/set-blacklist-log-channel", methods=["POST"])
-@admin_required
-def access_set_blacklist_log_channel():
-    channel_id = request.form.get("blacklist_log_channel_id", "").strip()
-    set_blacklist_log_channel(channel_id or None)
-    flash("✅ Blacklist log channel updated.", "success")
-    return redirect(url_for("home"))
-
-
-# --- BOT EVENT HANDLERS & RUNNER ---
-@bot.event
-async def setup_hook():
-    if os.path.exists("cogs"):
-        for filename in os.listdir("cogs"):
-            if filename.endswith(".py"):
-                await bot.load_extension(f"cogs.{filename[:-3]}")
-
-@bot.event
-async def on_ready():
-    global bot_ready_since
-    bot_ready_since = time.time()
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print(f"Failed to sync commands: {e}")
-    print(f"✅ Bot logged in as {bot.user}")
-
-
-def run_flask():
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-
-
-def run_status_checker():
-    """Runs forever in its own daemon thread, sampling bot connectivity
-    roughly once a minute so the /status page has real uptime history and
-    auto-detected incidents instead of only a live snapshot."""
-    from utils.status_history import record_check
-    while True:
-        try:
-            online = bool(bot.is_ready()) and not bot.is_closed()
-            record_check(online)
-        except Exception as e:
-            print(f"Status checker error: {e}")
-        time.sleep(60)
-
-
-if __name__ == "__main__":
-    import threading
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-
-    status_thread = threading.Thread(target=run_status_checker, daemon=True)
-    status_thread.start()
-
-    if TOKEN:
-        bot.run(TOKEN)
-    else:
-        print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
+</body>
+</html>
