@@ -1344,15 +1344,19 @@ function addV2Dropdown(data = {}) {
             <input type="text" class="v2-dd-description" value="{category_description}">
             <label>Option value template</label>
             <input type="text" class="v2-dd-value" value="{category_label}">
-            <label>Variables used by this dropdown <span style="color:var(--text-dim);font-weight:normal;">(multiple allowed)</span></label>
-            <select class="v2-dd-variables" multiple size="5">${variableCatalogHtml(data.variables || ['category_label','category_description','category_prefix'])}</select>
-            <p class="card-subtitle" style="margin:5px 0 0;">Use any selected variable as <code>{name}</code> in the templates. Custom variables come from each ticket category.</p>
+            <label>Dropdown variable</label>
+            <input type="text" class="v2-dd-variable" placeholder="e.g. mode" value="">
+            <label>Dropdown variable value</label>
+            <input type="text" class="v2-dd-variable-value" placeholder="e.g. fallen" value="">
+            <p class="card-subtitle" style="margin:5px 0 0;">Only categories whose <code>{variable}</code> matches this value are shown. Leave both blank to show all categories.</p>
         </div>`;
     container.appendChild(row);
     row.querySelector('.v2-dd-placeholder').value = data.placeholder || 'Choose a ticket type...';
     row.querySelector('.v2-dd-label').value = data.label_template || '{category_label}';
     row.querySelector('.v2-dd-description').value = data.description_template || '{category_description}';
     row.querySelector('.v2-dd-value').value = data.value_template || '{category_label}';
+    row.querySelector('.v2-dd-variable').value = data.variable || '';
+    row.querySelector('.v2-dd-variable-value').value = data.variable_value || '';
     attachV2DragHandlers(row); refreshPreview();
 }
 
@@ -1372,18 +1376,16 @@ function addV2Button(data = {}) {
             </div>
             <label>Button label</label>
             <input type="text" class="v2-btn-label" value="Create Ticket">
-            <label>Style</label>
-            <select class="v2-btn-style">
-                <option value="primary">Primary</option><option value="secondary">Secondary</option><option value="success">Success</option><option value="danger">Danger</option>
-            </select>
-            <label>Required dropdown variable</label>
-            <select class="v2-btn-required-variable"><option value="">None</option>${variableCatalogHtml(data.required_variable ? [data.required_variable] : [])}</select>
-            <p class="card-subtitle" style="margin:5px 0 0;">The button uses the variable selected here as a requirement. A custom category variable must exist before the button can proceed.</p>
+            <label>Dropdown variable</label>
+            <input type="text" class="v2-btn-variable" placeholder="e.g. mode" value="">
+            <label>Dropdown variable value</label>
+            <input type="text" class="v2-btn-variable-value" placeholder="e.g. fallen" value="">
+            <p class="card-subtitle" style="margin:5px 0 0;">The selected category must have <code>{variable}</code> set to this value. Leave both blank for no requirement.</p>
         </div>`;
     container.appendChild(row);
     row.querySelector('.v2-btn-label').value = data.label || 'Create Ticket';
-    row.querySelector('.v2-btn-style').value = data.style || 'primary';
-    if (data.required_variable) row.querySelector('.v2-btn-required-variable').value = data.required_variable;
+    row.querySelector('.v2-btn-variable').value = data.variable || '';
+    row.querySelector('.v2-btn-variable-value').value = data.variable_value || '';
     attachV2DragHandlers(row); refreshPreview();
 }
 
@@ -1457,7 +1459,8 @@ function collectV2Blocks() {
                 label_template: row.querySelector('.v2-dd-label')?.value || '{category_label}',
                 description_template: row.querySelector('.v2-dd-description')?.value || '{category_description}',
                 value_template: row.querySelector('.v2-dd-value')?.value || '{category_label}',
-                variables: [...(row.querySelector('.v2-dd-variables')?.selectedOptions || [])].map(o => o.value)
+                variable: row.querySelector('.v2-dd-variable')?.value.trim() || '',
+                variable_value: row.querySelector('.v2-dd-variable-value')?.value || ''
             });
             return;
         }
@@ -1465,8 +1468,9 @@ function collectV2Blocks() {
             result.push({
                 type:'button',
                 label: row.querySelector('.v2-btn-label')?.value || 'Create Ticket',
-                style: row.querySelector('.v2-btn-style')?.value || 'primary',
-                required_variable: row.querySelector('.v2-btn-required-variable')?.value || ''
+                style: 'primary',
+                variable: row.querySelector('.v2-btn-variable')?.value.trim() || '',
+                variable_value: row.querySelector('.v2-btn-variable-value')?.value || ''
             });
             return;
         }
@@ -1519,10 +1523,10 @@ function refreshPreview() {
             return '<div style="border-top:1px solid var(--border);margin:14px 0;"></div>';
         }
         if (block.type === 'dropdown') {
-            return `<div style="padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;"><strong>▾ Variable Dropdown</strong><div style="margin-top:6px;color:var(--text-dim);">${block.placeholder || 'Choose a ticket type...'}</div><small>Variables: ${(block.variables || []).map(v => '{'+v+'}').join(', ') || 'none'}</small></div>`;
+            return `<div style="padding:12px;border:1px solid var(--border);border-radius:6px;margin-bottom:10px;"><strong>▾ Variable Dropdown</strong><div style="margin-top:6px;color:var(--text-dim);">${block.placeholder || 'Choose a ticket type...'}</div><small>Filter: ${block.variable ? '{'+block.variable+'} = '+(block.variable_value || 'any') : 'none'}</small></div>`;
         }
         if (block.type === 'button') {
-            return `<div style="margin-bottom:10px;"><button type="button" class="btn-submit" disabled>${block.label || 'Create Ticket'}</button><small style="display:block;color:var(--text-dim);margin-top:4px;">Required variable: ${block.required_variable ? '{'+block.required_variable+'}' : 'none'}</small></div>`;
+            return `<div style="margin-bottom:10px;"><button type="button" class="btn-submit" disabled>${block.label || 'Create Ticket'}</button><small style="display:block;color:var(--text-dim);margin-top:4px;">Value: ${block.variable ? '{'+block.variable+'} = '+(block.variable_value || 'any') : 'none'}</small></div>`;
         }
         const fields = (block.fields || []).map(f =>
             `<div style="margin-top:8px;"><strong>${f.name}</strong><div>${f.value}</div></div>`
