@@ -49,7 +49,7 @@
   }
   .topbar-right{display:flex; align-items:center; gap:22px; font-size:14px; color:var(--muted);}
   .topbar-right a{color:var(--muted); text-decoration:none;}
-  .topbar-right a:hover, .topbar-right a.active{color:var(--yellow);}
+  .topbar-right a:hover{color:var(--text);}
   .dash-btn{
     background:var(--indigo); color:white; padding:9px 16px; border-radius:8px; font-weight:600;
     display:flex; align-items:center; gap:6px; text-decoration:none;
@@ -58,8 +58,9 @@
   /* ---- layout ---- */
   .layout{display:flex; max-width:1400px; margin:0 auto;}
   .sidebar{
-    width:270px; flex-shrink:0; padding:32px 18px 60px 28px;
+    width:280px; flex-shrink:0; padding:32px 18px 60px 28px;
     position:sticky; top:64px; height:calc(100vh - 64px); overflow-y:auto;
+    font-size:13.5px;
   }
   .sidebar h4{
     font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted);
@@ -67,16 +68,13 @@
   }
   .sidebar h4:first-child{margin-top:0;}
   .navlink{
-    display:flex; align-items:center; gap:0;
-    padding:8px 12px; border-radius:8px; color:var(--muted); text-decoration:none;
-    font-size:14.5px; font-weight:500; cursor:pointer; position:relative;
-    border-left:2px solid transparent;
-    margin-bottom:2px;
+    display:block; color:var(--muted); text-decoration:none; padding:7px 10px; border-radius:7px;
+    border-left:2px solid transparent; margin-bottom:1px; line-height:1.35;
+    font-size:13.5px; font-weight:500; cursor:pointer;
   }
   .navlink:hover{color:var(--text); background:var(--surface);}
   .navlink.active{
-    color:var(--yellow); background:var(--indigo-dim); border-left:2px dashed var(--yellow);
-    font-weight:600;
+    color:var(--yellow); font-weight:600;
   }
 
   main{flex:1; padding:40px 40px 120px 40px; min-width:0;}
@@ -154,11 +152,11 @@
 <div class="topbar">
   <div class="brand"><span class="stub"></span> Carry Ticket Bot</div>
   <div class="topbar-right">
-    <a href="/docs" class="active">Docs</a>
-    <a href="/rules">Rules &amp; Regulations</a>
+    <a href="/rules">Rules</a>
     <a href="/guidelines">Carry Guidelines</a>
     <a href="/privacy">Privacy</a>
     <a href="/status">Status</a>
+    <a href="/" class="dash-btn">Dashboard ›</a>
   </div>
 </div>
 
@@ -182,6 +180,7 @@
 
     <h4>Reference</h4>
     <a class="navlink" data-page="quickref">Quick Reference</a>
+    <a class="navlink" data-page="persistence">Data &amp; Persistence</a>
   </aside>
 
   <main>
@@ -397,16 +396,6 @@
         <div class="sig">/scan_url &lt;url&gt;</div>
         <div class="desc">Checks a URL against VirusTotal and returns the scan result.</div>
       </div>
-      <div class="cmd">
-        <div class="sig">/addticketblacklist &lt;user&gt; &lt;reason&gt; [duration_hours]</div>
-        <div class="desc">Blocks a user from creating any tickets. Reason is required; duration is optional (leave blank for permanent).</div>
-        <div class="note">⚠️ Dangerous command — unlike the commands above, this works anywhere (not just inside a ticket channel) and does NOT use Manage Channels. It's restricted to Administrators, dashboard-configured admins, and anyone granted Powerful Command Access in Access Control.</div>
-      </div>
-      <div class="cmd">
-        <div class="sig">/removeticketblacklist &lt;user&gt; &lt;reason&gt;</div>
-        <div class="desc">Lifts a user's ticket-creation blacklist. Reason is required, for the audit log.</div>
-        <div class="note">⚠️ Dangerous command — same permission requirement as /addticketblacklist above.</div>
-      </div>
     </section>
 
     <!-- QUICK REF -->
@@ -426,6 +415,41 @@
         <tr><td>Ticket activity log channel</td><td>Access Control</td></tr>
         <tr><td>Dashboard login access</td><td>Access Control</td></tr>
       </table>
+    </section>
+
+    <!-- DATA & PERSISTENCE -->
+    <section class="page" id="page-persistence">
+      <div class="eyebrow">Reference</div>
+      <h1 class="title">Data &amp; Persistence</h1>
+      <p class="lede">Where your settings actually live, and why they do (or don't) survive a redeploy.</p>
+
+      <h3 class="sub-h">Two storage backends</h3>
+      <p class="body-p">The bot can store its settings in either of two places:</p>
+      <ul class="doc-list">
+        <li><b>MongoDB</b> — used automatically whenever a <code>MONGODB_URI</code> environment variable is configured on the bot's host. This is a real database, so it survives restarts, redeploys, and moving hosts entirely.</li>
+        <li><b>Local file</b> (<code>data/settings.json</code>) — used automatically whenever MongoDB isn't configured, or as a safety fallback if a Mongo write ever fails.</li>
+      </ul>
+
+      <div class="callout">
+        You don't choose between these — the bot checks for <code>MONGODB_URI</code> on every read and write and picks automatically. If it's set, Mongo is the source of truth.
+      </div>
+
+      <h3 class="sub-h">Why this matters on Render</h3>
+      <p class="body-p">Most hosts — including a typical Render web service without a persistent disk attached — wipe the local filesystem back to whatever's in the repo on every redeploy or routine restart. If your settings were only ever written to <code>data/settings.json</code> on a host like that, anything changed from the dashboard would quietly reset the next time the bot redeploys.</p>
+      <p class="body-p">Connecting MongoDB removes that risk entirely for the settings covered below.</p>
+
+      <h3 class="sub-h">What's covered by this</h3>
+      <p class="body-p">Everything read through the bot's main settings store, including:</p>
+      <ul class="doc-list">
+        <li>Enable/disable ticket creation toggle</li>
+        <li>Ticket dropdown categories</li>
+        <li>The "Ticket created" redirect message and the ticket-channel welcome message</li>
+        <li>The saved Advanced Panel Builder draft</li>
+      </ul>
+      <p class="body-p">Access Control (allowed users/roles, blacklist roles, log channel) and ticket data (active tickets, transcripts, logs) already use their own similarly Mongo-aware storage, independent of this.</p>
+
+      <h3 class="sub-h">How to check which one you're on</h3>
+      <p class="body-p">If <code>MONGODB_URI</code> is set in your bot's environment variables, you're on the persistent path — no further action needed. If it isn't set, settings changes made from the dashboard will only last until the next redeploy or restart, unless your host provides a persistent disk mounted over the bot's working directory.</p>
     </section>
 
   </main>
