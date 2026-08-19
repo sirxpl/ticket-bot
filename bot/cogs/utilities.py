@@ -4,11 +4,12 @@ import random
 import base64
 import requests
 import discord
+from typing import Literal
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import Button, View
 
-from utils.storage import get_dashboard_base_url
+from utils.storage import get_dashboard_base_url, get_coffee_dm_enabled, set_coffee_dm_enabled
 
 class VirusTotalLinkView(View):
     def __init__(self, vt_url: str):
@@ -223,9 +224,11 @@ def build_panel_embed_and_view():
     return embed, view
 
 
-def build_coffee_menu_view(on_order):
-    """Interactive Components V2 coffee menu with one button per style.
-    `on_order(interaction, style)` is called when a button is clicked.
+def build_coffee_menu_view(on_order, on_custom_order):
+    """Interactive Components V2 coffee menu with one button per style, plus
+    a "Custom" button that opens a modal for a fully custom order.
+    `on_order(interaction, style)` is called when a preset button is
+    clicked; `on_custom_order` is passed straight to CustomCoffeeModal.
     Returns None if Components V2 isn't supported (or anything about
     building it goes wrong), so callers can fall back to a classic view."""
     try:
@@ -261,6 +264,18 @@ def build_coffee_menu_view(on_order):
                         row.add_item(btn)
                     container.add_item(row)
 
+                if separator_cls:
+                    container.add_item(separator_cls())
+                custom_row = action_row_cls()
+                custom_btn = discord.ui.Button(label="Custom", emoji="📝", style=discord.ButtonStyle.primary)
+
+                async def _custom_callback(inter: discord.Interaction):
+                    await inter.response.send_modal(CustomCoffeeModal(on_custom_order))
+
+                custom_btn.callback = _custom_callback
+                custom_row.add_item(custom_btn)
+                container.add_item(custom_row)
+
                 self.add_item(container)
 
         return CoffeeMenuView()
@@ -270,8 +285,9 @@ def build_coffee_menu_view(on_order):
 
 class CoffeeMenuFallbackView(View):
     """Classic-View fallback menu (plain buttons under an embed) for when
-    Components V2 isn't supported."""
-    def __init__(self, on_order):
+    Components V2 isn't supported. Includes the same "Custom" button as the
+    V2 menu, opening a modal for a fully custom order."""
+    def __init__(self, on_order, on_custom_order):
         super().__init__(timeout=180)
         for item in COFFEE_MENU_ITEMS:
             btn = Button(label=item["label"], emoji=item["emoji"], style=discord.ButtonStyle.secondary)
@@ -281,6 +297,41 @@ class CoffeeMenuFallbackView(View):
 
             btn.callback = _callback
             self.add_item(btn)
+
+        custom_btn = Button(label="Custom", emoji="📝", style=discord.ButtonStyle.primary)
+
+        async def _custom_callback(inter: discord.Interaction):
+            await inter.response.send_modal(CustomCoffeeModal(on_custom_order))
+
+        custom_btn.callback = _custom_callback
+        self.add_item(custom_btn)
+
+
+class CustomCoffeeModal(discord.ui.Modal, title="Custom Coffee Order"):
+    """Prompts for style/roast/extras so someone can build an order that
+    isn't one of the preset menu buttons. Roast and extras are optional —
+    left blank, they're rolled the same way a preset order's would be."""
+    style_input = discord.ui.TextInput(
+        label="Style", placeholder="e.g. Iced Vanilla Latte", max_length=100, required=True
+    )
+    roast_input = discord.ui.TextInput(
+        label="Roast", placeholder="e.g. Medium Roast (leave blank for a surprise)",
+        max_length=100, required=False,
+    )
+    extras_input = discord.ui.TextInput(
+        label="Extras", placeholder="e.g. oat milk, extra shot (leave blank for a surprise)",
+        max_length=200, required=False,
+    )
+
+    def __init__(self, on_custom_order):
+        super().__init__()
+        self._on_custom_order = on_custom_order
+
+    async def on_submit(self, interaction: discord.Interaction):
+        style = str(self.style_input.value).strip()
+        roast = str(self.roast_input.value).strip() or random.choice(COFFEE_ROASTS)
+        extras = str(self.extras_input.value).strip() or random.choice(COFFEE_EXTRAS)
+        await self._on_custom_order(interaction, style, roast, extras)
 
 
 class UtilityCog(commands.Cog):
@@ -298,6 +349,14 @@ class UtilityCog(commands.Cog):
         V2 view, while the classic fallback menu edits with plain content=.
         """
         async def on_order(inter: discord.Interaction, style: str):
+            if gifting and not get_coffee_dm_enabled(recipient.id):
+                msg = f"🚫 {recipient.mention} has disabled receiving coffee gifts."
+                if is_v2:
+                    await inter.response.edit_message(view=build_simple_v2_text(msg))
+                else:
+                    await inter.response.edit_message(content=msg, view=None, embed=None)
+                return
+
             interim = (
                 f"☕ Delivering to {recipient.mention}..." if gifting else "☕ Check your DMs!"
             )
@@ -327,6 +386,55 @@ class UtilityCog(commands.Cog):
 
         return on_order
 
+    def _make_on_custom_order(self, recipient: discord.abc.User, invoker: discord.abc.User, gifting: bool, is_v2: bool):
+        """Same as _make_on_order, but for the "Custom" modal — takes an
+        already-built style/roast/extras instead of rolling one from a
+        preset. The modal submission is itself the first response to this
+        interaction, so the edit_message/edit_original_response sequence
+        below works the same way as the button flow."""
+        async def on_custom_order(inter: discord.Interaction, style: str, roast: str, extras: str):
+            if gifting and not get_coffee_dm_enabled(recipient.id):
+                msg = f"🚫 {recipient.mention} has disabled receiving coffee gifts."
+                if is_v2:
+                    await inter.response.edit_message(view=build_simple_v2_text(msg))
+                else:
+                    await inter.response.edit_message(content=msg, view=None, embed=None)
+                return
+
+            interim = (
+                f"☕ Delivering to {recipient.mention}..." if gifting else "☕ Check your DMs!"
+            )
+            if is_v2:
+                await inter.response.edit_message(view=build_simple_v2_text(interim))
+            else:
+                await inter.response.edit_message(content=interim, view=None, embed=None)
+
+            order = {
+                "style": style,
+                "roast": roast,
+                "extra": extras,
+                "flavor_text": random.choice(COFFEE_FLAVOR_TEXT),
+            }
+            dm_delivered = await deliver_coffee(recipient, order, gifted_by=invoker if gifting else None)
+
+            if gifting:
+                if dm_delivered:
+                    msg = f"☕ Order placed! A custom **{style}** is brewing for {recipient.mention} and on its way to their DMs."
+                else:
+                    msg = f"❌ Couldn't deliver the coffee — {recipient.mention} has their DMs closed."
+            else:
+                if dm_delivered:
+                    msg = f"☕ Order placed! Your custom **{style}** is on its way to your DMs."
+                else:
+                    msg = "❌ Couldn't deliver your coffee — your DMs are closed."
+
+            if is_v2:
+                await inter.edit_original_response(view=build_simple_v2_text(msg))
+            else:
+                await inter.edit_original_response(content=msg, view=None, embed=None)
+
+        return on_custom_order
+
     async def _send_coffee_menu(self, interaction: discord.Interaction, recipient: discord.abc.User):
         gifting = recipient.id != interaction.user.id
         title = f"Pick a coffee for {recipient.mention}:" if gifting else "Pick your order below:"
@@ -337,19 +445,21 @@ class UtilityCog(commands.Cog):
         view = None
         if components_v2_supported():
             on_order = self._make_on_order(recipient, interaction.user, gifting, is_v2=True)
-            view = build_coffee_menu_view(on_order)
+            on_custom_order = self._make_on_custom_order(recipient, interaction.user, gifting, is_v2=True)
+            view = build_coffee_menu_view(on_order, on_custom_order)
 
         if view is not None:
             await interaction.response.send_message(view=view, ephemeral=True)
         else:
             on_order = self._make_on_order(recipient, interaction.user, gifting, is_v2=False)
+            on_custom_order = self._make_on_custom_order(recipient, interaction.user, gifting, is_v2=False)
             embed = discord.Embed(
                 title="☕ Coffee Menu",
                 description=title,
                 color=discord.Color.from_rgb(111, 78, 55),
             )
             await interaction.response.send_message(
-                embed=embed, view=CoffeeMenuFallbackView(on_order), ephemeral=True
+                embed=embed, view=CoffeeMenuFallbackView(on_order, on_custom_order), ephemeral=True
             )
 
     @app_commands.command(name="panel", description="Get a link to the dashboard and site")
@@ -366,6 +476,32 @@ class UtilityCog(commands.Cog):
     async def coffee(self, interaction: discord.Interaction, user: discord.Member = None):
         recipient = user or interaction.user
         await self._send_coffee_menu(interaction, recipient)
+
+    @app_commands.command(name="coffeesettings", description="Control whether other people can gift you coffee via DM")
+    @app_commands.describe(dms="Whether other people can send you a gifted coffee straight to your DMs")
+    async def coffeesettings(self, interaction: discord.Interaction, dms: Literal["enable", "disable"]):
+        enabled = dms == "enable"
+        set_coffee_dm_enabled(interaction.user.id, enabled)
+
+        if enabled:
+            msg = (
+                "☕ Coffee gifts are now **enabled** — other people can send you a coffee "
+                "straight to your DMs. Ordering for yourself always works regardless of this setting."
+            )
+        else:
+            msg = (
+                "🚫 Coffee gifts are now **disabled** — other people won't be able to DM you a "
+                "gifted coffee. You can still order coffee for yourself anytime."
+            )
+
+        if components_v2_supported():
+            view = build_simple_v2_text(f"### ☕ Coffee Settings\n{msg}")
+            if view is not None:
+                await interaction.response.send_message(view=view, ephemeral=True)
+                return
+
+        embed = discord.Embed(title="☕ Coffee Settings", description=msg, color=discord.Color.from_rgb(111, 78, 55))
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="scan_url", description="Check a URL or domain against VirusTotal for security threats")
     @app_commands.describe(url="The web link or domain you want to check")
