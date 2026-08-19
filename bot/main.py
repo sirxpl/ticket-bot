@@ -547,10 +547,17 @@ def _safe_int(val):
 
 def _panel_draft_from_form():
     raw_fields_json = request.form.get("fields_json", "[]")
+    raw_components_json = request.form.get("components_json", "[]")
     try:
         fields = json.loads(raw_fields_json)
     except Exception:
         fields = []
+    try:
+        components = json.loads(raw_components_json)
+        if not isinstance(components, list):
+            components = []
+    except Exception:
+        components = []
 
     return {
         "channel_id": _safe_int(request.form.get("channel_id")),
@@ -565,6 +572,7 @@ def _panel_draft_from_form():
         "thumbnail_url": request.form.get("thumbnail_url", "").strip() or None,
         "footer_text": request.form.get("footer_text", "").strip() or None,
         "fields": fields,
+        "components": components,
     }
 
 
@@ -600,6 +608,7 @@ def deploy_ticket_panel():
     thumbnail_url = draft["thumbnail_url"]
     footer_text = draft["footer_text"]
     fields = draft["fields"]
+    components = draft.get("components") or []
 
     cog = bot.get_cog("TicketsCog") or bot.get_cog("Tickets")
     if cog:
@@ -614,7 +623,8 @@ def deploy_ticket_panel():
                 image_url=image_url,
                 thumbnail_url=thumbnail_url,
                 footer_text=footer_text,
-                fields=fields
+                fields=fields,
+                components=components,
             ),
             bot.loop
         )
