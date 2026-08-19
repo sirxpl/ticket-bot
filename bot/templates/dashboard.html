@@ -854,11 +854,20 @@
                         </div>
                     </div>
 
-                    <div class="block-separator"><span>Embed Fields</span></div>
+                    <div class="block-separator"><span>Components V2 Blocks</span></div>
+                    <p class="card-subtitle" style="margin-top:0;">
+                        Components V2 replaces traditional Discord embeds with bordered Containers.
+                        Add multiple cards and dividers, then drag them into the order you want.
+                    </p>
 
-                    <div id="fieldsContainer"></div>
+                    <div id="v2BlocksContainer"></div>
 
-                    <button type="button" onclick="addField()" class="block-add-btn">✛ Add content</button>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" onclick="addV2Embed()" class="block-add-btn">✚ New embed</button>
+                        <button type="button" onclick="addV2Divider()" class="block-add-btn">➖ Add divider</button>
+                    </div>
+
+                    <input type="hidden" name="components_json" id="components_json" value="">
                 </div>
 
                 <div id="previewPanel" style="display:none;"></div>
@@ -1215,79 +1224,164 @@ function showPage(pageId, btn) {
 }
 
 // --- GLOBAL FUNCTIONS ---
-let fieldCount = 0;
+let v2BlockCount = 0;
+let v2DragSrc = null;
 
-function addField(name, value, inline) {
-    fieldCount++;
-    const container = document.getElementById('fieldsContainer');
+function addV2Embed(data = {}) {
+    v2BlockCount++;
+    const id = `v2_embed_${v2BlockCount}`;
+    const container = document.getElementById('v2BlocksContainer');
     if (!container) return;
 
     const row = document.createElement('div');
     row.className = 'block-row';
-    row.id = `field_${fieldCount}`;
+    row.id = id;
     row.draggable = true;
-
+    row.dataset.blockType = 'embed';
     row.innerHTML = `
         <span class="block-drag-handle" title="Drag to reorder">⠿</span>
         <div class="block-body">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span class="block-label" style="margin-bottom:0;">Field</span>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div class="block-label">Components V2 Embed #${v2BlockCount}</div>
+                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
             </div>
-            <input type="text" class="field-name" placeholder="Field Name (Title)" required style="margin-bottom: 6px;">
-            <textarea class="field-value" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px;"></textarea>
-            <label style="display: inline-flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer; font-size:0.88em; color:var(--text-dim);">
-                <input type="checkbox" class="field-inline" style="width: auto;"> Display Inline
-            </label>
+            <label>Title</label>
+            <input type="text" class="v2-title" value="">
+            <label>Description</label>
+            <textarea class="v2-description" rows="3"></textarea>
+            <label>Accent Color</label>
+            <input type="text" class="v2-color" value="${data.color || '#58b9ff'}" placeholder="#58b9ff">
+            <label>Footer <span style="color:var(--text-dim);font-weight:normal;">(optional)</span></label>
+            <input type="text" class="v2-footer" value="">
+            <label>Image URL <span style="color:var(--text-dim);font-weight:normal;">(optional)</span></label>
+            <input type="url" class="v2-image" value="">
+            <div style="margin-top:8px;">
+                <button type="button" class="btn-view" onclick="addV2Field('${id}')">✚ Add field</button>
+            </div>
+            <div class="v2-fields"></div>
         </div>
-        <button type="button" class="block-remove" onclick="removeField('field_${fieldCount}')" title="Remove">✕</button>
     `;
     container.appendChild(row);
-    attachDragHandlers(row);
 
-    if (name) row.querySelector('.field-name').value = name;
-    if (value) row.querySelector('.field-value').value = value;
-    if (inline) row.querySelector('.field-inline').checked = true;
+    row.querySelector('.v2-title').value = data.title || '';
+    row.querySelector('.v2-description').value = data.description || '';
+    row.querySelector('.v2-footer').value = data.footer || '';
+    row.querySelector('.v2-image').value = data.image_url || '';
 
+    (data.fields || []).forEach(f => addV2Field(id, f));
+    attachV2DragHandlers(row);
     refreshPreview();
 }
 
-function removeField(fieldId) {
-    const elem = document.getElementById(fieldId);
-    if (elem) elem.remove();
+function addV2Field(blockId, data = {}) {
+    const block = document.getElementById(blockId);
+    if (!block) return;
+    const fields = block.querySelector('.v2-fields');
+    const row = document.createElement('div');
+    row.className = 'v2-field';
+    row.style.cssText = 'border:1px solid var(--border);padding:8px;margin-top:8px;border-radius:6px;background:var(--raised-2);';
+    row.innerHTML = `
+        <div style="display:flex;gap:6px;align-items:flex-start;">
+            <div style="flex:1;">
+                <input class="v2-field-name" type="text" placeholder="Field name" value="">
+                <textarea class="v2-field-value" rows="2" placeholder="Field value"></textarea>
+                <label style="display:flex;gap:6px;align-items:center;font-weight:normal;">
+                    <input class="v2-field-inline" type="checkbox" style="width:auto;"> Inline
+                </label>
+            </div>
+            <button type="button" class="block-remove" onclick="this.closest('.v2-field').remove();refreshPreview();">✕</button>
+        </div>
+    `;
+    fields.appendChild(row);
+    row.querySelector('.v2-field-name').value = data.name || '';
+    row.querySelector('.v2-field-value').value = data.value || '';
+    row.querySelector('.v2-field-inline').checked = !!data.inline;
     refreshPreview();
 }
 
-// --- DRAG-TO-REORDER for embed field blocks ---
-let dragSrcEl = null;
-function attachDragHandlers(row) {
+function addV2Divider() {
+    v2BlockCount++;
+    const id = `v2_divider_${v2BlockCount}`;
+    const container = document.getElementById('v2BlocksContainer');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'block-row';
+    row.id = id;
+    row.draggable = true;
+    row.dataset.blockType = 'divider';
+    row.innerHTML = `
+        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
+        <div class="block-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div class="block-label">➖ Divider / Separator</div>
+                <button type="button" class="block-remove" onclick="removeV2Block('${id}')">✕</button>
+            </div>
+            <div style="color:var(--text-dim);font-size:.88em;">Discord will render this as a Components V2 Separator.</div>
+        </div>
+    `;
+    container.appendChild(row);
+    attachV2DragHandlers(row);
+    refreshPreview();
+}
+
+function removeV2Block(id) {
+    document.getElementById(id)?.remove();
+    refreshPreview();
+}
+
+function attachV2DragHandlers(row) {
     row.addEventListener('dragstart', () => {
-        dragSrcEl = row;
+        v2DragSrc = row;
         row.classList.add('dragging');
     });
     row.addEventListener('dragend', () => {
         row.classList.remove('dragging');
-        document.querySelectorAll('.block-row.drag-over').forEach(el => el.classList.remove('drag-over'));
+        document.querySelectorAll('#v2BlocksContainer .drag-over').forEach(e => e.classList.remove('drag-over'));
         refreshPreview();
     });
-    row.addEventListener('dragover', (e) => {
+    row.addEventListener('dragover', e => {
         e.preventDefault();
-        if (row !== dragSrcEl) row.classList.add('drag-over');
+        if (v2DragSrc && v2DragSrc !== row) row.classList.add('drag-over');
     });
     row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
-    row.addEventListener('drop', (e) => {
+    row.addEventListener('drop', e => {
         e.preventDefault();
         row.classList.remove('drag-over');
-        if (!dragSrcEl || dragSrcEl === row) return;
-        const container = document.getElementById('fieldsContainer');
-        const rows = Array.from(container.children);
-        const srcIdx = rows.indexOf(dragSrcEl);
-        const tgtIdx = rows.indexOf(row);
-        if (srcIdx < tgtIdx) {
-            row.after(dragSrcEl);
-        } else {
-            row.before(dragSrcEl);
-        }
+        if (!v2DragSrc || v2DragSrc === row) return;
+        const rows = [...document.getElementById('v2BlocksContainer').children];
+        if (rows.indexOf(v2DragSrc) < rows.indexOf(row)) row.after(v2DragSrc);
+        else row.before(v2DragSrc);
+        refreshPreview();
     });
+}
+
+function collectV2Blocks() {
+    const result = [];
+    document.querySelectorAll('#v2BlocksContainer > .block-row').forEach(row => {
+        if (row.dataset.blockType === 'divider') {
+            result.push({type:'divider'});
+            return;
+        }
+        const fields = [];
+        row.querySelectorAll('.v2-field').forEach(f => {
+            const name = f.querySelector('.v2-field-name')?.value.trim() || '';
+            const value = f.querySelector('.v2-field-value')?.value.trim() || '';
+            if (name || value) fields.push({
+                name, value,
+                inline: !!f.querySelector('.v2-field-inline')?.checked
+            });
+        });
+        result.push({
+            type:'embed',
+            title: row.querySelector('.v2-title')?.value || '',
+            description: row.querySelector('.v2-description')?.value || '',
+            color: row.querySelector('.v2-color')?.value || '#58b9ff',
+            footer: row.querySelector('.v2-footer')?.value || '',
+            image_url: row.querySelector('.v2-image')?.value || '',
+            fields
+        });
+    });
+    return result;
 }
 
 // --- STYLE / PREVIEW TOGGLES ---
@@ -1311,42 +1405,41 @@ function togglePreviewPanel() {
 function refreshPreview() {
     const panel = document.getElementById('previewPanel');
     if (!panel || panel.style.display === 'none') return;
-
-    const title = document.querySelector('[name="title"]')?.value || '';
-    const description = document.querySelector('[name="description"]')?.value || '';
-    const color = document.getElementById('embed_color_input')?.value || '#58b9ff';
-    const imageUrl = document.querySelector('[name="image_url"]')?.value || '';
-    const thumbUrl = document.querySelector('[name="thumbnail_url"]')?.value || '';
-    const footerText = document.querySelector('[name="footer_text"]')?.value || '';
-
-    panel.style.borderLeftColor = color;
-
-    let fieldsHtml = '';
-    document.querySelectorAll('#fieldsContainer .block-row').forEach(row => {
-        const n = row.querySelector('.field-name')?.value || '';
-        const v = row.querySelector('.field-value')?.value || '';
-        if (n || v) {
-            fieldsHtml += `<div><div class="pv-field-name">${n}</div><div class="pv-field-value">${v}</div></div>`;
+    const blocks = collectV2Blocks();
+    panel.innerHTML = blocks.map(block => {
+        if (block.type === 'divider') {
+            return '<div style="border-top:1px solid var(--border);margin:14px 0;"></div>';
         }
-    });
-
-    panel.innerHTML = `
-        ${title ? `<div class="pv-title">${title}</div>` : ''}
-        ${description ? `<div class="pv-desc">${description}</div>` : ''}
-        ${thumbUrl ? `<img src="${thumbUrl}" style="max-width:70px; float:right; border-radius:6px;">` : ''}
-        ${fieldsHtml ? `<div class="pv-fields">${fieldsHtml}</div>` : ''}
-        ${imageUrl ? `<img src="${imageUrl}">` : ''}
-        ${footerText ? `<div class="pv-footer">${footerText}</div>` : ''}
-    `;
-    panel.style.borderLeftColor = color;
+        const fields = (block.fields || []).map(f =>
+            `<div style="margin-top:8px;"><strong>${f.name}</strong><div>${f.value}</div></div>`
+        ).join('');
+        return `<div style="border-left:4px solid ${block.color || '#58b9ff'};background:#2f3136;padding:12px;border-radius:6px;margin-bottom:10px;">
+            ${block.title ? `<div class="pv-title">${block.title}</div>` : ''}
+            ${block.description ? `<div class="pv-desc">${block.description}</div>` : ''}
+            ${fields}
+            ${block.image_url ? `<img src="${block.image_url}" style="max-width:100%;margin-top:10px;border-radius:6px;">` : ''}
+            ${block.footer ? `<div class="pv-footer">${block.footer}</div>` : ''}
+        </div>`;
+    }).join('');
 }
 
-document.addEventListener('input', (e) => {
+document.addEventListener('input', e => {
     if (e.target.closest('#embedForm')) refreshPreview();
 });
 
-const panelDraftFields = {{ ((panel_draft | default({})).fields | default([])) | tojson }};
-panelDraftFields.forEach(f => addField(f.name, f.value, f.inline));
+const panelDraftComponents = {{ ((panel_draft | default({})).components | default([])) | tojson }};
+if (panelDraftComponents.length) {
+    panelDraftComponents.forEach(b => b.type === 'divider' ? addV2Divider() : addV2Embed(b));
+} else {
+    addV2Embed({
+        title: {{ (panel_draft.title or 'Request Carry') | tojson }},
+        description: {{ (panel_draft.description or 'Click the button below to request a carry ticket!') | tojson }},
+        color: {{ (panel_draft.embed_color or '#58b9ff') | tojson }},
+        footer: {{ (panel_draft.footer_text or '') | tojson }},
+        image_url: {{ (panel_draft.image_url or '') | tojson }},
+        fields: {{ ((panel_draft.fields or []) | tojson) }}
+    });
+}
 
 // --- TICKET DROPDOWN CATEGORIES ---
 const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.name | tojson }}}{% if not loop.last %}, {% endif %}{% endfor %}];
@@ -1552,34 +1645,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const embedForm = document.getElementById('embedForm');
     if (embedForm) {
         embedForm.addEventListener('submit', function(e) {
-            const fieldRows = document.querySelectorAll('#fieldsContainer .block-row');
-            const fieldsData = [];
-
-            fieldRows.forEach(row => {
-                const nameInput = row.querySelector('.field-name');
-                const valueInput = row.querySelector('.field-value');
-                const inlineCheckbox = row.querySelector('.field-inline');
-
-                if (nameInput && valueInput) {
-                    const name = nameInput.value.trim();
-                    const value = valueInput.value.trim();
-                    const inline = inlineCheckbox ? inlineCheckbox.checked : false;
-
-                    if (name && value) {
-                        fieldsData.push({ name, value, inline });
-                    }
-                }
-            });
-
-            let hiddenInput = document.getElementById('fields_json');
+            let hiddenInput = document.getElementById('components_json');
             if (!hiddenInput) {
                 hiddenInput = document.createElement('input');
                 hiddenInput.type = 'hidden';
-                hiddenInput.name = 'fields_json';
-                hiddenInput.id = 'fields_json';
+                hiddenInput.name = 'components_json';
+                hiddenInput.id = 'components_json';
                 this.appendChild(hiddenInput);
             }
-            hiddenInput.value = JSON.stringify(fieldsData);
+            hiddenInput.value = JSON.stringify(collectV2Blocks());
+
+            // Keep legacy fields_json populated for old saved drafts/versions.
+            let legacyInput = document.getElementById('fields_json');
+            if (!legacyInput) {
+                legacyInput = document.createElement('input');
+                legacyInput.type = 'hidden';
+                legacyInput.name = 'fields_json';
+                legacyInput.id = 'fields_json';
+                this.appendChild(legacyInput);
+            }
+            const firstEmbed = collectV2Blocks().find(b => b.type === 'embed');
+            legacyInput.value = JSON.stringify(firstEmbed?.fields || []);
         });
     }
 
