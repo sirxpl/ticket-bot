@@ -572,6 +572,24 @@
             overflow-y: hidden;
             min-height: 38px;
         }
+        .pb-drag-handle{
+            cursor: grab;
+            color: var(--text-dim);
+            font-size: 1.1em;
+            margin-right: 2px;
+            user-select: none;
+        }
+        .pb-drag-handle:active{ cursor: grabbing; }
+        .pb-block.pb-dragging{
+            opacity: 0.4;
+        }
+        .pb-block.pb-drag-over{
+            outline: 2px dashed var(--accent);
+            outline-offset: 2px;
+        }
+        .pb-children-list .pb-block{
+            cursor: default;
+        }
         .pb-field input[type="color"]{
             width: 52px;
             height: 38px;
@@ -1750,27 +1768,81 @@ function removeVariableAt(path, idx) {
     renderPanelBlocks();
 }
 function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
+let _dragSourcePath = null;
+
+function handleBlockDragStart(e, path) {
+    _dragSourcePath = path;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', path);
+    e.stopPropagation();
+    e.currentTarget.classList.add('pb-dragging');
+}
+function handleBlockDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('pb-drag-over');
+}
+function handleBlockDragLeave(e) {
+    e.currentTarget.classList.remove('pb-drag-over');
+}
+function handleBlockDragEnd(e) {
+    e.currentTarget.classList.remove('pb-dragging');
+    document.querySelectorAll('.pb-drag-over').forEach(el => el.classList.remove('pb-drag-over'));
+}
+function handleBlockDrop(e, targetPath) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.querySelectorAll('.pb-drag-over').forEach(el => el.classList.remove('pb-drag-over'));
+    const sourcePath = _dragSourcePath || e.dataTransfer.getData('text/plain');
+    _dragSourcePath = null;
+    if (!sourcePath || sourcePath === targetPath) return;
+    movePanelBlock(sourcePath, targetPath);
+}
+function movePanelBlock(sourcePath, targetPath) {
+    const sourceParts = sourcePath.split('.').map(Number);
+    const targetParts = targetPath.split('.').map(Number);
+
+    // Only allow reordering within the same container - dragging a
+    // top-level block only reorders other top-level blocks, and dragging
+    // something inside an embed only reorders its own siblings inside
+    // that same embed.
+    const sourceParentPath = sourceParts.slice(0, -1).join('.');
+    const targetParentPath = targetParts.slice(0, -1).join('.');
+    if (sourceParentPath !== targetParentPath) return;
+
+    const arr = sourceParentPath === '' ? panelBlocks : getBlock(sourceParentPath).children;
+    const sourceIdx = sourceParts[sourceParts.length - 1];
+    const targetIdx = targetParts[targetParts.length - 1];
+
+    const [moved] = arr.splice(sourceIdx, 1);
+    arr.splice(targetIdx, 0, moved);
+
+    renderPanelBlocks();
+}
 function blockControls(path,b,inEmbed=false) {
     const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾', text:'📝'};
     const labels = {embed:'Embed', divider:'Divider', button:'Button', dropdown:'Dropdown', text:'Text'};
     const header = `
         <div class="pb-block-header">
             <div class="pb-block-title">
+                <span class="pb-drag-handle" title="Drag to reorder">⠿</span>
                 <span class="pb-block-icon">${icons[b.type]}</span>
                 <span>${labels[b.type]}</span>
                 ${b.type === 'dropdown' ? `<span id="hidden-badge-${path}" style="color:var(--danger);font-size:0.78em;font-weight:600;margin-left:6px;display:${b.enabled===false?'inline':'none'};">HIDDEN</span>` : ''}
             </div>
             <button type="button" class="pb-remove-btn" onclick="removePanelBlock('${path}')">✕ Remove</button>
         </div>`;
+    const dragAttrs = `draggable="true" data-path="${path}" ondragstart="handleBlockDragStart(event,'${path}')" ondragover="handleBlockDragOver(event)" ondragleave="handleBlockDragLeave(event)" ondrop="handleBlockDrop(event,'${path}')" ondragend="handleBlockDragEnd(event)"`;
 
     if (b.type === 'divider') {
-        return `<div class="pb-block" data-type="divider">${header}
+        return `<div class="pb-block" data-type="divider" ${dragAttrs}>${header}
             <div class="pb-divider-line">divider — separates content above and below</div>
         </div>`;
     }
 
     if (b.type === 'text') {
-        return `<div class="pb-block" data-type="text">${header}
+        return `<div class="pb-block" data-type="text" ${dragAttrs}>${header}
             <div class="pb-block-body">
                 <div class="pb-field">
                     <label>Text <span style="font-weight:normal;text-transform:none;">(start a line with ### for a title/heading, like Discord markdown)</span></label>
@@ -1781,7 +1853,7 @@ function blockControls(path,b,inEmbed=false) {
     }
 
     if (b.type === 'button') {
-        return `<div class="pb-block" data-type="button">${header}
+        return `<div class="pb-block" data-type="button" ${dragAttrs}>${header}
             <div class="pb-block-body">
                 <div class="pb-field">
                     <label>Button Label</label>
@@ -1793,7 +1865,7 @@ function blockControls(path,b,inEmbed=false) {
     }
 
     if (b.type === 'dropdown') {
-        return `<div class="pb-block" data-type="dropdown">${header}
+        return `<div class="pb-block" data-type="dropdown" ${dragAttrs}>${header}
             <div class="pb-block-body">
                 <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:12px;">
                     <input type="checkbox" ${b.enabled !== false ? 'checked' : ''} style="width:auto;" onchange="updateBlock('${path}','enabled',this.checked); const badge=document.getElementById('hidden-badge-${path}'); if(badge) badge.style.display=this.checked?'none':'inline';">
@@ -1810,7 +1882,7 @@ function blockControls(path,b,inEmbed=false) {
 
     // embed
     let children = (b.children||[]).map((c,i)=>blockControls(path+'.'+i,c,true)).join('');
-    return `<div class="pb-block" data-type="embed">${header}
+    return `<div class="pb-block" data-type="embed" ${dragAttrs}>${header}
         <div class="pb-block-body">
             <div class="pb-field">
                 <label>Embed Title <span style="font-weight:normal;text-transform:none;">(Enter adds a new line)</span></label>
