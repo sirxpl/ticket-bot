@@ -1737,6 +1737,44 @@ function getBlock(path) {
     for(let i=1;i<p.length;i++) b=b.children[p[i]];
     return b;
 }
+function requiredRolesHtml(path, b) {
+    const roleIds = b.required_roles || [];
+    const rows = roleIds.map(rid => {
+        const role = ALL_ROLES.find(r => r.id === rid);
+        return `<div class="list-item" style="margin-bottom:6px;">
+            <span><strong>@${esc(role ? role.name : 'Unknown role')}</strong></span>
+            <button type="button" onclick="removeRequiredRole('${path}','${rid}')" class="btn-danger" style="padding:4px 10px;">Remove</button>
+        </div>`;
+    }).join('');
+    const options = ALL_ROLES
+        .filter(r => !roleIds.includes(r.id))
+        .map(r => `<option value="${r.id}">@${esc(r.name)}</option>`).join('');
+    return `<div class="pb-field">
+        <label>Required Roles <span style="font-weight:normal;text-transform:none;">(optional — only members with at least one of these roles can use this dropdown. Leave empty to allow anyone, except members with a Ticket Blacklist Role.)</span></label>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <select id="reqrole-select-${path}" style="flex:1;">
+                <option value="">Select a role...</option>
+                ${options}
+            </select>
+            <button type="button" onclick="addRequiredRole('${path}')" style="background:var(--accent);color:white;border:none;padding:0 14px;border-radius:4px;cursor:pointer;font-weight:bold;flex-shrink:0;">+ Add</button>
+        </div>
+        <div id="reqrolelist-${path}">${rows || '<p style="color:var(--text-dim);font-size:0.85em;margin:0;">No role requirement — anyone can use this dropdown.</p>'}</div>
+    </div>`;
+}
+function addRequiredRole(path) {
+    const select = document.getElementById(`reqrole-select-${path}`);
+    const roleId = select.value;
+    if (!roleId) return;
+    const b = getBlock(path);
+    b.required_roles = b.required_roles || [];
+    if (!b.required_roles.includes(roleId)) b.required_roles.push(roleId);
+    renderPanelBlocks();
+}
+function removeRequiredRole(path, roleId) {
+    const b = getBlock(path);
+    b.required_roles = (b.required_roles || []).filter(r => r !== roleId);
+    renderPanelBlocks();
+}
 function variableListHtml(path, b) {
     const vars = b.variables || [];
     const rows = vars.map((v, vi) => `
@@ -1875,6 +1913,7 @@ function blockControls(path,b,inEmbed=false) {
                     <label>Placeholder Text</label>
                     <input placeholder="Choose ticket type..." value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
                 </div>
+                ${requiredRolesHtml(path, b)}
                 ${variableListHtml(path, b)}
             </div>
         </div>`;
