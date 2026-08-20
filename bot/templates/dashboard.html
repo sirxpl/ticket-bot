@@ -1749,8 +1749,9 @@ function requiredRolesHtml(path, b) {
     const options = ALL_ROLES
         .filter(r => !roleIds.includes(r.id))
         .map(r => `<option value="${r.id}">@${esc(r.name)}</option>`).join('');
+    const noun = b.type === 'button' ? 'button' : 'dropdown';
     return `<div class="pb-field">
-        <label>Required Roles <span style="font-weight:normal;text-transform:none;">(optional — only members with at least one of these roles can use this dropdown. Leave empty to allow anyone, except members with a Ticket Blacklist Role.)</span></label>
+        <label>Required Roles <span style="font-weight:normal;text-transform:none;">(optional — only members with at least one of these roles can use this ${noun}. Leave empty to allow anyone, except members with a Ticket Blacklist Role.)</span></label>
         <div style="display:flex;gap:6px;margin-bottom:8px;">
             <select id="reqrole-select-${path}" style="flex:1;">
                 <option value="">Select a role...</option>
@@ -1758,7 +1759,7 @@ function requiredRolesHtml(path, b) {
             </select>
             <button type="button" onclick="addRequiredRole('${path}')" style="background:var(--accent);color:white;border:none;padding:0 14px;border-radius:4px;cursor:pointer;font-weight:bold;flex-shrink:0;">+ Add</button>
         </div>
-        <div id="reqrolelist-${path}">${rows || '<p style="color:var(--text-dim);font-size:0.85em;margin:0;">No role requirement — anyone can use this dropdown.</p>'}</div>
+        <div id="reqrolelist-${path}">${rows || `<p style="color:var(--text-dim);font-size:0.85em;margin:0;">No role requirement — anyone can use this ${noun}.</p>`}</div>
     </div>`;
 }
 function addRequiredRole(path) {
@@ -1897,6 +1898,7 @@ function blockControls(path,b,inEmbed=false) {
                     <label>Button Label</label>
                     <input placeholder="Open Ticket" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
                 </div>
+                ${requiredRolesHtml(path, b)}
                 ${variableListHtml(path, b)}
             </div>
         </div>`;
