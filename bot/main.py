@@ -813,36 +813,31 @@ def save_ticket_categories_route():
     open_notes = request.form.getlist("cat_open_note")
     discord_category_ids = request.form.getlist("cat_discord_category_id")
     dropdown_enabled_raw = request.form.getlist("cat_dropdown_enabled")
-    variables_raw = request.form.getlist("cat_variables")
+    tags_raw = request.form.getlist("cat_tags")
 
     # these lists aren't guaranteed to line up 1:1 with the other lists
     # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw):
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, tags_raw):
         while len(lst) < len(labels):
             lst.append("")
 
     from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw in zip(
+    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, tags_str in zip(
         labels, descriptions, emojis, blacklist_roles_raw,
-        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw,
+        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, tags_raw,
     ):
         label = label.strip()
         if not label:
             continue
         blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
         prefix = slugify(prefix_raw.strip() or label)
-        variables = {}
-        try:
-            parsed_vars = json.loads(vars_raw or "{}")
-            if isinstance(parsed_vars, dict):
-                for k, v in parsed_vars.items():
-                    key = str(k).strip().lower()
-                    if key and re.match(r"^[a-z0-9_\-]{1,32}$", key):
-                        variables[key] = str(v)[:100]
-        except Exception:
-            variables = {}
+        tags = []
+        for t in (tags_str or "").split(","):
+            t = t.strip().lower()
+            if t and t not in tags:
+                tags.append(t[:32])
         categories.append({
             "label": label[:100],
             "description": desc.strip()[:100],
@@ -852,7 +847,7 @@ def save_ticket_categories_route():
             "open_note": note_raw.strip()[:200],
             "discord_category_id": disc_cat_raw.strip() or None,
             "dropdown_enabled": dd_enabled == "true",
-            "variables": variables,
+            "tags": tags,
         })
 
     if not categories:
