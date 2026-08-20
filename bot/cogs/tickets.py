@@ -1995,6 +1995,10 @@ class TicketsCog(commands.Cog):
                     typ = cfg.get("type")
                     if typ == "divider":
                         parent.add_item(discord.ui.Separator())
+                    elif typ == "text":
+                        content = str(cfg.get("content") or "").strip()
+                        if content:
+                            parent.add_item(self._text(content))
                     elif typ == "dropdown" and cfg.get("enabled") is False:
                         continue
                     elif typ in ("button", "dropdown"):
