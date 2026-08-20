@@ -1927,6 +1927,7 @@ class TicketsCog(commands.Cog):
             def _add_button(self, parent, cfg):
                 label = str(cfg.get("label") or "Open Ticket")[:80]
                 pairs = parse_variable_pairs(cfg)
+                required_role_ids = {str(r) for r in (cfg.get("required_roles") or [])}
 
                 async def callback(interaction: discord.Interaction):
                     if not get_settings().get("tickets_enabled", True):
@@ -1934,6 +1935,13 @@ class TicketsCog(commands.Cog):
                             "🚫 Ticket creation is currently disabled by administrators.", ephemeral=True
                         )
                         return
+                    if required_role_ids:
+                        member_role_ids = {str(r.id) for r in getattr(interaction.user, "roles", [])}
+                        if not member_role_ids.intersection(required_role_ids):
+                            await interaction.response.send_message(
+                                "❌ You don't have the required role to use this button.", ephemeral=True
+                            )
+                            return
                     matches_ = [c for c in enabled_categories if matches_any(c, pairs)]
                     if not matches_:
                         await interaction.response.send_message(
