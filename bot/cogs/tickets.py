@@ -1860,43 +1860,22 @@ class TicketsCog(commands.Cog):
         categories = get_ticket_categories()
         enabled_categories = [c for c in categories if c.get("dropdown_enabled", True)]
 
-        def parse_variable_pairs(cfg):
-            """Reads a block's variable filters — a list of "key=value"
-            strings — into (key, value) tuples. Falls back to the old
-            single variable/value fields for panels saved before this was
-            a list, so nothing breaks on existing drafts."""
-            raw = cfg.get("variables")
-            if raw is None:
-                v = str(cfg.get("variable") or "").strip().lower()
-                val = str(cfg.get("value") or "").strip()
-                return [(v, val)] if v else []
-            pairs = []
-            for item in raw or []:
-                item = str(item or "").strip()
-                if not item:
-                    continue
-                if "=" in item:
-                    k, val = item.split("=", 1)
-                else:
-                    k, val = item, ""
-                k = k.strip().lower()
-                val = val.strip()
-                if k:
-                    pairs.append((k, val))
-            return pairs
+        def _block_tag(cfg):
+            """Single tag filter for a button/dropdown block. Falls back to
+            the old two-field variable/value shape from before this was
+            simplified, so drafts saved before the change still work."""
+            tag = cfg.get("tag")
+            if tag:
+                return str(tag).strip().lower()
+            # old shape: matched a category's {variable: value} dict entry —
+            # the value is the closest equivalent to a plain tag.
+            return str(cfg.get("value") or "").strip().lower()
 
-        def matches_any(cat, pairs):
-            """True if no filters are set (show everything), or the
-            category matches at least one of the given variable=value
-            pairs (OR across pairs, so one dropdown can pull in categories
-            tagged with several different variables at once)."""
-            if not pairs:
+        def matches(cat, tag):
+            if not tag:
                 return True
-            vars_ = cat.get("variables") or {}
-            for variable, value in pairs:
-                if str(vars_.get(variable, "")).strip().lower() == str(value or "").strip().lower():
-                    return True
-            return False
+            cat_tags = [str(t).strip().lower() for t in (cat.get("tags") or [])]
+            return tag in cat_tags
 
         class AdvancedCarryView(discord.ui.LayoutView):
             def __init__(self, bot):
@@ -1918,7 +1897,7 @@ class TicketsCog(commands.Cog):
                     "fields": fields or [],
                     "children": []
                 }]
-                blocks.append({"type": "dropdown", "placeholder": "Choose ticket type...", "variables": []})
+                blocks.append({"type": "dropdown", "placeholder": "Choose ticket type...", "visibility": "all", "tag": ""})
                 return blocks
 
             def _text(self, value):
@@ -1926,7 +1905,7 @@ class TicketsCog(commands.Cog):
 
             def _add_button(self, parent, cfg):
                 label = str(cfg.get("label") or "Open Ticket")[:80]
-                pairs = parse_variable_pairs(cfg)
+                tag = _block_tag(cfg)
 
                 async def callback(interaction: discord.Interaction):
                     if not get_settings().get("tickets_enabled", True):
@@ -1934,15 +1913,15 @@ class TicketsCog(commands.Cog):
                             "🚫 Ticket creation is currently disabled by administrators.", ephemeral=True
                         )
                         return
-                    matches_ = [c for c in enabled_categories if matches_any(c, pairs)]
+                    matches_ = [c for c in enabled_categories if matches(c, tag)]
                     if not matches_:
                         await interaction.response.send_message(
                             "❌ No enabled ticket category matches this button.", ephemeral=True
                         )
                         return
-                    if len(matches_) > 1 and not pairs:
+                    if len(matches_) > 1 and not tag:
                         await interaction.response.send_message(
-                            "❌ This button needs at least one Variable set when more than one category is available.",
+                            "❌ This button needs a Tag set when more than one category is available.",
                             ephemeral=True
                         )
                         return
@@ -1960,8 +1939,14 @@ class TicketsCog(commands.Cog):
                 parent.add_item(btn)
 
             def _add_dropdown(self, parent, cfg):
-                pairs = parse_variable_pairs(cfg)
-                cats = [c for c in enabled_categories if matches_any(c, pairs)][:25]
+                # "all" shows every enabled category regardless of tag —
+                # the explicit Dropdown Visibility choice from the builder.
+                # "filtered" (default) only shows categories matching the
+                # single Tag field, same filtering a button uses.
+                visibility = str(cfg.get("visibility") or "filtered").strip().lower()
+                tag = "" if visibility == "all" else _block_tag(cfg)
+
+                cats = [c for c in enabled_categories if matches(c, tag)][:25]
                 options = []
                 for c in cats:
                     options.append(discord.SelectOption(
@@ -1980,19 +1965,11 @@ class TicketsCog(commands.Cog):
                     custom_id=f"carry_dd_{self._custom_counter}"
                 )
                 self._custom_counter += 1
-                required_role_ids = {str(r) for r in (cfg.get("required_roles") or [])}
 
                 async def callback(interaction: discord.Interaction):
                     if select.values[0] == "__none__":
                         await interaction.response.send_message("❌ No matching ticket types are enabled.", ephemeral=True)
                         return
-                    if required_role_ids:
-                        member_role_ids = {str(r.id) for r in getattr(interaction.user, "roles", [])}
-                        if not member_role_ids.intersection(required_role_ids):
-                            await interaction.response.send_message(
-                                "❌ You don't have the required role to use this dropdown.", ephemeral=True
-                            )
-                            return
                     await TicketView(self.bot).ticket_select(interaction, select)
 
                 select.callback = callback
@@ -2003,12 +1980,6 @@ class TicketsCog(commands.Cog):
                     typ = cfg.get("type")
                     if typ == "divider":
                         parent.add_item(discord.ui.Separator())
-                    elif typ == "text":
-                        content = str(cfg.get("content") or "").strip()
-                        if content:
-                            parent.add_item(self._text(content))
-                    elif typ == "dropdown" and cfg.get("enabled") is False:
-                        continue
                     elif typ in ("button", "dropdown"):
                         # Containers may contain ActionRows, not buttons/selects directly.
                         row = discord.ui.ActionRow()
@@ -2045,8 +2016,6 @@ class TicketsCog(commands.Cog):
                         self._add_button(row, cfg)
                         self.add_item(row)
                     elif typ == "dropdown":
-                        if cfg.get("enabled") is False:
-                            continue
                         row = discord.ui.ActionRow()
                         self._add_dropdown(row, cfg)
                         self.add_item(row)
