@@ -1860,11 +1860,43 @@ class TicketsCog(commands.Cog):
         categories = get_ticket_categories()
         enabled_categories = [c for c in categories if c.get("dropdown_enabled", True)]
 
-        def matches(cat, variable, value):
-            if not variable:
+        def parse_variable_pairs(cfg):
+            """Reads a block's variable filters — a list of "key=value"
+            strings — into (key, value) tuples. Falls back to the old
+            single variable/value fields for panels saved before this was
+            a list, so nothing breaks on existing drafts."""
+            raw = cfg.get("variables")
+            if raw is None:
+                v = str(cfg.get("variable") or "").strip().lower()
+                val = str(cfg.get("value") or "").strip()
+                return [(v, val)] if v else []
+            pairs = []
+            for item in raw or []:
+                item = str(item or "").strip()
+                if not item:
+                    continue
+                if "=" in item:
+                    k, val = item.split("=", 1)
+                else:
+                    k, val = item, ""
+                k = k.strip().lower()
+                val = val.strip()
+                if k:
+                    pairs.append((k, val))
+            return pairs
+
+        def matches_any(cat, pairs):
+            """True if no filters are set (show everything), or the
+            category matches at least one of the given variable=value
+            pairs (OR across pairs, so one dropdown can pull in categories
+            tagged with several different variables at once)."""
+            if not pairs:
                 return True
             vars_ = cat.get("variables") or {}
-            return str(vars_.get(variable, "")).strip().lower() == str(value or "").strip().lower()
+            for variable, value in pairs:
+                if str(vars_.get(variable, "")).strip().lower() == str(value or "").strip().lower():
+                    return True
+            return False
 
         class AdvancedCarryView(discord.ui.LayoutView):
             def __init__(self, bot):
@@ -1886,7 +1918,7 @@ class TicketsCog(commands.Cog):
                     "fields": fields or [],
                     "children": []
                 }]
-                blocks.append({"type": "dropdown", "placeholder": "Choose ticket type...", "variable": "", "value": ""})
+                blocks.append({"type": "dropdown", "placeholder": "Choose ticket type...", "variables": []})
                 return blocks
 
             def _text(self, value):
@@ -1894,8 +1926,7 @@ class TicketsCog(commands.Cog):
 
             def _add_button(self, parent, cfg):
                 label = str(cfg.get("label") or "Open Ticket")[:80]
-                variable = str(cfg.get("variable") or "").strip().lower()
-                value = str(cfg.get("value") or "").strip()
+                pairs = parse_variable_pairs(cfg)
 
                 async def callback(interaction: discord.Interaction):
                     if not get_settings().get("tickets_enabled", True):
@@ -1903,15 +1934,15 @@ class TicketsCog(commands.Cog):
                             "🚫 Ticket creation is currently disabled by administrators.", ephemeral=True
                         )
                         return
-                    matches_ = [c for c in enabled_categories if matches(c, variable, value)]
+                    matches_ = [c for c in enabled_categories if matches_any(c, pairs)]
                     if not matches_:
                         await interaction.response.send_message(
                             "❌ No enabled ticket category matches this button.", ephemeral=True
                         )
                         return
-                    if len(matches_) > 1 and not variable:
+                    if len(matches_) > 1 and not pairs:
                         await interaction.response.send_message(
-                            "❌ This button needs a Dropdown Variable and Dropdown Variable Value when more than one category is available.",
+                            "❌ This button needs at least one Variable set when more than one category is available.",
                             ephemeral=True
                         )
                         return
@@ -1929,9 +1960,8 @@ class TicketsCog(commands.Cog):
                 parent.add_item(btn)
 
             def _add_dropdown(self, parent, cfg):
-                variable = str(cfg.get("variable") or "").strip().lower()
-                value = str(cfg.get("value") or "").strip()
-                cats = [c for c in enabled_categories if matches(c, variable, value)][:25]
+                pairs = parse_variable_pairs(cfg)
+                cats = [c for c in enabled_categories if matches_any(c, pairs)][:25]
                 options = []
                 for c in cats:
                     options.append(discord.SelectOption(
