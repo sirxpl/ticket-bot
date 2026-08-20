@@ -1965,6 +1965,8 @@ class TicketsCog(commands.Cog):
                     typ = cfg.get("type")
                     if typ == "divider":
                         parent.add_item(discord.ui.Separator())
+                    elif typ == "dropdown" and cfg.get("enabled") is False:
+                        continue
                     elif typ in ("button", "dropdown"):
                         # Containers may contain ActionRows, not buttons/selects directly.
                         row = discord.ui.ActionRow()
@@ -2001,6 +2003,8 @@ class TicketsCog(commands.Cog):
                         self._add_button(row, cfg)
                         self.add_item(row)
                     elif typ == "dropdown":
+                        if cfg.get("enabled") is False:
+                            continue
                         row = discord.ui.ActionRow()
                         self._add_dropdown(row, cfg)
                         self.add_item(row)
