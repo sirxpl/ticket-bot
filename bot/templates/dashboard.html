@@ -1719,21 +1719,35 @@ function getBlock(path) {
     for(let i=1;i<p.length;i++) b=b.children[p[i]];
     return b;
 }
-function updateVariablePair(path, combined) {
+function variableListHtml(path, b) {
+    const vars = b.variables || [];
+    const rows = vars.map((v, vi) => `
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input value="${esc(v)}" placeholder="e.g. mode=fallen" oninput="updateVariableAt('${path}',${vi},this.value)" style="flex:1;">
+            <button type="button" onclick="removeVariableAt('${path}',${vi})" style="background:var(--danger);color:white;border:none;border-radius:6px;padding:0 12px;cursor:pointer;flex-shrink:0;">✕</button>
+        </div>
+    `).join('');
+    return `<div class="pb-field">
+        <label>Variables <span style="font-weight:normal;text-transform:none;">(optional — categories matching ANY of these show up here, e.g. mode=fallen. Leave empty to show every enabled category.)</span></label>
+        <div id="varlist-${path}">${rows}</div>
+        <button type="button" onclick="addVariableRow('${path}')" class="block-add-btn" style="padding:8px 12px;font-size:0.85em;width:auto;">+ Add Variable</button>
+    </div>`;
+}
+function addVariableRow(path) {
     const b = getBlock(path);
-    const idx = combined.indexOf('=');
-    if (idx === -1) {
-        b.variable = combined.trim().toLowerCase();
-        b.value = '';
-    } else {
-        b.variable = combined.slice(0, idx).trim().toLowerCase();
-        b.value = combined.slice(idx + 1).trim();
-    }
+    b.variables = b.variables || [];
+    b.variables.push('');
+    renderPanelBlocks();
+}
+function updateVariableAt(path, idx, value) {
+    const b = getBlock(path);
+    b.variables[idx] = value;
     syncComponents();
 }
-function combinedVarValue(b) {
-    if (!b.variable) return '';
-    return b.value ? `${b.variable}=${b.value}` : b.variable;
+function removeVariableAt(path, idx) {
+    const b = getBlock(path);
+    b.variables.splice(idx, 1);
+    renderPanelBlocks();
 }
 function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
 function blockControls(path,b,inEmbed=false) {
@@ -1762,10 +1776,7 @@ function blockControls(path,b,inEmbed=false) {
                     <label>Button Label</label>
                     <input placeholder="Open Ticket" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
                 </div>
-                <div class="pb-field">
-                    <label>Variable <span style="font-weight:normal;text-transform:none;">(optional — filters which categories this button can open, e.g. mode=fallen. Leave blank to allow any single enabled category.)</span></label>
-                    <input placeholder="e.g. mode=fallen" value="${esc(combinedVarValue(b))}" oninput="updateVariablePair('${path}',this.value)">
-                </div>
+                ${variableListHtml(path, b)}
             </div>
         </div>`;
     }
@@ -1781,10 +1792,7 @@ function blockControls(path,b,inEmbed=false) {
                     <label>Placeholder Text</label>
                     <input placeholder="Choose ticket type..." value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
                 </div>
-                <div class="pb-field">
-                    <label>Variable <span style="font-weight:normal;text-transform:none;">(optional — filters which categories appear in this dropdown, e.g. mode=fallen. Leave blank to show every enabled category.)</span></label>
-                    <input placeholder="e.g. mode=fallen" value="${esc(combinedVarValue(b))}" oninput="updateVariablePair('${path}',this.value)">
-                </div>
+                ${variableListHtml(path, b)}
             </div>
         </div>`;
     }
@@ -1841,11 +1849,20 @@ function syncComponents() {
     const input=document.getElementById('components_json');
     if(input) input.value=JSON.stringify(panelBlocks);
 }
+function migrateBlockVariables(b) {
+    if ((b.type === 'button' || b.type === 'dropdown') && !b.variables) {
+        b.variables = b.variable ? [b.value ? `${b.variable}=${b.value}` : b.variable] : [];
+        delete b.variable;
+        delete b.value;
+    }
+    (b.children || []).forEach(migrateBlockVariables);
+}
 if (Array.isArray(savedPanelComponents) && savedPanelComponents.length) {
     panelBlocks=savedPanelComponents;
 } else {
-    panelBlocks=[{type:'embed',title:'Request Carry',description:'Click below to request a carry ticket!',color:'#58b9ff',footer:'',children:[]},{type:'dropdown',placeholder:'Choose ticket type...',variable:'',value:''}];
+    panelBlocks=[{type:'embed',title:'Request Carry',description:'Click below to request a carry ticket!',color:'#58b9ff',footer:'',children:[]},{type:'dropdown',placeholder:'Choose ticket type...',variables:[]}];
 }
+panelBlocks.forEach(migrateBlockVariables);
 renderPanelBlocks();
 
 document.addEventListener('DOMContentLoaded', () => {
