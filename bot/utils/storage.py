@@ -226,18 +226,7 @@ def get_ticket_categories():
         c.setdefault("open_note", "")
         c.setdefault("discord_category_id", None)
         c.setdefault("dropdown_enabled", True)
-        # "tags" replaced the old key=value "variables" dict — a category
-        # now just carries a flat list of plain tags (e.g. ["fallen"]),
-        # and panel buttons/dropdowns filter by a single tag instead of a
-        # variable name + value pair. Old dict-based entries are migrated
-        # by taking their values as tags, so nothing configured is lost.
-        if "tags" not in c:
-            old_vars = c.get("variables")
-            if isinstance(old_vars, dict) and old_vars:
-                c["tags"] = sorted({str(v).strip().lower() for v in old_vars.values() if str(v).strip()})
-            else:
-                c["tags"] = []
-        c.pop("variables", None)
+        c.setdefault("variables", {})
     return categories
 
 def save_ticket_categories(categories: list):
