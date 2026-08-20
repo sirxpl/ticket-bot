@@ -1980,11 +1980,19 @@ class TicketsCog(commands.Cog):
                     custom_id=f"carry_dd_{self._custom_counter}"
                 )
                 self._custom_counter += 1
+                required_role_ids = {str(r) for r in (cfg.get("required_roles") or [])}
 
                 async def callback(interaction: discord.Interaction):
                     if select.values[0] == "__none__":
                         await interaction.response.send_message("❌ No matching ticket types are enabled.", ephemeral=True)
                         return
+                    if required_role_ids:
+                        member_role_ids = {str(r.id) for r in getattr(interaction.user, "roles", [])}
+                        if not member_role_ids.intersection(required_role_ids):
+                            await interaction.response.send_message(
+                                "❌ You don't have the required role to use this dropdown.", ephemeral=True
+                            )
+                            return
                     await TicketView(self.bot).ticket_select(interaction, select)
 
                 select.callback = callback
