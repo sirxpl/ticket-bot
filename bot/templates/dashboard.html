@@ -567,6 +567,29 @@
             outline: none;
             border-color: var(--accent);
         }
+        .pb-field textarea.pb-autosize{
+            resize: none;
+            overflow-y: hidden;
+            min-height: 38px;
+        }
+        .pb-drag-handle{
+            cursor: grab;
+            color: var(--text-dim);
+            font-size: 1.1em;
+            margin-right: 2px;
+            user-select: none;
+        }
+        .pb-drag-handle:active{ cursor: grabbing; }
+        .pb-block.pb-dragging{
+            opacity: 0.4;
+        }
+        .pb-block.pb-drag-over{
+            outline: 2px dashed var(--accent);
+            outline-offset: 2px;
+        }
+        .pb-children-list .pb-block{
+            cursor: default;
+        }
         .pb-field input[type="color"]{
             width: 52px;
             height: 38px;
@@ -1458,9 +1481,26 @@ const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.na
 
 let categoryCount = 0;
 
+function syncCategoryVariablesJson(form) {
+    if (!form) return;
+    form.querySelectorAll('.cat-variables').forEach(textarea => {
+        const obj = {};
+        (textarea.value || '').split('\n').forEach(line => {
+            const idx = line.indexOf('=');
+            if (idx === -1) return;
+            const key = line.slice(0, idx).trim().toLowerCase();
+            const value = line.slice(idx + 1).trim();
+            if (key) obj[key] = value;
+        });
+        const hidden = textarea.parentElement.querySelector('.cat-variables-json');
+        if (hidden) hidden.value = JSON.stringify(obj);
+    });
+}
+
 function saveCategoriesNow() {
     const form = document.getElementById('categoriesForm');
     if (!form) return;
+    syncCategoryVariablesJson(form);
     fetch(form.action, { method: 'POST', body: new FormData(form) })
         .catch(err => console.error('Auto-save failed:', err));
 }
@@ -1519,7 +1559,7 @@ function addCatBlacklistChip(row, roleId, roleName) {
     list.appendChild(chip);
 }
 
-function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, tags) {
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -1544,9 +1584,10 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
             <strong>Enabled in dropdowns</strong>
         </label>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-            <strong style="font-size:.9em;">Dropdown Tags</strong>
-            <p style="color:var(--text-dim);font-size:.85em;margin:4px 0;">Comma-separated. Used to filter which panel buttons/dropdowns show this category — e.g. <code>fallen, priority</code>. Leave blank if this category should show everywhere.</p>
-            <input type="text" name="cat_tags" class="cat-tags" placeholder="e.g. fallen, priority" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+            <strong style="font-size:.9em;">Dropdown Variables</strong>
+            <p style="color:var(--text-dim);font-size:.85em;margin:4px 0;">One key/value per line. Example: <code>mode=fallen</code></p>
+            <textarea class="cat-variables" rows="3" placeholder="mode=fallen&#10;queue=priority" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;"></textarea>
+            <input type="hidden" name="cat_variables" class="cat-variables-json" value="">
         </div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
             <strong style="font-size:.9em;">Blacklist Roles</strong>
@@ -1572,7 +1613,8 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
     if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
 
-    row.querySelector('.cat-tags').value = (tags || []).join(', ');
+    const varText = Object.entries(variables || {}).map(([k,v]) => `${k}=${v}`).join('\\n');
+    row.querySelector('.cat-variables').value = varText;
     (blacklistRoles || []).forEach(roleId => {
         const role = ALL_ROLES.find(r => r.id === roleId);
         addCatBlacklistChip(row, roleId, role ? role.name : roleId);
@@ -1580,8 +1622,12 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
 }
 
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.tags));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables));
 if (existingCategories.length === 0) addCategoryRow();
+
+document.getElementById('categoriesForm')?.addEventListener('submit', function() {
+    syncCategoryVariablesJson(this);
+});
 
 
 
@@ -1691,72 +1737,195 @@ function getBlock(path) {
     for(let i=1;i<p.length;i++) b=b.children[p[i]];
     return b;
 }
+function requiredRolesHtml(path, b) {
+    const roleIds = b.required_roles || [];
+    const rows = roleIds.map(rid => {
+        const role = ALL_ROLES.find(r => r.id === rid);
+        return `<div class="list-item" style="margin-bottom:6px;">
+            <span><strong>@${esc(role ? role.name : 'Unknown role')}</strong></span>
+            <button type="button" onclick="removeRequiredRole('${path}','${rid}')" class="btn-danger" style="padding:4px 10px;">Remove</button>
+        </div>`;
+    }).join('');
+    const options = ALL_ROLES
+        .filter(r => !roleIds.includes(r.id))
+        .map(r => `<option value="${r.id}">@${esc(r.name)}</option>`).join('');
+    return `<div class="pb-field">
+        <label>Required Roles <span style="font-weight:normal;text-transform:none;">(optional — only members with at least one of these roles can use this dropdown. Leave empty to allow anyone, except members with a Ticket Blacklist Role.)</span></label>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <select id="reqrole-select-${path}" style="flex:1;">
+                <option value="">Select a role...</option>
+                ${options}
+            </select>
+            <button type="button" onclick="addRequiredRole('${path}')" style="background:var(--accent);color:white;border:none;padding:0 14px;border-radius:4px;cursor:pointer;font-weight:bold;flex-shrink:0;">+ Add</button>
+        </div>
+        <div id="reqrolelist-${path}">${rows || '<p style="color:var(--text-dim);font-size:0.85em;margin:0;">No role requirement — anyone can use this dropdown.</p>'}</div>
+    </div>`;
+}
+function addRequiredRole(path) {
+    const select = document.getElementById(`reqrole-select-${path}`);
+    const roleId = select.value;
+    if (!roleId) return;
+    const b = getBlock(path);
+    b.required_roles = b.required_roles || [];
+    if (!b.required_roles.includes(roleId)) b.required_roles.push(roleId);
+    renderPanelBlocks();
+}
+function removeRequiredRole(path, roleId) {
+    const b = getBlock(path);
+    b.required_roles = (b.required_roles || []).filter(r => r !== roleId);
+    renderPanelBlocks();
+}
+function variableListHtml(path, b) {
+    const vars = b.variables || [];
+    const rows = vars.map((v, vi) => `
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input value="${esc(v)}" placeholder="e.g. mode=fallen" oninput="updateVariableAt('${path}',${vi},this.value)" style="flex:1;">
+            <button type="button" onclick="removeVariableAt('${path}',${vi})" style="background:var(--danger);color:white;border:none;border-radius:6px;padding:0 12px;cursor:pointer;flex-shrink:0;">✕</button>
+        </div>
+    `).join('');
+    return `<div class="pb-field">
+        <label>Variables <span style="font-weight:normal;text-transform:none;">(optional — categories matching ANY of these show up here, e.g. mode=fallen. Leave empty to show every enabled category.)</span></label>
+        <div id="varlist-${path}">${rows}</div>
+        <button type="button" onclick="addVariableRow('${path}')" class="block-add-btn" style="padding:8px 12px;font-size:0.85em;width:auto;">+ Add Variable</button>
+    </div>`;
+}
+function addVariableRow(path) {
+    const b = getBlock(path);
+    b.variables = b.variables || [];
+    b.variables.push('');
+    renderPanelBlocks();
+}
+function updateVariableAt(path, idx, value) {
+    const b = getBlock(path);
+    b.variables[idx] = value;
+    syncComponents();
+}
+function removeVariableAt(path, idx) {
+    const b = getBlock(path);
+    b.variables.splice(idx, 1);
+    renderPanelBlocks();
+}
 function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
+let _dragSourcePath = null;
+
+function handleBlockDragStart(e, path) {
+    _dragSourcePath = path;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', path);
+    e.stopPropagation();
+    e.currentTarget.classList.add('pb-dragging');
+}
+function handleBlockDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('pb-drag-over');
+}
+function handleBlockDragLeave(e) {
+    e.currentTarget.classList.remove('pb-drag-over');
+}
+function handleBlockDragEnd(e) {
+    e.currentTarget.classList.remove('pb-dragging');
+    document.querySelectorAll('.pb-drag-over').forEach(el => el.classList.remove('pb-drag-over'));
+}
+function handleBlockDrop(e, targetPath) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.querySelectorAll('.pb-drag-over').forEach(el => el.classList.remove('pb-drag-over'));
+    const sourcePath = _dragSourcePath || e.dataTransfer.getData('text/plain');
+    _dragSourcePath = null;
+    if (!sourcePath || sourcePath === targetPath) return;
+    movePanelBlock(sourcePath, targetPath);
+}
+function movePanelBlock(sourcePath, targetPath) {
+    const sourceParts = sourcePath.split('.').map(Number);
+    const targetParts = targetPath.split('.').map(Number);
+
+    // Only allow reordering within the same container - dragging a
+    // top-level block only reorders other top-level blocks, and dragging
+    // something inside an embed only reorders its own siblings inside
+    // that same embed.
+    const sourceParentPath = sourceParts.slice(0, -1).join('.');
+    const targetParentPath = targetParts.slice(0, -1).join('.');
+    if (sourceParentPath !== targetParentPath) return;
+
+    const arr = sourceParentPath === '' ? panelBlocks : getBlock(sourceParentPath).children;
+    const sourceIdx = sourceParts[sourceParts.length - 1];
+    const targetIdx = targetParts[targetParts.length - 1];
+
+    const [moved] = arr.splice(sourceIdx, 1);
+    arr.splice(targetIdx, 0, moved);
+
+    renderPanelBlocks();
+}
 function blockControls(path,b,inEmbed=false) {
-    const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾'};
-    const labels = {embed:'Embed', divider:'Divider', button:'Button', dropdown:'Dropdown'};
+    const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾', text:'📝'};
+    const labels = {embed:'Embed', divider:'Divider', button:'Button', dropdown:'Dropdown', text:'Text'};
     const header = `
         <div class="pb-block-header">
             <div class="pb-block-title">
+                <span class="pb-drag-handle" title="Drag to reorder">⠿</span>
                 <span class="pb-block-icon">${icons[b.type]}</span>
                 <span>${labels[b.type]}</span>
+                ${b.type === 'dropdown' ? `<span id="hidden-badge-${path}" style="color:var(--danger);font-size:0.78em;font-weight:600;margin-left:6px;display:${b.enabled===false?'inline':'none'};">HIDDEN</span>` : ''}
             </div>
             <button type="button" class="pb-remove-btn" onclick="removePanelBlock('${path}')">✕ Remove</button>
         </div>`;
+    const dragAttrs = `draggable="true" data-path="${path}" ondragstart="handleBlockDragStart(event,'${path}')" ondragover="handleBlockDragOver(event)" ondragleave="handleBlockDragLeave(event)" ondrop="handleBlockDrop(event,'${path}')" ondragend="handleBlockDragEnd(event)"`;
 
     if (b.type === 'divider') {
-        return `<div class="pb-block" data-type="divider">${header}
+        return `<div class="pb-block" data-type="divider" ${dragAttrs}>${header}
             <div class="pb-divider-line">divider — separates content above and below</div>
         </div>`;
     }
 
+    if (b.type === 'text') {
+        return `<div class="pb-block" data-type="text" ${dragAttrs}>${header}
+            <div class="pb-block-body">
+                <div class="pb-field">
+                    <label>Text <span style="font-weight:normal;text-transform:none;">(start a line with ### for a title/heading, like Discord markdown)</span></label>
+                    <textarea rows="2" class="pb-autosize" placeholder="### Normal Gamemodes&#10;You can request a carry for any normal mode." oninput="updateBlock('${path}','content',this.value); autosizeTextarea(this);">${esc(b.content||'')}</textarea>
+                </div>
+            </div>
+        </div>`;
+    }
+
     if (b.type === 'button') {
-        return `<div class="pb-block" data-type="button">${header}
+        return `<div class="pb-block" data-type="button" ${dragAttrs}>${header}
             <div class="pb-block-body">
                 <div class="pb-field">
                     <label>Button Label</label>
                     <input placeholder="Open Ticket" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
                 </div>
-                <div class="pb-field">
-                    <label>Tag <span style="font-weight:normal;text-transform:none;">(optional — leave blank if there's only one ticket type)</span></label>
-                    <input placeholder="e.g. fallen" value="${esc(b.tag||'')}" oninput="updateBlock('${path}','tag',this.value)">
-                </div>
+                ${variableListHtml(path, b)}
             </div>
         </div>`;
     }
 
     if (b.type === 'dropdown') {
-        const visibility = b.visibility || 'filtered';
-        return `<div class="pb-block" data-type="dropdown">${header}
+        return `<div class="pb-block" data-type="dropdown" ${dragAttrs}>${header}
             <div class="pb-block-body">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:12px;">
+                    <input type="checkbox" ${b.enabled !== false ? 'checked' : ''} style="width:auto;" onchange="updateBlock('${path}','enabled',this.checked); const badge=document.getElementById('hidden-badge-${path}'); if(badge) badge.style.display=this.checked?'none':'inline';">
+                    <span>Dropdown Visibility <span style="font-weight:normal;text-transform:none;color:var(--text-dim);">— show this dropdown when the panel is deployed</span></span>
+                </label>
                 <div class="pb-field">
                     <label>Placeholder Text</label>
                     <input placeholder="Choose ticket type..." value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
                 </div>
-                <div class="pb-field">
-                    <label>Dropdown Visibility</label>
-                    <select onchange="updateBlock('${path}','visibility',this.value); renderPanelBlocks();">
-                        <option value="filtered" ${visibility==='filtered'?'selected':''}>Filter by tag</option>
-                        <option value="all" ${visibility==='all'?'selected':''}>Show every ticket type</option>
-                    </select>
-                </div>
-                ${visibility === 'filtered' ? `
-                <div class="pb-field">
-                    <label>Tag</label>
-                    <input placeholder="e.g. fallen" value="${esc(b.tag||'')}" oninput="updateBlock('${path}','tag',this.value)">
-                </div>` : `
-                <p style="color:var(--text-dim); font-size:0.85em; margin:0;">Shows every enabled ticket category, regardless of tag.</p>`}
+                ${requiredRolesHtml(path, b)}
+                ${variableListHtml(path, b)}
             </div>
         </div>`;
     }
 
     // embed
     let children = (b.children||[]).map((c,i)=>blockControls(path+'.'+i,c,true)).join('');
-    return `<div class="pb-block" data-type="embed">${header}
+    return `<div class="pb-block" data-type="embed" ${dragAttrs}>${header}
         <div class="pb-block-body">
             <div class="pb-field">
-                <label>Embed Title</label>
-                <input placeholder="e.g. Request Carry" value="${esc(b.title||'')}" oninput="updateBlock('${path}','title',this.value)">
+                <label>Embed Title <span style="font-weight:normal;text-transform:none;">(Enter adds a new line)</span></label>
+                <textarea rows="1" class="pb-autosize" placeholder="e.g. Request Carry" oninput="updateBlock('${path}','title',this.value); autosizeTextarea(this);">${esc(b.title||'')}</textarea>
             </div>
             <div class="pb-field">
                 <label>Embed Description</label>
@@ -1779,6 +1948,7 @@ function blockControls(path,b,inEmbed=false) {
             <div class="pb-children-wrap">
                 <div class="pb-children-label">Inside this embed</div>
                 <div class="pb-children-add">
+                    <button type="button" onclick="addChild('${path}','text')">+ Text</button>
                     <button type="button" onclick="addChild('${path}','button')">+ Button</button>
                     <button type="button" onclick="addChild('${path}','dropdown')">+ Dropdown</button>
                     <button type="button" onclick="addChild('${path}','divider')">+ Divider</button>
@@ -1788,39 +1958,34 @@ function blockControls(path,b,inEmbed=false) {
         </div>
     </div>`;
 }
+function autosizeTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = (el.scrollHeight) + 'px';
+}
 function renderPanelBlocks() {
     const root=document.getElementById('panelBlocks'); if(!root) return;
     root.innerHTML=panelBlocks.map((b,i)=>blockControls(String(i),b)).join('');
+    root.querySelectorAll('.pb-autosize').forEach(autosizeTextarea);
     syncComponents();
 }
 function syncComponents() {
     const input=document.getElementById('components_json');
     if(input) input.value=JSON.stringify(panelBlocks);
 }
-
-// Migrate old two-field variable/value blocks (buttons & dropdowns) into
-// the current single "tag" field, recursively (dropdowns/buttons can be
-// nested inside embeds). Drafts saved before this change still load fine.
-function migrateBlockTags(blocks) {
-    (blocks || []).forEach(b => {
-        if ((b.type === 'button' || b.type === 'dropdown') && b.tag === undefined) {
-            b.tag = b.value || b.variable || '';
-            delete b.variable;
-            delete b.value;
-        }
-        if (b.type === 'dropdown' && b.visibility === undefined) {
-            b.visibility = 'filtered';
-        }
-        if (b.children) migrateBlockTags(b.children);
-    });
-    return blocks;
+function migrateBlockVariables(b) {
+    if ((b.type === 'button' || b.type === 'dropdown') && !b.variables) {
+        b.variables = b.variable ? [b.value ? `${b.variable}=${b.value}` : b.variable] : [];
+        delete b.variable;
+        delete b.value;
+    }
+    (b.children || []).forEach(migrateBlockVariables);
 }
-
 if (Array.isArray(savedPanelComponents) && savedPanelComponents.length) {
-    panelBlocks=migrateBlockTags(savedPanelComponents);
+    panelBlocks=savedPanelComponents;
 } else {
-    panelBlocks=[{type:'embed',title:'Request Carry',description:'Click below to request a carry ticket!',color:'#58b9ff',footer:'',children:[]},{type:'dropdown',placeholder:'Choose ticket type...',visibility:'all',tag:''}];
+    panelBlocks=[{type:'embed',title:'Request Carry',description:'Click below to request a carry ticket!',color:'#58b9ff',footer:'',children:[]},{type:'dropdown',placeholder:'Choose ticket type...',variables:[]}];
 }
+panelBlocks.forEach(migrateBlockVariables);
 renderPanelBlocks();
 
 document.addEventListener('DOMContentLoaded', () => {
