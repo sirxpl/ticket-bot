@@ -1714,6 +1714,22 @@ function getBlock(path) {
     for(let i=1;i<p.length;i++) b=b.children[p[i]];
     return b;
 }
+function updateVariablePair(path, combined) {
+    const b = getBlock(path);
+    const idx = combined.indexOf('=');
+    if (idx === -1) {
+        b.variable = combined.trim().toLowerCase();
+        b.value = '';
+    } else {
+        b.variable = combined.slice(0, idx).trim().toLowerCase();
+        b.value = combined.slice(idx + 1).trim();
+    }
+    syncComponents();
+}
+function combinedVarValue(b) {
+    if (!b.variable) return '';
+    return b.value ? `${b.variable}=${b.value}` : b.variable;
+}
 function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
 function blockControls(path,b,inEmbed=false) {
     const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾'};
@@ -1723,6 +1739,7 @@ function blockControls(path,b,inEmbed=false) {
             <div class="pb-block-title">
                 <span class="pb-block-icon">${icons[b.type]}</span>
                 <span>${labels[b.type]}</span>
+                ${b.type === 'dropdown' ? `<span id="hidden-badge-${path}" style="color:var(--danger);font-size:0.78em;font-weight:600;margin-left:6px;display:${b.enabled===false?'inline':'none'};">HIDDEN</span>` : ''}
             </div>
             <button type="button" class="pb-remove-btn" onclick="removePanelBlock('${path}')">✕ Remove</button>
         </div>`;
@@ -1740,15 +1757,9 @@ function blockControls(path,b,inEmbed=false) {
                     <label>Button Label</label>
                     <input placeholder="Open Ticket" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
                 </div>
-                <div class="pb-block-body pb-grid-2" style="padding:0;">
-                    <div class="pb-field">
-                        <label>Dropdown Variable <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
-                        <input placeholder="e.g. mode" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
-                    </div>
-                    <div class="pb-field">
-                        <label>Variable Value <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
-                        <input placeholder="e.g. fallen" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
-                    </div>
+                <div class="pb-field">
+                    <label>Variable <span style="font-weight:normal;text-transform:none;">(optional — filters which categories this button can open, e.g. mode=fallen. Leave blank to allow any single enabled category.)</span></label>
+                    <input placeholder="e.g. mode=fallen" value="${esc(combinedVarValue(b))}" oninput="updateVariablePair('${path}',this.value)">
                 </div>
             </div>
         </div>`;
@@ -1757,19 +1768,17 @@ function blockControls(path,b,inEmbed=false) {
     if (b.type === 'dropdown') {
         return `<div class="pb-block" data-type="dropdown">${header}
             <div class="pb-block-body">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:12px;">
+                    <input type="checkbox" ${b.enabled !== false ? 'checked' : ''} style="width:auto;" onchange="updateBlock('${path}','enabled',this.checked); const badge=document.getElementById('hidden-badge-${path}'); if(badge) badge.style.display=this.checked?'none':'inline';">
+                    <span>Dropdown Visibility <span style="font-weight:normal;text-transform:none;color:var(--text-dim);">— show this dropdown when the panel is deployed</span></span>
+                </label>
                 <div class="pb-field">
                     <label>Placeholder Text</label>
                     <input placeholder="Choose ticket type..." value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
                 </div>
-                <div class="pb-block-body pb-grid-2" style="padding:0;">
-                    <div class="pb-field">
-                        <label>Dropdown Variable <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
-                        <input placeholder="e.g. mode" value="${esc(b.variable||'')}" oninput="updateBlock('${path}','variable',this.value)">
-                    </div>
-                    <div class="pb-field">
-                        <label>Variable Value <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
-                        <input placeholder="e.g. fallen" value="${esc(b.value||'')}" oninput="updateBlock('${path}','value',this.value)">
-                    </div>
+                <div class="pb-field">
+                    <label>Variable <span style="font-weight:normal;text-transform:none;">(optional — filters which categories appear in this dropdown, e.g. mode=fallen. Leave blank to show every enabled category.)</span></label>
+                    <input placeholder="e.g. mode=fallen" value="${esc(combinedVarValue(b))}" oninput="updateVariablePair('${path}',this.value)">
                 </div>
             </div>
         </div>`;
