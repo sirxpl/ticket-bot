@@ -1751,8 +1751,8 @@ function removeVariableAt(path, idx) {
 }
 function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
 function blockControls(path,b,inEmbed=false) {
-    const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾'};
-    const labels = {embed:'Embed', divider:'Divider', button:'Button', dropdown:'Dropdown'};
+    const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾', text:'📝'};
+    const labels = {embed:'Embed', divider:'Divider', button:'Button', dropdown:'Dropdown', text:'Text'};
     const header = `
         <div class="pb-block-header">
             <div class="pb-block-title">
@@ -1766,6 +1766,17 @@ function blockControls(path,b,inEmbed=false) {
     if (b.type === 'divider') {
         return `<div class="pb-block" data-type="divider">${header}
             <div class="pb-divider-line">divider — separates content above and below</div>
+        </div>`;
+    }
+
+    if (b.type === 'text') {
+        return `<div class="pb-block" data-type="text">${header}
+            <div class="pb-block-body">
+                <div class="pb-field">
+                    <label>Text <span style="font-weight:normal;text-transform:none;">(start a line with ### for a title/heading, like Discord markdown)</span></label>
+                    <textarea rows="2" class="pb-autosize" placeholder="### Normal Gamemodes&#10;You can request a carry for any normal mode." oninput="updateBlock('${path}','content',this.value); autosizeTextarea(this);">${esc(b.content||'')}</textarea>
+                </div>
+            </div>
         </div>`;
     }
 
@@ -1826,6 +1837,7 @@ function blockControls(path,b,inEmbed=false) {
             <div class="pb-children-wrap">
                 <div class="pb-children-label">Inside this embed</div>
                 <div class="pb-children-add">
+                    <button type="button" onclick="addChild('${path}','text')">+ Text</button>
                     <button type="button" onclick="addChild('${path}','button')">+ Button</button>
                     <button type="button" onclick="addChild('${path}','dropdown')">+ Dropdown</button>
                     <button type="button" onclick="addChild('${path}','divider')">+ Divider</button>
