@@ -567,6 +567,11 @@
             outline: none;
             border-color: var(--accent);
         }
+        .pb-field textarea.pb-autosize{
+            resize: none;
+            overflow-y: hidden;
+            min-height: 38px;
+        }
         .pb-field input[type="color"]{
             width: 52px;
             height: 38px;
@@ -1789,8 +1794,8 @@ function blockControls(path,b,inEmbed=false) {
     return `<div class="pb-block" data-type="embed">${header}
         <div class="pb-block-body">
             <div class="pb-field">
-                <label>Embed Title</label>
-                <input placeholder="e.g. Request Carry" value="${esc(b.title||'')}" oninput="updateBlock('${path}','title',this.value)">
+                <label>Embed Title <span style="font-weight:normal;text-transform:none;">(Enter adds a new line)</span></label>
+                <textarea rows="1" class="pb-autosize" placeholder="e.g. Request Carry" oninput="updateBlock('${path}','title',this.value); autosizeTextarea(this);">${esc(b.title||'')}</textarea>
             </div>
             <div class="pb-field">
                 <label>Embed Description</label>
@@ -1822,9 +1827,14 @@ function blockControls(path,b,inEmbed=false) {
         </div>
     </div>`;
 }
+function autosizeTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = (el.scrollHeight) + 'px';
+}
 function renderPanelBlocks() {
     const root=document.getElementById('panelBlocks'); if(!root) return;
     root.innerHTML=panelBlocks.map((b,i)=>blockControls(String(i),b)).join('');
+    root.querySelectorAll('.pb-autosize').forEach(autosizeTextarea);
     syncComponents();
 }
 function syncComponents() {
