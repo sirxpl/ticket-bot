@@ -373,15 +373,20 @@ def get_basic_command_user_ids():
 
 
 def has_basic_command_access(user_id: str, member_role_ids=None) -> bool:
-    """Return True if this user can use the basic ticket-management
-    commands (/close, /requestclose, /autoclose,
-    /add, /remove, /rename).
+    """Return True if this user is on the Basic Command Access allowlist
+    for the basic ticket-management commands (/close, /requestclose,
+    /autoclose, /add, /remove, /rename).
 
-    Same shape as has_powerful_command_access: admins always pass; while
-    both lists are empty, anyone who already passes Manage Channels keeps
-    working as before; once at least one role or user is added, only
-    matching users/roles/admins get through — on top of the existing
-    Manage Channels + valid ticket channel requirement.
+    Note: this function only checks the allowlist itself. The caller
+    (_basic_command_check in cogs/tickets.py) treats this as ONE of two
+    independent paths to access - the other being native Manage Channels
+    permission - so this returning False does not by itself block someone
+    who has Manage Channels.
+
+    Admins always pass here. While both lists are empty, this returns
+    True for everyone (matching the "nothing configured yet" default);
+    once at least one role or user is added, only matching users/roles/
+    admins pass this specific check.
     """
     if is_admin(user_id):
         return True
