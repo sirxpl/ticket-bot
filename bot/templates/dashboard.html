@@ -805,7 +805,7 @@
             {% for ticket in active_tickets %}
                 <div class="list-item">
                     <div>
-                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User ID:</strong> {{ ticket.user_id }}</div>
+                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User:</strong> {% if ticket.username %}{{ ticket.username }} <span style="color:var(--text-dim);">({{ ticket.user_id }})</span>{% else %}{{ ticket.user_id }}{% endif %}</div>
                         <div style="color:var(--text-dim);font-size:0.9em;">Opened: <span class="local-time" data-ts="{{ ticket.created_at }}">{{ ticket.created_at }}</span> • <span class="age" data-ts="{{ ticket.created_at }}">...</span></div>
                     </div>
                 </div>
@@ -820,7 +820,7 @@
             {% for cd in cooldowns %}
                 <div class="list-item">
                     <div>
-                        <div><strong>User ID:</strong> {{ cd.user_id }}</div>
+                        <div><strong>User:</strong> {% if cd.username %}{{ cd.username }} <span style="color:var(--text-dim);">({{ cd.user_id }})</span>{% else %}{{ cd.user_id }}{% endif %}</div>
                         <div style="color:var(--text-dim);font-size:0.9em;">Expires: <span class="local-time" data-ts="{{ cd.expires_ts }}">{{ cd.expires_at }}</span> • <span class="countdown" data-ts="{{ cd.expires_ts }}">...</span></div>
                     </div>
                     {% if can_remove_cooldown %}
