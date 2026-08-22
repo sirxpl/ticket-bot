@@ -66,6 +66,11 @@ from utils.access import (
     remove_basic_command_role,
     add_basic_command_user,
     remove_basic_command_user,
+    add_blacklist_page_role,
+    remove_blacklist_page_role,
+    add_blacklist_page_user,
+    remove_blacklist_page_user,
+    has_blacklist_page_access,
     set_log_channel,
     set_blacklist_log_channel,
     has_dashboard_access,
@@ -196,6 +201,28 @@ def carry_manager_required(f):
     return decorated_function
 
 
+def blacklist_page_required(f):
+    """Like access_required, but also requires Blacklist page access
+    (either an admin, or a matching role/user from blacklist_page_roles /
+    blacklist_page_users)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        if not has_blacklist_page_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to use the Blacklist page.", "danger")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def admin_required(f):
     """Restricts a route to admins only (see utils.access.is_admin) — used
     for the Access Control page and its management routes."""
@@ -313,8 +340,15 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         carry_manager_roles.append({"id": rid, "name": role.name if role else None})
 
+    blacklist_page_roles = []
+    for rid in access_settings.get("blacklist_page_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        blacklist_page_roles.append({"id": rid, "name": role.name if role else None})
+    blacklist_page_users = access_settings.get("blacklist_page_users", [])
+
     is_admin_user = is_admin(user_data["id"])
     can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
+    can_access_blacklist = has_blacklist_page_access(user_data["id"], role_ids)
 
     blacklist_roles = []
     for rid in access_settings.get("blacklist_roles", []):
@@ -383,6 +417,9 @@ def home():
         carry_manager_roles=carry_manager_roles,
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
+        can_access_blacklist=can_access_blacklist,
+        blacklist_page_roles=blacklist_page_roles,
+        blacklist_page_users=blacklist_page_users,
         ticket_categories=get_ticket_categories(),
         panel_draft=get_ticket_panel_draft(),
         redirect_message=get_redirect_message(),
@@ -525,7 +562,7 @@ def view_ticket(ticket_id):
 
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@access_required
+@blacklist_page_required
 def api_unblacklist(user_id):
     remove_from_blacklist(user_id)
     return jsonify({"success": True})
@@ -917,6 +954,46 @@ def access_add_carry_manager_role():
 def access_remove_carry_manager_role(role_id):
     remove_carry_manager_role(role_id)
     flash("🗑️ Role removed from Carry Manager Settings access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-blacklist-page-role", methods=["POST"])
+@admin_required
+def access_add_blacklist_page_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_blacklist_page_role(role_id)
+        flash("✅ Role added to Blacklist page access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-blacklist-page-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_blacklist_page_role(role_id):
+    remove_blacklist_page_role(role_id)
+    flash("🗑️ Role removed from Blacklist page access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-blacklist-page-user", methods=["POST"])
+@admin_required
+def access_add_blacklist_page_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_blacklist_page_user(user_id)
+        flash("✅ User added to Blacklist page access.", "success")
+    else:
+        flash("❌ Please enter a valid user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-blacklist-page-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_blacklist_page_user(user_id):
+    remove_blacklist_page_user(user_id)
+    flash("🗑️ User removed from Blacklist page access.", "info")
     return redirect(url_for("home"))
 
 
