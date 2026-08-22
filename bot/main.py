@@ -66,15 +66,16 @@ from utils.access import (
     remove_basic_command_role,
     add_basic_command_user,
     remove_basic_command_user,
-    add_blacklist_page_role,
-    remove_blacklist_page_role,
-    add_blacklist_page_user,
-    remove_blacklist_page_user,
-    has_blacklist_page_access,
+    add_transcripts_role,
+    remove_transcripts_role,
+    add_remove_cooldown_role,
+    remove_remove_cooldown_role,
     set_log_channel,
     set_blacklist_log_channel,
     has_dashboard_access,
     has_carry_manager_access,
+    has_transcripts_access,
+    has_remove_cooldown_access,
     is_admin,
 )
 
@@ -201,10 +202,9 @@ def carry_manager_required(f):
     return decorated_function
 
 
-def blacklist_page_required(f):
-    """Like access_required, but also requires Blacklist page access
-    (either an admin, or a matching role/user from blacklist_page_roles /
-    blacklist_page_users)."""
+def remove_cooldown_required(f):
+    """Like access_required, but also requires Remove Cooldown access
+    (either an admin, or a matching role from remove_cooldown_roles)."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         user_data = session.get("user")
@@ -216,8 +216,8 @@ def blacklist_page_required(f):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
             session.pop("user", None)
             return redirect(url_for("home"))
-        if not has_blacklist_page_access(user_data["id"], role_ids):
-            flash("⛔ You don't have permission to use the Blacklist page.", "danger")
+        if not has_remove_cooldown_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to remove cooldowns.", "danger")
             return redirect(url_for("home"))
         return f(*args, **kwargs)
     return decorated_function
@@ -340,15 +340,20 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         carry_manager_roles.append({"id": rid, "name": role.name if role else None})
 
-    blacklist_page_roles = []
-    for rid in access_settings.get("blacklist_page_roles", []):
+    transcripts_roles = []
+    for rid in access_settings.get("transcripts_roles", []):
         role = guild.get_role(int(rid)) if guild else None
-        blacklist_page_roles.append({"id": rid, "name": role.name if role else None})
-    blacklist_page_users = access_settings.get("blacklist_page_users", [])
+        transcripts_roles.append({"id": rid, "name": role.name if role else None})
+
+    remove_cooldown_roles = []
+    for rid in access_settings.get("remove_cooldown_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        remove_cooldown_roles.append({"id": rid, "name": role.name if role else None})
 
     is_admin_user = is_admin(user_data["id"])
     can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
-    can_access_blacklist = has_blacklist_page_access(user_data["id"], role_ids)
+    can_access_transcripts = has_transcripts_access(user_data["id"], role_ids)
+    can_remove_cooldown = has_remove_cooldown_access(user_data["id"], role_ids)
 
     blacklist_roles = []
     for rid in access_settings.get("blacklist_roles", []):
@@ -415,11 +420,12 @@ def home():
         basic_command_roles=basic_command_roles,
         basic_command_users=basic_command_users,
         carry_manager_roles=carry_manager_roles,
+        transcripts_roles=transcripts_roles,
+        remove_cooldown_roles=remove_cooldown_roles,
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
-        can_access_blacklist=can_access_blacklist,
-        blacklist_page_roles=blacklist_page_roles,
-        blacklist_page_users=blacklist_page_users,
+        can_access_transcripts=can_access_transcripts,
+        can_remove_cooldown=can_remove_cooldown,
         ticket_categories=get_ticket_categories(),
         panel_draft=get_ticket_panel_draft(),
         redirect_message=get_redirect_message(),
@@ -562,14 +568,14 @@ def view_ticket(ticket_id):
 
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@blacklist_page_required
+@access_required
 def api_unblacklist(user_id):
     remove_from_blacklist(user_id)
     return jsonify({"success": True})
 
 
 @app.route("/api/remove-cooldown/<user_id>", methods=["POST"])
-@access_required
+@remove_cooldown_required
 def api_remove_cooldown(user_id):
     from utils.storage import remove_cooldown
     ok = remove_cooldown(user_id)
@@ -957,43 +963,43 @@ def access_remove_carry_manager_role(role_id):
     return redirect(url_for("home"))
 
 
-@app.route("/dashboard/access/add-blacklist-page-role", methods=["POST"])
+@app.route("/dashboard/access/add-transcripts-role", methods=["POST"])
 @admin_required
-def access_add_blacklist_page_role():
+def access_add_transcripts_role():
     role_id = request.form.get("role_id", "").strip()
     if role_id.isdigit():
-        add_blacklist_page_role(role_id)
-        flash("✅ Role added to Blacklist page access.", "success")
+        add_transcripts_role(role_id)
+        flash("✅ Role added to Transcripts access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
     return redirect(url_for("home"))
 
 
-@app.route("/dashboard/access/remove-blacklist-page-role/<role_id>", methods=["POST"])
+@app.route("/dashboard/access/remove-transcripts-role/<role_id>", methods=["POST"])
 @admin_required
-def access_remove_blacklist_page_role(role_id):
-    remove_blacklist_page_role(role_id)
-    flash("🗑️ Role removed from Blacklist page access.", "info")
+def access_remove_transcripts_role(role_id):
+    remove_transcripts_role(role_id)
+    flash("🗑️ Role removed from Transcripts access.", "info")
     return redirect(url_for("home"))
 
 
-@app.route("/dashboard/access/add-blacklist-page-user", methods=["POST"])
+@app.route("/dashboard/access/add-remove-cooldown-role", methods=["POST"])
 @admin_required
-def access_add_blacklist_page_user():
-    user_id = request.form.get("user_id", "").strip()
-    if user_id.isdigit():
-        add_blacklist_page_user(user_id)
-        flash("✅ User added to Blacklist page access.", "success")
+def access_add_remove_cooldown_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_remove_cooldown_role(role_id)
+        flash("✅ Role added to Remove Cooldown access.", "success")
     else:
-        flash("❌ Please enter a valid user ID.", "danger")
+        flash("❌ Please select a valid role.", "danger")
     return redirect(url_for("home"))
 
 
-@app.route("/dashboard/access/remove-blacklist-page-user/<user_id>", methods=["POST"])
+@app.route("/dashboard/access/remove-remove-cooldown-role/<role_id>", methods=["POST"])
 @admin_required
-def access_remove_blacklist_page_user(user_id):
-    remove_blacklist_page_user(user_id)
-    flash("🗑️ User removed from Blacklist page access.", "info")
+def access_remove_remove_cooldown_role(role_id):
+    remove_remove_cooldown_role(role_id)
+    flash("🗑️ Role removed from Remove Cooldown access.", "info")
     return redirect(url_for("home"))
 
 
