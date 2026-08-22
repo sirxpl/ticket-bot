@@ -20,6 +20,8 @@ _DEFAULTS = {
     "powerful_command_users": [],
     "basic_command_roles": [],
     "basic_command_users": [],
+    "blacklist_page_roles": [],
+    "blacklist_page_users": [],
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -62,6 +64,8 @@ def get_access_settings():
         doc.setdefault("powerful_command_users", [])
         doc.setdefault("basic_command_roles", [])
         doc.setdefault("basic_command_users", [])
+        doc.setdefault("blacklist_page_roles", [])
+        doc.setdefault("blacklist_page_users", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -80,6 +84,8 @@ def get_access_settings():
         data.setdefault("powerful_command_users", [])
         data.setdefault("basic_command_roles", [])
         data.setdefault("basic_command_users", [])
+        data.setdefault("blacklist_page_roles", [])
+        data.setdefault("blacklist_page_users", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -392,6 +398,83 @@ def has_basic_command_access(user_id: str, member_role_ids=None) -> bool:
         return True
     roles = get_basic_command_role_ids()
     users = get_basic_command_user_ids()
+    if not roles and not users:
+        return True
+    if str(user_id) in users:
+        return True
+    if member_role_ids:
+        role_ids = {str(r) for r in member_role_ids}
+        if role_ids.intersection(set(roles)):
+            return True
+    return False
+
+
+def add_blacklist_page_role(role_id: str) -> bool:
+    """Add a role allowed to view/use the Blacklist section of the
+    dashboard — the first of what will eventually be per-section access
+    controls for every dashboard page."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["blacklist_page_roles"]:
+        data["blacklist_page_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_blacklist_page_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["blacklist_page_roles"]:
+        data["blacklist_page_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def add_blacklist_page_user(user_id: str) -> bool:
+    """Add a user ID allowed to view/use the Blacklist section directly,
+    regardless of role."""
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id not in data["blacklist_page_users"]:
+        data["blacklist_page_users"].append(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_blacklist_page_user(user_id: str) -> bool:
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id in data["blacklist_page_users"]:
+        data["blacklist_page_users"].remove(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_blacklist_page_role_ids():
+    return get_access_settings().get("blacklist_page_roles", [])
+
+
+def get_blacklist_page_user_ids():
+    return get_access_settings().get("blacklist_page_users", [])
+
+
+def has_blacklist_page_access(user_id: str, member_role_ids=None) -> bool:
+    """Return True if this user can view/use the Blacklist section of the
+    dashboard.
+
+    Admins always pass. While both lists are empty, anyone with general
+    dashboard access can still see this page (today's default, so nobody
+    gets locked out before it's configured). Once at least one role or
+    user is added to either list, only matching users/roles/admins get in.
+    """
+    if is_admin(user_id):
+        return True
+    roles = get_blacklist_page_role_ids()
+    users = get_blacklist_page_user_ids()
     if not roles and not users:
         return True
     if str(user_id) in users:
