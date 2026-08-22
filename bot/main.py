@@ -164,6 +164,48 @@ def get_member_role_ids(user_id):
     return [str(r.id) for r in member.roles]
 
 
+# Small persistent cache so repeated dashboard loads don't re-fetch the same
+# users' names over and over — usernames rarely change, and this avoids
+# piling up several blocking REST calls (one per unresolved user) on every
+# single page load.
+_username_cache = {}
+
+
+def resolve_username(guild, user_id):
+    """Best-effort username lookup for display purposes (e.g. showing a name
+    next to a raw user ID on the dashboard). Returns None if it can't be
+    resolved — callers should fall back to showing the raw ID.
+
+    Uses a short 3s timeout on the REST fallback (unlike
+    get_member_role_ids's 10s) since this may run several times in a row
+    while rendering one page, and a slow/failed lookup shouldn't stall the
+    whole dashboard load.
+    """
+    if not guild or not user_id:
+        return None
+    key = str(user_id)
+    if key in _username_cache:
+        return _username_cache[key]
+
+    try:
+        member = guild.get_member(int(user_id))
+    except (TypeError, ValueError):
+        return None
+
+    if not member:
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                guild.fetch_member(int(user_id)), bot.loop
+            )
+            member = future.result(timeout=3)
+        except Exception:
+            member = None
+
+    name = str(member) if member else None
+    _username_cache[key] = name
+    return name
+
+
 def access_required(f):
     """Like login_required, but also enforces the Access Control allow-list."""
     @wraps(f)
@@ -394,6 +436,18 @@ def home():
                         "role_name": matched_role.name if matched_role else None,
                     })
 
+    active_tickets = []
+    for t in tickets_info.get("active_tickets", []):
+        t = dict(t)
+        t["username"] = resolve_username(guild, t.get("user_id"))
+        active_tickets.append(t)
+
+    cooldowns = []
+    for cd in tickets_info.get("cooldowns", []):
+        cd = dict(cd)
+        cd["username"] = resolve_username(guild, cd.get("user_id"))
+        cooldowns.append(cd)
+
     transcripts = [
         get_transcript_info(fn) for fn in list_transcript_filenames()
     ]
@@ -406,9 +460,9 @@ def home():
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
         total_tickets=tickets_info.get("ticket_counter", 0),
-        active_tickets=tickets_info.get("active_tickets", []),
+        active_tickets=active_tickets,
         transcripts=transcripts,
-        cooldowns=tickets_info.get("cooldowns", []),
+        cooldowns=cooldowns,
         blacklisted_users=blacklist_info.get("blacklisted_users", []),
         role_blacklisted_members=role_blacklisted_members,
         allowed_users=allowed_users,
