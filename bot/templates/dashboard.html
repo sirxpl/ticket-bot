@@ -745,9 +745,11 @@
                         <span class="nav-icon">⚙️</span><span class="nav-text">Carry Manager Settings</span>
                     </button>
                     {% endif %}
+                    {% if can_access_blacklist %}
                     <button type="button" class="nav-item" data-page="blacklist" onclick="showPage('blacklist', this)">
                         <span class="nav-icon">🚫</span><span class="nav-text">Blacklist</span>
                     </button>
+                    {% endif %}
                     <button type="button" class="nav-item" data-page="transcripts" onclick="showPage('transcripts', this)">
                         <span class="nav-icon">📜</span><span class="nav-text">Transcripts</span>
                     </button>
@@ -1004,6 +1006,7 @@
         </section>
 
         <section class="page" id="page-blacklist">
+        {% if can_access_blacklist %}
         <div class="card">
             <h3><span class="card-icon">🚫</span> Blacklisted Users</h3>
             {% for b_user in blacklisted_users %}
@@ -1039,6 +1042,12 @@
                 <p style="color: var(--text-dim);">No members currently blacklisted via a role.</p>
             {% endfor %}
         </div>
+        {% else %}
+        <div class="card">
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to access the Blacklist page. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
         </section>
 
         <section class="page" id="page-transcripts">
@@ -1136,6 +1145,51 @@
                 </div>
             {% else %}
                 <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can use Carry Manager Settings.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Blacklist Page Access</h4>
+            <p class="card-subtitle">
+                Controls who can view and manage the Blacklist page (unblacklisting individually blacklisted users). The first of what will become per-section dashboard permissions. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-blacklist-page-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in blacklist_page_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-blacklist-page-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-blacklist-page-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in blacklist_page_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-blacklist-page-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
             {% endfor %}
 
             <h4 style="margin-top: 20px;">Ticket Blacklist Role</h4>
