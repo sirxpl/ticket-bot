@@ -1232,24 +1232,48 @@ class TicketsCog(commands.Cog):
             return False
         return True
 
+    async def _require_ticket_channel(self, interaction: discord.Interaction) -> bool:
+        """Just the "must be in an active ticket channel" half of
+        _ticket_command_check, without the Manage Channels requirement -
+        used by _basic_command_check, which has its own more flexible
+        permission logic (role/user access OR Manage Channels, either
+        one is enough)."""
+        if not interaction.channel or not is_ticket_channel(interaction.channel.id):
+            await interaction.response.send_message(
+                "❌ This command can only be used inside an active ticket channel.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
     async def _basic_command_check(self, interaction: discord.Interaction) -> bool:
         """Extra guard for the non-dangerous ticket-management commands
-        (/close, /requestclose, /autoclose, /add,
-        /remove, /rename) on top of the normal ticket-command check —
-        same shape as _powerful_command_check, restricting these to roles/
-        users configured in Access Control's Basic Command Access list,
-        once configured."""
-        if not await self._ticket_command_check(interaction):
+        (/close, /requestclose, /autoclose, /add, /remove, /rename).
+
+        Allowed if EITHER:
+        - the user has a role/user ID granted in Access Control's Basic
+          Command Access list (or is admin), OR
+        - the user simply has the native Manage Channels permission
+
+        Either path alone is enough - they're not stacked on top of each
+        other. This lets you grant these commands to a role that doesn't
+        have Manage Channels at the server level (e.g. Trial Staff),
+        while staff who already have Manage Channels keep working even
+        if nobody remembered to add their specific role to the list.
+        """
+        if not await self._require_ticket_channel(interaction):
             return False
 
         from utils.access import has_basic_command_access
 
         member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
-        if not has_basic_command_access(interaction.user.id, member_role_ids):
+        has_list_access = has_basic_command_access(interaction.user.id, member_role_ids)
+        has_manage_channels = interaction.user.guild_permissions.manage_channels
+
+        if not (has_list_access or has_manage_channels):
             await interaction.response.send_message(
-                "❌ You don't have permission to use this command. Ask an admin to "
-                "add your role or user ID to the Basic Command Access list in "
-                "Access Control.",
+                "❌ You need either the **Manage Channels** permission or a role/user ID "
+                "granted in the Basic Command Access list to use this command.",
                 ephemeral=True,
             )
             return False
