@@ -85,6 +85,9 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/callback")
+LINKED_ROLE_REDIRECT_URI = os.getenv(
+    "LINKED_ROLE_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/linked-role/callback"
+)
 # Optional Discord role granted after a member accepts the Carry Service System Rules.\n# Set this to the role ID in your hosting environment.\nCARRY_RULES_ROLE_ID = os.getenv("CARRY_RULES_ROLE_ID", "").strip()
 
 AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
@@ -123,6 +126,18 @@ def make_oauth_session(state=None):
         state=state,
         scope=['identify', 'guilds', 'guilds.members.read'],
         redirect_uri=REDIRECT_URI
+    )
+
+
+def make_linked_role_oauth_session(state=None):
+    """Separate OAuth2 session for the Linked Roles verification flow —
+    different scope (role_connections.write) and its own redirect URI, so
+    it doesn't collide with the dashboard login session above."""
+    return OAuth2Session(
+        client_id=CLIENT_ID,
+        state=state,
+        scope=['identify', 'role_connections.write'],
+        redirect_uri=LINKED_ROLE_REDIRECT_URI
     )
 
 
@@ -341,6 +356,77 @@ def accept_carry_agreement():
         flash("Something went wrong while assigning your Carry Rules role.", "danger")
 
     return redirect(url_for("carry_agreement"))
+
+
+@app.route("/linked-role")
+def linked_role_start():
+    """The verification URL you paste into the Developer Portal's Linked
+    Roles Verification URL field. Starts the OAuth2 flow — this is what
+    makes the connect button send people through Discord's own OAuth
+    screen, which is what gets this bot listed under Connections -> Apps.
+    """
+    discord_sess = make_linked_role_oauth_session()
+    authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
+    session['linked_role_oauth_state'] = state
+    return render_template("linked_role.html", stage="start", discord_auth_url=authorization_url)
+
+
+@app.route("/linked-role/callback")
+def linked_role_callback():
+    if request.args.get('error'):
+        return render_template("linked_role.html", stage="error", error_message=request.args['error'])
+
+    try:
+        discord_sess = make_linked_role_oauth_session(state=session.get('linked_role_oauth_state'))
+        token = discord_sess.fetch_token(
+            TOKEN_URL,
+            client_secret=CLIENT_SECRET,
+            authorization_response=request.url
+        )
+        session['linked_role_access_token'] = token['access_token']
+
+        user_data = discord_sess.get('https://discord.com/api/users/@me').json()
+        session['linked_role_username'] = user_data.get('username')
+    except Exception:
+        app.logger.exception("Linked role OAuth callback failed")
+        return render_template("linked_role.html", stage="error")
+
+    return render_template("linked_role.html", stage="agree", username=session.get('linked_role_username'))
+
+
+@app.route("/linked-role/agree", methods=["POST"])
+def linked_role_agree():
+    access_token = session.get('linked_role_access_token')
+    if not access_token:
+        return render_template("linked_role.html", stage="error", error_message="Your session expired — please start over.")
+
+    if request.form.get("agree") != "on":
+        return render_template("linked_role.html", stage="agree", username=session.get('linked_role_username'))
+
+    try:
+        from utils.linked_roles import push_role_connection
+        push_role_connection(access_token, agreed=True)
+    except Exception:
+        app.logger.exception("Failed to push linked role connection metadata")
+        return render_template("linked_role.html", stage="error", error_message="Discord rejected the verification. Please try again.")
+    finally:
+        session.pop('linked_role_access_token', None)
+
+    return render_template("linked_role.html", stage="done")
+
+
+@app.route("/dashboard/linked-role/register-metadata", methods=["POST"])
+@admin_required
+def register_linked_role_metadata():
+    try:
+        from utils.linked_roles import register_metadata
+        register_metadata(CLIENT_ID, TOKEN)
+        flash("✅ Linked Roles metadata registered. You can now add the 'Agreed to Rules' requirement to a role in Server Settings → Roles → Links.", "success")
+    except Exception as e:
+        app.logger.exception("Failed to register linked role metadata")
+        flash(f"❌ Failed to register metadata: {e}", "danger")
+    return redirect(url_for("home"))
+
 
 @app.route("/privacy")
 def privacy_policy():
