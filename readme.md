@@ -14,7 +14,7 @@
 > This Repo updates frequently for updates and patch issues.
 
 | Supported on | Requires Computer? | Mod Support | Price |
-|--------------|--------------------|-------------------|-------|
+|--------------                 |--------------------|-------------------|-------|
 | iOS 14.0 and above | No | *Partial* | Free |
 
 This tutorial is for people who cannot afford to purchase a Developer Certificate, and do not have a computer, but wish to use Geode.
