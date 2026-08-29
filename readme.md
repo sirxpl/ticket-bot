@@ -8,6 +8,7 @@
 
 > [!CAUTION]
 > In this tutorial, you will need Render and UptimeRobot. It is Crucial for hosting a bot and keeping the bot alive. Without UptimeRobot, you will not be able to use it when the bot is inactive, and without Render, you will not be able to host a servers. You can use Web deployment and select a free version.
+> In access.py, replace SUPER_ADMIN_FALLBACK_IDS = {"777341204047331348"} with your UserID (Line 30) 
 
 > [!WARNING]
 > You will need to remove the Linked Roles Script as it can cause issues to your server. If you are okay with that keep the script. There's no need to change.
