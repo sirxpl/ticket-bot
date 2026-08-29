@@ -11,8 +11,8 @@ BOOLEAN_EQUAL = 7
 ROLE_CONNECTION_METADATA = [
     {
         "key": "agreed_to_rules",
-        "name": "Agreed to Carry Guidelines",
-        "description": "Has agreed to the server's Carry Guidelines",
+        "name": "Agreed to Rules",
+        "description": "Has agreed to the server's Rules & Regulations",
         "type": BOOLEAN_EQUAL,
     },
 ]
@@ -21,7 +21,7 @@ ROLE_CONNECTION_METADATA = [
 def register_metadata(application_id: str, bot_token: str):
     """One-time setup call (safe to re-run any time) that tells Discord
     what metadata fields this application can verify. Must succeed before
-    any role in the server can require "Agreed to Carry Guidelines" under
+    any role in the server can require "Agreed to Rules" under
     Server Settings -> Roles -> [role] -> Links.
     """
     url = f"{DISCORD_API}/applications/{application_id}/role-connections/metadata"
