@@ -1062,6 +1062,22 @@ class TicketsCog(commands.Cog):
             ticket = get_active_ticket(message.channel.id)
             if ticket and str(ticket.get("user_id")) == str(message.author.id):
                 touch_ticket_activity(message.channel.id)
+            elif ticket:
+                # Record staff replies for analytics/first-response metrics.
+                # A staff member is identified by a configured Carry Manager role
+                # (or an admin), so ordinary client messages do not inflate the leaderboard.
+                from utils.access import get_access_settings, is_admin
+                access = get_access_settings()
+                role_ids = {str(r.id) for r in getattr(message.author, "roles", [])}
+                carry_roles = {str(r) for r in access.get("carry_manager_roles", [])}
+                if role_ids.intersection(carry_roles) or is_admin(message.author.id):
+                    append_ticket_log({
+                        "ticket_id": str(message.channel.id),
+                        "ticket_name": message.channel.name,
+                        "action": "staff_message",
+                        "timestamp": message.created_at.isoformat(),
+                        "actor": {"id": str(message.author.id), "name": str(message.author)},
+                    })
         except Exception:
             logger.exception(
                 f"Failed to update ticket activity for channel={message.channel.id}"
