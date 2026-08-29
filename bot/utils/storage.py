@@ -608,6 +608,122 @@ def get_ticket_logs():
         return []
 
 
+
+
+def get_ticket_analytics(days: int = 30):
+    """Build dashboard analytics from durable ticket logs.
+
+    Returns all-time created/closed counts, rolling 24h counts, daily ticket
+    flow, response/activity data, and a staff leaderboard. Response time is
+    measured from ticket creation to the first recorded staff_message event.
+    """
+    days = max(1, min(int(days or 30), 90))
+    logs = get_ticket_logs()
+    now = time.time()
+    start = now - days * 86400
+    last_24h = now - 86400
+
+    def ts(entry):
+        value = entry.get("timestamp")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if not value:
+            return None
+        try:
+            return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return None
+
+    created_logs = [l for l in logs if l.get("action") == "created"]
+    closed_logs = [l for l in logs if l.get("action") == "closed"]
+    staff_logs = [l for l in logs if l.get("action") == "staff_message"]
+
+    all_time_created = len(created_logs)
+    all_time_closed = len(closed_logs)
+    recent_created = sum(1 for l in created_logs if (ts(l) or 0) >= last_24h)
+    recent_closed = sum(1 for l in closed_logs if (ts(l) or 0) >= last_24h)
+
+    # Build one row for every day, including days with zero activity.
+    daily = []
+    for offset in range(days - 1, -1, -1):
+        day_dt = datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(days=offset)
+        label = day_dt.strftime("%b %d")
+        day_start = datetime.datetime.combine(day_dt, datetime.time.min, tzinfo=datetime.timezone.utc).timestamp()
+        day_end = day_start + 86400
+        c = sum(1 for l in created_logs if day_start <= (ts(l) or -1) < day_end)
+        cl = sum(1 for l in closed_logs if day_start <= (ts(l) or -1) < day_end)
+        sm = sum(1 for l in staff_logs if day_start <= (ts(l) or -1) < day_end)
+        daily.append({"date": label, "created": c, "closed": cl, "activity": sm})
+
+    # Ticket -> creation time, then first staff response.
+    created_by_ticket = {}
+    for l in created_logs:
+        ticket_id = str(l.get("ticket_id") or "")
+        created_ts = ts(l)
+        if ticket_id and created_ts is not None and ticket_id not in created_by_ticket:
+            created_by_ticket[ticket_id] = created_ts
+
+    first_response = {}
+    for l in sorted(staff_logs, key=lambda x: ts(x) or float("inf")):
+        ticket_id = str(l.get("ticket_id") or "")
+        staff_ts = ts(l)
+        created_ts = created_by_ticket.get(ticket_id)
+        if ticket_id and staff_ts is not None and created_ts is not None and staff_ts >= created_ts and ticket_id not in first_response:
+            first_response[ticket_id] = staff_ts - created_ts
+
+    response_values = [v for v in first_response.values() if 0 <= v <= 30 * 86400]
+    avg_response_seconds = round(sum(response_values) / len(response_values)) if response_values else None
+
+    # Staff leaderboard: messages/responses + closures.
+    staff = {}
+    for l in staff_logs:
+        actor = l.get("actor") or l.get("executor") or {}
+        uid = str(actor.get("id") or l.get("user_id") or "")
+        if not uid:
+            continue
+        row = staff.setdefault(uid, {"id": uid, "name": actor.get("name") or "Unknown Staff", "responses": 0, "closed": 0})
+        row["responses"] += 1
+        if actor.get("name"):
+            row["name"] = actor["name"]
+
+    for l in closed_logs:
+        actor = l.get("executor") or {}
+        uid = str(actor.get("id") or "")
+        if not uid:
+            continue
+        row = staff.setdefault(uid, {"id": uid, "name": actor.get("name") or "Unknown Staff", "responses": 0, "closed": 0})
+        row["closed"] += 1
+        if actor.get("name"):
+            row["name"] = actor["name"]
+
+    leaderboard = []
+    for row in staff.values():
+        row["activity"] = row["responses"] + row["closed"]
+        leaderboard.append(row)
+    leaderboard.sort(key=lambda r: (-r["activity"], -r["responses"], r["name"].lower()))
+
+    response_daily = []
+    # Daily average first-response time for tickets whose first response landed that day.
+    for offset in range(days - 1, -1, -1):
+        day_dt = datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(days=offset)
+        day_start = datetime.datetime.combine(day_dt, datetime.time.min, tzinfo=datetime.timezone.utc).timestamp()
+        day_end = day_start + 86400
+        vals = [delay for ticket_id, delay in first_response.items()
+                if day_start <= created_by_ticket.get(ticket_id, 0) + delay < day_end]
+        response_daily.append({"date": day_dt.strftime("%b %d"), "avg_response_seconds": round(sum(vals) / len(vals)) if vals else None})
+
+    return {
+        "all_time_created": all_time_created,
+        "all_time_closed": all_time_closed,
+        "last_24h_created": recent_created,
+        "last_24h_closed": recent_closed,
+        "daily": daily,
+        "response_daily": response_daily,
+        "avg_response_seconds": avg_response_seconds,
+        "response_count": len(response_values),
+        "staff_leaderboard": leaderboard[:10],
+    }
+
 def get_logs_for_ticket(ticket_id: str):
     logs = get_ticket_logs()
     return [l for l in logs if str(l.get("ticket_id")) == str(ticket_id)]
@@ -800,25 +916,3 @@ def generate_transcript_url(filename: str, expires_seconds: int = 3600) -> str:
     """Build a full absolute HTTPS URL to the transcripts route with a short-lived token."""
     token = generate_transcript_token(filename, expires_seconds=expires_seconds)
     return f"{get_dashboard_base_url()}/transcripts/{filename}?token={token}"
-
-
-# --- CARRY RULES AGREEMENTS ---
-def get_carry_rules_agreement(user_id):
-    """Return the stored Carry Rules agreement for a Discord user, if any."""
-    settings = get_settings()
-    agreements = settings.get("carry_rules_agreements") or {}
-    return agreements.get(str(user_id))
-
-def save_carry_rules_agreement(user_id, username=None):
-    """Record that a user explicitly accepted the Carry Service System Rules."""
-    settings = get_settings()
-    agreements = settings.get("carry_rules_agreements") or {}
-    agreements[str(user_id)] = {
-        "user_id": str(user_id),
-        "username": username or "",
-        "accepted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "version": "1",
-    }
-    settings["carry_rules_agreements"] = agreements
-    save_settings(settings)
-    return agreements[str(user_id)]
