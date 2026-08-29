@@ -3,8 +3,8 @@
 > These files contains some that can save someone's UserID and Roles. For example, MongoDB Altas can still save files. So my advise is to not copy the Codes I made, or to touch them.
 > Make sure to edit some of them as it can result in conflicting results between by MongoDB and yours.
 > ENABLE THESE INTENTS TO MAKE BOT WORK (Optional)
-- Message Content Intent (Can be used for saving Transcripts)
-- Presense Intent
+> - Message Content Intent (Can be used for saving Transcripts)
+> - Presense Intent
 
 > [!CAUTION]
 > In this tutorial, you will need Render and UptimeRobot. It is Crucial for hosting a bot and keeping the bot alive. Without UptimeRobot, you will not be able to use it when the bot is inactive, and without Render, you will not be able to host a servers. You can use Web deployment and select a free version.
