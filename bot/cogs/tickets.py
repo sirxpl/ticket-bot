@@ -277,7 +277,7 @@ def build_discord_like_transcript(
     )
     fields = ticket_meta.get("fields") if ticket_meta else {}
     if fields:
-        for k in ("timezone", "display_name", "can_join"):
+        for k in ("timezone", "display_name", "can_join", "level"):
             v = fields.get(k)
             if v:
                 parts.append(
@@ -759,9 +759,18 @@ class TicketView(discord.ui.View):
                     max_length=10,
                 )
 
+                self.level = discord.ui.TextInput(
+                    label="🎯 What level are you? *",
+                    placeholder="e.g. 120",
+                    required=True,
+                    style=discord.TextStyle.short,
+                    max_length=20,
+                )
+
                 self.add_item(self.timezone)
                 self.add_item(self.display_name)
                 self.add_item(self.can_join)
+                self.add_item(self.level)
 
             async def on_submit(
                 self, modal_interaction: discord.Interaction
@@ -863,6 +872,7 @@ class TicketView(discord.ui.View):
                         "timezone": self.timezone.value or "",
                         "display_name": self.display_name.value or "",
                         "can_join": self.can_join.value or "",
+                        "level": self.level.value or "",
                     }
 
                     welcome_cfg = get_welcome_message()
@@ -906,6 +916,12 @@ class TicketView(discord.ui.View):
                                 value=self.can_join.value,
                                 inline=False,
                             )
+                        if welcome_cfg.get("show_level", True) and self.level.value:
+                            embed.add_field(
+                                name="Level",
+                                value=self.level.value,
+                                inline=False,
+                            )
                         if category_cfg and category_cfg.get("open_note"):
                             embed.add_field(
                                 name="Note",
@@ -919,7 +935,7 @@ class TicketView(discord.ui.View):
                                 )
                             )
 
-                        await ticket_channel.send(
+                        info_message = await ticket_channel.send(
                             content=render_ticket_template(
                                 welcome_cfg.get("content") or "", **template_vars
                             )
@@ -940,9 +956,22 @@ class TicketView(discord.ui.View):
                             plain_parts.append(f"**Display name:** {self.display_name.value}")
                         if welcome_cfg.get("show_can_join", True):
                             plain_parts.append(f"**Can join private server?** {self.can_join.value}")
+                        if welcome_cfg.get("show_level", True) and self.level.value:
+                            plain_parts.append(f"**Level:** {self.level.value}")
                         if category_cfg and category_cfg.get("open_note"):
                             plain_parts.append(f"**Note:** {category_cfg['open_note']}")
-                        await ticket_channel.send(content="\n".join(plain_parts))
+                        info_message = await ticket_channel.send(content="\n".join(plain_parts))
+
+                    # Pin the info message (timezone/display name/level/etc.) so
+                    # it stays visible at the top of the channel no matter how
+                    # long the ticket's conversation gets. Missing "Manage
+                    # Messages" permission shouldn't block ticket creation.
+                    try:
+                        await info_message.pin(reason="Ticket info message")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to pin info message in channel={ticket_channel.id}: {e}"
+                        )
 
                     # Attach close button view
                     await ticket_channel.send(
@@ -998,6 +1027,7 @@ class TicketView(discord.ui.View):
                                 "timezone": self.timezone.value,
                                 "display_name": self.display_name.value,
                                 "can_join": self.can_join.value,
+                                "level": self.level.value,
                             },
                         })
                     except Exception as e:
