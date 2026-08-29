@@ -66,18 +66,18 @@
 {% if stage == 'start' %}
   <div class="icon-bubble">🔗</div>
   <h1>Verify with Discord</h1>
-  <p class="lede">Agree to the server's Rules &amp; Regulations to unlock a role automatically — Discord grants it the moment you're verified, no staff needed.</p>
+  <p class="lede">Agree to the server's Carry Guidelines to unlock a role automatically — Discord grants it the moment you're verified, no staff needed.</p>
   <a class="btn" href="{{ discord_auth_url }}">Continue with Discord</a>
 
 {% elif stage == 'agree' %}
   <div class="icon-bubble">📜</div>
   <h1>One last step</h1>
-  <p class="lede">Signed in as <strong>{{ username }}</strong>. Read the Rules &amp; Regulations, then confirm below.</p>
+  <p class="lede">Signed in as <strong>{{ username }}</strong>. Read the Carry Guidelines, then confirm below.</p>
   <form method="POST" action="/linked-role/agree">
     <div class="card">
       <label>
         <input type="checkbox" name="agree" id="agreeBox" required>
-        <span>I have read and agree to the <a href="/rules" target="_blank">Rules &amp; Regulations</a>.</span>
+        <span>I have read and agree to the <a href="/guidelines" target="_blank">Carry Guidelines</a>.</span>
       </label>
     </div>
     <button class="btn" type="submit">Confirm &amp; Verify</button>
