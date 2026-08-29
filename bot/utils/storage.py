@@ -800,3 +800,25 @@ def generate_transcript_url(filename: str, expires_seconds: int = 3600) -> str:
     """Build a full absolute HTTPS URL to the transcripts route with a short-lived token."""
     token = generate_transcript_token(filename, expires_seconds=expires_seconds)
     return f"{get_dashboard_base_url()}/transcripts/{filename}?token={token}"
+
+
+# --- CARRY RULES AGREEMENTS ---
+def get_carry_rules_agreement(user_id):
+    """Return the stored Carry Rules agreement for a Discord user, if any."""
+    settings = get_settings()
+    agreements = settings.get("carry_rules_agreements") or {}
+    return agreements.get(str(user_id))
+
+def save_carry_rules_agreement(user_id, username=None):
+    """Record that a user explicitly accepted the Carry Service System Rules."""
+    settings = get_settings()
+    agreements = settings.get("carry_rules_agreements") or {}
+    agreements[str(user_id)] = {
+        "user_id": str(user_id),
+        "username": username or "",
+        "accepted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "version": "1",
+    }
+    settings["carry_rules_agreements"] = agreements
+    save_settings(settings)
+    return agreements[str(user_id)]
