@@ -447,7 +447,7 @@ def register_linked_role_metadata():
     try:
         from utils.linked_roles import register_metadata
         register_metadata(CLIENT_ID, TOKEN)
-        flash("✅ Linked Roles metadata registered. You can now add the 'Agreed to Rules' requirement to a role in Server Settings → Roles → Links.", "success")
+        flash("✅ Linked Roles metadata registered. You can now add the 'Agreed to Carry Guidelines' requirement to a role in Server Settings → Roles → Links.", "success")
     except Exception as e:
         app.logger.exception("Failed to register linked role metadata")
         flash(f"❌ Failed to register metadata: {e}", "danger")
