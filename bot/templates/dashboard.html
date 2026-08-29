@@ -7,6 +7,7 @@
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css"/>
     <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -740,6 +741,9 @@
                     <button type="button" class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
                         <span class="nav-icon">📊</span><span class="nav-text">Overview</span>
                     </button>
+                    <button type="button" class="nav-item" data-page="analytics" onclick="showPage('analytics', this); loadAnalytics()">
+                        <span class="nav-icon">📈</span><span class="nav-text">Analytics</span>
+                    </button>
                     {% if can_access_carry_settings %}
                     <button type="button" class="nav-item" data-page="carry-settings" onclick="showPage('carry-settings', this)">
                         <span class="nav-icon">⚙️</span><span class="nav-text">Carry Manager Settings</span>
@@ -776,9 +780,6 @@
                     </a>
                     <a href="{{ url_for('guidelines', _external=True) }}" target="_blank" class="sidebar-link">
                         <span class="nav-icon">📖</span><span>Carry Guidelines</span>
-                    </a>
-                    <a href="{{ url_for('carry_agreement', _external=True) }}" target="_blank" class="sidebar-link">
-                        <span class="nav-icon">🔗</span><span>Carry Agreement</span>
                     </a>
                 </div>
             </nav>
@@ -834,6 +835,36 @@
                 <p style="color: var(--text-dim);">No active user cooldowns.</p>
             {% endfor %}
         </div>
+        </section>
+
+
+        <section class="page" id="page-analytics">
+            <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
+                <div class="stat-card"><div class="stat-label">🎫 All-time Created</div><div class="stat-value" id="analytics-created">—</div></div>
+                <div class="stat-card accent-success"><div class="stat-label">🔒 All-time Closed</div><div class="stat-value" id="analytics-closed">—</div></div>
+                <div class="stat-card"><div class="stat-label">🕐 Created — Last 24h</div><div class="stat-value" id="analytics-created-24h">—</div></div>
+                <div class="stat-card accent-warn"><div class="stat-label">⚡ Avg. Response</div><div class="stat-value" id="analytics-response">—</div></div>
+            </div>
+
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <div><h3><span class="card-icon">📊</span> Ticket Flow</h3><p class="card-subtitle">Tickets created and closed over the selected period.</p></div>
+                    <select id="analytics-days" onchange="loadAnalytics()" style="width:auto;min-width:120px;margin:0;"><option value="7">7 Days</option><option value="30" selected>30 Days</option><option value="90">90 Days</option></select>
+                </div>
+                <div style="height:320px;"><canvas id="ticketFlowChart"></canvas></div>
+            </div>
+
+            <div class="card">
+                <h3><span class="card-icon">⚡</span> Response & Activity</h3>
+                <p class="card-subtitle">Daily staff activity and average first-response time.</p>
+                <div style="height:320px;"><canvas id="responseActivityChart"></canvas></div>
+            </div>
+
+            <div class="card">
+                <h3><span class="card-icon">🏆</span> Most Active Staff</h3>
+                <p class="card-subtitle">Ranked by staff responses plus tickets closed.</p>
+                <div id="staffLeaderboard"><p style="color:var(--text-dim);">Loading analytics…</p></div>
+            </div>
         </section>
 
         <section class="page" id="page-carry-settings">
@@ -1379,23 +1410,6 @@
                 </div>
                 <button type="submit" class="btn-view">Save</button>
             </form>
-
-            <h4 style="margin-top: 20px;">Linked Roles (Discord Connections)</h4>
-            <p class="card-subtitle">
-                Lets members verify by agreeing to the Rules &amp; Regulations through Discord's own Connections screen — the bot shows up under "Apps" just like other Linked Roles integrations. Needs no privileged intents at all.
-            </p>
-            <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; font-size: 0.88em; color: var(--text-dim);">
-                <strong style="color: var(--text);">One-time setup in the Discord Developer Portal:</strong>
-                <ol style="margin: 8px 0 0 18px; padding: 0;">
-                    <li>Click "Register Metadata" below (do this first)</li>
-                    <li>Bot → General Information → set <strong>Linked Roles Verification URL</strong> to:<br><code>{{ url_for('linked_role_start', _external=True) }}</code></li>
-                    <li>OAuth2 → add this redirect URL:<br><code>{{ url_for('linked_role_callback', _external=True) }}</code></li>
-                    <li>In your Discord server: Server Settings → Roles → pick a role → Links tab → add a requirement for "Agreed to Carry Guidelines"</li>
-                </ol>
-            </div>
-            <form action="/dashboard/linked-role/register-metadata" method="POST">
-                <button type="submit" class="btn-view">Register Metadata</button>
-            </form>
         </div>
         {% else %}
         <div class="card">
@@ -1418,6 +1432,83 @@
 </div>
 
 <script>
+
+// --- ANALYTICS ---
+let ticketFlowChart = null;
+let responseActivityChart = null;
+let analyticsLoading = false;
+function formatAnalyticsDuration(seconds) {
+    if (seconds == null) return '—';
+    seconds = Math.max(0, Math.round(seconds));
+    if (seconds < 60) return seconds + 's';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + 'm';
+    const hours = Math.floor(minutes / 60);
+    const rem = minutes % 60;
+    if (hours < 24) return rem ? `${hours}h ${rem}m` : `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
+}
+async function loadAnalytics() {
+    if (analyticsLoading) return;
+    analyticsLoading = true;
+    try {
+        const days = document.getElementById('analytics-days')?.value || '30';
+        const res = await fetch('/api/analytics?days=' + encodeURIComponent(days), {cache:'no-store'});
+        if (!res.ok) throw new Error('Analytics request failed');
+        const data = await res.json();
+        document.getElementById('analytics-created').textContent = Number(data.all_time_created || 0).toLocaleString();
+        document.getElementById('analytics-closed').textContent = Number(data.all_time_closed || 0).toLocaleString();
+        document.getElementById('analytics-created-24h').textContent = Number(data.last_24h_created || 0).toLocaleString();
+        document.getElementById('analytics-response').textContent = formatAnalyticsDuration(data.avg_response_seconds);
+
+        const labels = (data.daily || []).map(x => x.date);
+        const flowCtx = document.getElementById('ticketFlowChart');
+        if (ticketFlowChart) ticketFlowChart.destroy();
+        ticketFlowChart = new Chart(flowCtx, {
+            type:'line',
+            data:{labels, datasets:[
+                {label:'Created', data:(data.daily||[]).map(x=>x.created), tension:.3, fill:false},
+                {label:'Closed', data:(data.daily||[]).map(x=>x.closed), tension:.3, fill:false}
+            ]},
+            options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom'}}, scales:{y:{beginAtZero:true,ticks:{precision:0}}}}
+        });
+
+        const responseLabels = (data.response_daily || []).map(x => x.date);
+        const activity = (data.daily || []).map(x => x.activity);
+        const responseMinutes = (data.response_daily || []).map(x => x.avg_response_seconds == null ? null : +(x.avg_response_seconds/60).toFixed(1));
+        const responseCtx = document.getElementById('responseActivityChart');
+        if (responseActivityChart) responseActivityChart.destroy();
+        responseActivityChart = new Chart(responseCtx, {
+            type:'line',
+            data:{labels:responseLabels, datasets:[
+                {label:'Staff Activity', data:activity, tension:.3, yAxisID:'y'},
+                {label:'Avg. First Response (min)', data:responseMinutes, tension:.3, yAxisID:'y1', spanGaps:true}
+            ]},
+            options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom'}}, scales:{y:{beginAtZero:true,title:{display:true,text:'Activity'}},y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'Minutes'}}}}
+        });
+
+        const board = document.getElementById('staffLeaderboard');
+        const rows = data.staff_leaderboard || [];
+        if (!rows.length) {
+            board.innerHTML = '<p style="color:var(--text-dim);">No staff activity has been recorded yet.</p>';
+        } else {
+            board.innerHTML = rows.map((r,i) => `
+                <div class="list-item">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <strong style="font-size:1.1em;min-width:28px;">#${i+1}</strong>
+                        <div><strong>${esc(r.name || 'Unknown Staff')}</strong><div style="color:var(--text-dim);font-size:.85em;">${Number(r.responses||0).toLocaleString()} responses • ${Number(r.closed||0).toLocaleString()} closed</div></div>
+                    </div>
+                    <strong>${Number(r.activity||0).toLocaleString()} activity</strong>
+                </div>`).join('');
+        }
+    } catch (err) {
+        console.error(err);
+        const board = document.getElementById('staffLeaderboard');
+        if (board) board.innerHTML = '<p style="color:var(--danger);">Unable to load analytics right now.</p>';
+    } finally { analyticsLoading = false; }
+}
+
 // --- SIDEBAR NAVIGATION ---
 function showPage(pageId, btn) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
