@@ -307,30 +307,39 @@ def admin_required(f):
 
 @app.route("/carry-agreement")
 def carry_agreement():
-    agreement = None
-    if session.get("user"):
-        agreement = get_carry_rules_agreement(session["user"].get("id"))
-    return render_template("carry_agreement.html", user=session.get("user"), agreement=agreement)
+    try:
+        agreement = None
+        if session.get("user"):
+            agreement = get_carry_rules_agreement(session["user"].get("id"))
+        return render_template("carry_agreement.html", user=session.get("user"), agreement=agreement)
+    except Exception:
+        app.logger.exception("carry_agreement page crashed")
+        return (
+            "<h1>Something went wrong loading this page</h1>"
+            "<p>Please try again shortly. If this keeps happening, contact the server admin.</p>"
+            "<a href='/'>Back to home</a>",
+            500,
+        )
 
 @app.route("/carry-agreement/accept", methods=["POST"])
 @login_required
 def accept_carry_agreement():
-    user = session.get("user") or {}
-    user_id = str(user.get("id") or "")
-    if not user_id:
-        flash("Unable to identify your Discord account. Please log in again.", "danger")
-        return redirect(url_for("carry_agreement"))
-
-    if not CARRY_RULES_ROLE_ID.isdigit():
-        flash("The Carry Rules role has not been configured yet.", "danger")
-        return redirect(url_for("carry_agreement"))
-
-    guild = bot.guilds[0] if bot.guilds else None
-    if not guild:
-        flash("The Discord bot is not connected to the server right now.", "danger")
-        return redirect(url_for("carry_agreement"))
-
     try:
+        user = session.get("user") or {}
+        user_id = str(user.get("id") or "")
+        if not user_id:
+            flash("Unable to identify your Discord account. Please log in again.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        if not CARRY_RULES_ROLE_ID.isdigit():
+            flash("The Carry Rules role has not been configured yet.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        guild = bot.guilds[0] if bot.guilds else None
+        if not guild:
+            flash("The Discord bot is not connected to the server right now.", "danger")
+            return redirect(url_for("carry_agreement"))
+
         member = guild.get_member(int(user_id))
         if member is None:
             future = asyncio.run_coroutine_threadsafe(guild.fetch_member(int(user_id)), bot.loop)
