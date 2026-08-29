@@ -365,10 +365,25 @@ def linked_role_start():
     makes the connect button send people through Discord's own OAuth
     screen, which is what gets this bot listed under Connections -> Apps.
     """
-    discord_sess = make_linked_role_oauth_session()
-    authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
-    session['linked_role_oauth_state'] = state
-    return render_template("linked_role.html", stage="start", discord_auth_url=authorization_url)
+    try:
+        if not CLIENT_ID or not CLIENT_SECRET:
+            app.logger.error(
+                "linked_role_start: DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET is missing"
+            )
+            return render_template(
+                "linked_role.html", stage="error",
+                error_message="This bot isn't configured for verification yet. Please contact the server admin."
+            )
+        discord_sess = make_linked_role_oauth_session()
+        authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
+        session['linked_role_oauth_state'] = state
+        return render_template("linked_role.html", stage="start", discord_auth_url=authorization_url)
+    except Exception:
+        app.logger.exception("linked_role_start crashed")
+        return render_template(
+            "linked_role.html", stage="error",
+            error_message="Something went wrong starting verification. Please try again shortly."
+        )
 
 
 @app.route("/linked-role/callback")
