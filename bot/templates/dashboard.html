@@ -1390,7 +1390,7 @@
                     <li>Click "Register Metadata" below (do this first)</li>
                     <li>Bot → General Information → set <strong>Linked Roles Verification URL</strong> to:<br><code>{{ url_for('linked_role_start', _external=True) }}</code></li>
                     <li>OAuth2 → add this redirect URL:<br><code>{{ url_for('linked_role_callback', _external=True) }}</code></li>
-                    <li>In your Discord server: Server Settings → Roles → pick a role → Links tab → add a requirement for "Agreed to Rules"</li>
+                    <li>In your Discord server: Server Settings → Roles → pick a role → Links tab → add a requirement for "Agreed to Carry Guidelines"</li>
                 </ol>
             </div>
             <form action="/dashboard/linked-role/register-metadata" method="POST">
