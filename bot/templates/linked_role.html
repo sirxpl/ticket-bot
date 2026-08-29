@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify — Carry Ticket Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14151f; --surface-2:#191b28; --border:#25273a;
+    --text:#eef0f7; --muted:#8d90a8; --yellow:#ffc93c; --indigo:#7c6cf0; --indigo-dim:#7c6cf033;
+    --green:#3fd68c; --red:#f1556c;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; margin:0; min-height:100vh;}
+  h1,.brand{font-family:'Space Grotesk',sans-serif;}
+  .topbar{
+    height:64px; border-bottom:1px solid var(--border); display:flex; align-items:center;
+    padding:0 28px; position:sticky; top:0; z-index:50;
+    background:rgba(11,12,18,0.92); backdrop-filter:blur(10px);
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:17px; color:var(--text); text-decoration:none;}
+  .brand .stub{width:26px; height:20px; background:var(--yellow); border-radius:5px; position:relative;}
+  .brand .stub::after{content:""; position:absolute; left:60%; top:-3px; bottom:-3px; border-left:2px dashed #0b0c1288;}
+
+  main{max-width:520px; margin:0 auto; padding:70px 24px 100px 24px; text-align:center;}
+  .icon-bubble{
+    width:56px; height:56px; border-radius:50%; margin:0 auto 22px auto;
+    display:flex; align-items:center; justify-content:center; font-size:26px;
+    background:var(--indigo-dim); color:var(--yellow);
+  }
+  h1{font-size:26px; margin:0 0 12px 0;}
+  p.lede{color:var(--muted); font-size:15px; line-height:1.6; margin:0 0 32px 0;}
+
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:28px; text-align:left; margin-bottom:24px;
+  }
+  .card label{display:flex; align-items:flex-start; gap:12px; cursor:pointer; font-size:14.5px; line-height:1.6; color:#dcdee8;}
+  .card input[type=checkbox]{margin-top:3px; width:18px; height:18px; flex-shrink:0;}
+  .card a{color:var(--yellow);}
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--indigo); color:white; text-decoration:none; font-weight:600;
+    padding:13px 26px; border-radius:10px; font-size:15px; border:none; cursor:pointer;
+    width:100%;
+  }
+  .btn:disabled{opacity:0.45; cursor:not-allowed;}
+  .btn.success{background:var(--green); color:#04140c;}
+
+  .error-box{
+    background:rgba(241,85,108,0.1); border:1px solid rgba(241,85,108,0.35); color:#ffb4bf;
+    border-radius:10px; padding:14px 16px; font-size:14px; text-align:left; margin-bottom:24px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
+</div>
+
+<main>
+{% if stage == 'start' %}
+  <div class="icon-bubble">🔗</div>
+  <h1>Verify with Discord</h1>
+  <p class="lede">Agree to the server's Rules &amp; Regulations to unlock a role automatically — Discord grants it the moment you're verified, no staff needed.</p>
+  <a class="btn" href="{{ discord_auth_url }}">Continue with Discord</a>
+
+{% elif stage == 'agree' %}
+  <div class="icon-bubble">📜</div>
+  <h1>One last step</h1>
+  <p class="lede">Signed in as <strong>{{ username }}</strong>. Read the Rules &amp; Regulations, then confirm below.</p>
+  <form method="POST" action="/linked-role/agree">
+    <div class="card">
+      <label>
+        <input type="checkbox" name="agree" id="agreeBox" required>
+        <span>I have read and agree to the <a href="/rules" target="_blank">Rules &amp; Regulations</a>.</span>
+      </label>
+    </div>
+    <button class="btn" type="submit">Confirm &amp; Verify</button>
+  </form>
+
+{% elif stage == 'done' %}
+  <div class="icon-bubble" style="background:rgba(63,214,140,0.15); color:var(--green);">✓</div>
+  <h1>You're verified!</h1>
+  <p class="lede">Discord will grant any role linked to this verification within a minute or two. You can close this tab.</p>
+  <a class="btn success" href="/">Back to the dashboard</a>
+
+{% elif stage == 'error' %}
+  <div class="icon-bubble" style="background:rgba(241,85,108,0.15); color:var(--red);">✕</div>
+  <h1>Something went wrong</h1>
+  <div class="error-box">{{ error_message or "The verification link may have expired. Please try again." }}</div>
+  <a class="btn" href="/linked-role">Try again</a>
+{% endif %}
+</main>
+
+</body>
+</html>
