@@ -1379,6 +1379,23 @@
                 </div>
                 <button type="submit" class="btn-view">Save</button>
             </form>
+
+            <h4 style="margin-top: 20px;">Linked Roles (Discord Connections)</h4>
+            <p class="card-subtitle">
+                Lets members verify by agreeing to the Rules &amp; Regulations through Discord's own Connections screen — the bot shows up under "Apps" just like other Linked Roles integrations. Needs no privileged intents at all.
+            </p>
+            <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; font-size: 0.88em; color: var(--text-dim);">
+                <strong style="color: var(--text);">One-time setup in the Discord Developer Portal:</strong>
+                <ol style="margin: 8px 0 0 18px; padding: 0;">
+                    <li>Click "Register Metadata" below (do this first)</li>
+                    <li>Bot → General Information → set <strong>Linked Roles Verification URL</strong> to:<br><code>{{ url_for('linked_role_start', _external=True) }}</code></li>
+                    <li>OAuth2 → add this redirect URL:<br><code>{{ url_for('linked_role_callback', _external=True) }}</code></li>
+                    <li>In your Discord server: Server Settings → Roles → pick a role → Links tab → add a requirement for "Agreed to Rules"</li>
+                </ol>
+            </div>
+            <form action="/dashboard/linked-role/register-metadata" method="POST">
+                <button type="submit" class="btn-view">Register Metadata</button>
+            </form>
         </div>
         {% else %}
         <div class="card">
