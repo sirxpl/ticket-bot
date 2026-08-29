@@ -4,11 +4,11 @@
 > Make sure to edit some of them as it can result in conflicting results between by MongoDB and yours.
 
 > [!CAUTION]
-> In this tutorial, you will install the Geode Helper. This Helper stores a seperate save data for Geometry Dash. Uninstalling the Helper will cause your ***__SAVE DATA, MODS AND MOD SETTINGS in the Helper, to be PERMANENTLY DELETED!!!__*** Instead, keep the Helper installed and just install the IPA the iOS launcher generates for you. Think of it like updating the Helper.
+> In this tutorial, you will need Render and UptimeRobot. It is Crucial for hosting a bot and keeping the bot alive. Without UptimeRobot, you will not be able to use it when the bot is inactive, and without Render, you will not be able to host a servers. You can use Web deployment and select a free version.
 
 > [!WARNING]
-> This guide will not teach you how to go about obtaining such certificates. These certificates ("free certificates") violate [Apple's Terms of Service](https://developer.apple.com/support/terms/apple-developer-program-license-agreement/#ADPLA5), and may get your iDevice blacklisted. As such, this guide is only for educational purposes, given the consequences: Use at your own risk.
-> If you are fine with this, and acknowledge the warning, you can proceed to follow this guide.
+> You will need to remove the Linked Roles Script as it can cause issues to your server. If you are okay with that keep the script. There's no need to change.
+> This Repo updates frequently for updates and patch issues.
 
 | Supported on | Requires Computer? | Mod Support | Price |
 |--------------|--------------------|-------------------|-------|
