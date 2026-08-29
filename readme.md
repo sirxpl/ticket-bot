@@ -2,6 +2,28 @@
 
 A full ticket & carry-request platform for Discord — category-based tickets, staff commands, transcripts, blacklists, autoclose on inactivity, Linked Roles verification, and a web dashboard for configuring all of it without touching code.
 
+**Repository:** [github.com/sirxpl/ticket-bot](https://github.com/sirxpl/ticket-bot)
+
+---
+
+## 🍴 Fork & Clone
+
+To run your own copy of this bot, fork the repository first rather than cloning directly — that gives you your own copy on GitHub to deploy from and customize.
+
+1. Click **Fork** at the top of [github.com/sirxpl/ticket-bot](https://github.com/sirxpl/ticket-bot) to create your own copy under your GitHub account
+2. Clone your fork locally (optional — only needed if you want to edit before deploying):
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/ticket-bot.git
+   cd ticket-bot
+   ```
+3. When deploying on Render (see [Setup](#-setup) below), connect **your fork**, not the original repo — that way your environment variables, config edits, and future commits all stay separate from the upstream project
+4. To pull in updates later without losing your own changes:
+   ```bash
+   git remote add upstream https://github.com/sirxpl/ticket-bot.git
+   git fetch upstream
+   git merge upstream/main
+   ```
+
 ---
 
 ## ✨ Features
@@ -42,7 +64,7 @@ A full ticket & carry-request platform for Discord — category-based tickets, s
 
 ### 2. Deploy on Render
 
-1. New **Web Service** → connect this repo → Environment: **Python 3**
+1. New **Web Service** → connect **your fork** of this repo (see [Fork & Clone](#-fork--clone) above) → Environment: **Python 3**
 2. Build command: `pip install -r requirements.txt`
 3. Start command: `python main.py`
 4. Add the environment variables listed below
