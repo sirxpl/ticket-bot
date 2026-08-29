@@ -85,6 +85,7 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/callback")
+# Optional Discord role granted after a member accepts the Carry Service System Rules.\n# Set this to the role ID in your hosting environment.\nCARRY_RULES_ROLE_ID = os.getenv("CARRY_RULES_ROLE_ID", "").strip()
 
 AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
 TOKEN_URL = 'https://discord.com/api/oauth2/token'
@@ -287,6 +288,60 @@ def admin_required(f):
 
 
 # --- FLASK ROUTES ---
+
+
+@app.route("/carry-agreement")
+def carry_agreement():
+    agreement = None
+    if session.get("user"):
+        agreement = get_carry_rules_agreement(session["user"].get("id"))
+    return render_template("carry_agreement.html", user=session.get("user"), agreement=agreement)
+
+@app.route("/carry-agreement/accept", methods=["POST"])
+@login_required
+def accept_carry_agreement():
+    user = session.get("user") or {}
+    user_id = str(user.get("id") or "")
+    if not user_id:
+        flash("Unable to identify your Discord account. Please log in again.", "danger")
+        return redirect(url_for("carry_agreement"))
+
+    if not CARRY_RULES_ROLE_ID.isdigit():
+        flash("The Carry Rules role has not been configured yet.", "danger")
+        return redirect(url_for("carry_agreement"))
+
+    guild = bot.guilds[0] if bot.guilds else None
+    if not guild:
+        flash("The Discord bot is not connected to the server right now.", "danger")
+        return redirect(url_for("carry_agreement"))
+
+    try:
+        member = guild.get_member(int(user_id))
+        if member is None:
+            future = asyncio.run_coroutine_threadsafe(guild.fetch_member(int(user_id)), bot.loop)
+            member = future.result(timeout=10)
+
+        role = guild.get_role(int(CARRY_RULES_ROLE_ID))
+        if role is None:
+            flash("The configured Carry Rules role could not be found.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        if role >= guild.me.top_role:
+            flash("The bot cannot assign that role. Move the role below the bot's highest role.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        if role not in member.roles:
+            future = asyncio.run_coroutine_threadsafe(member.add_roles(role, reason="Accepted Carry Service System Rules"), bot.loop)
+            future.result(timeout=10)
+
+        save_carry_rules_agreement(user_id, user.get("username"))
+        flash("✅ Rules accepted. Your Carry Rules role has been granted.", "success")
+    except Exception:
+        app.logger.exception("Carry rules role assignment failed")
+        flash("Something went wrong while assigning your Carry Rules role.", "danger")
+
+    return redirect(url_for("carry_agreement"))
+
 @app.route("/privacy")
 def privacy_policy():
     return render_template("privacy.html")
