@@ -911,7 +911,7 @@
                 <label>Message:</label>
                 <textarea name="redirect_content" rows="2" maxlength="1000" placeholder="e.g. ✅ Ticket created! Please head over to {channel}.">{{ (redirect_message | default({})).content | default('') }}</textarea>
                 <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
-                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code> <code>{level}</code>
+                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code>
                 </p>
                 <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Redirect Message</button>
             </form>
