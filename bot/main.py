@@ -38,6 +38,8 @@ from utils.storage import (
     get_ticket_categories,
     save_ticket_categories,
     get_ticket_panel_draft,
+    get_carry_rules_agreement,
+    save_carry_rules_agreement,
     save_ticket_panel_draft,
     get_redirect_message,
     save_redirect_message,
