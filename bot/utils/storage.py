@@ -182,6 +182,7 @@ _DEFAULT_WELCOME_MESSAGE = {
     "show_timezone": True,
     "show_display_name": True,
     "show_can_join": True,
+    "show_level": True,
 }
 
 
