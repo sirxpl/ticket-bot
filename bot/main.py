@@ -400,33 +400,51 @@ def linked_role_start():
 @app.route("/linked-role/callback")
 def linked_role_callback():
     if request.args.get('error'):
-        return render_template("linked_role.html", stage="error", error_message=request.args['error'])
+        return render_template(
+            "linked_role.html",
+            stage="error",
+            error_message=request.args['error']
+        )
 
     try:
-        discord_sess = make_linked_role_oauth_session(state=session.get('linked_role_oauth_state'))
+        discord_sess = make_linked_role_oauth_session(
+            state=session.get('linked_role_oauth_state')
+        )
+
         callback_url = request.url
 
-# Render sits behind a proxy, so Flask may see the request as HTTP
-# even though Discord redirected to our public HTTPS URL.
-if request.headers.get("X-Forwarded-Proto") == "https":
-    callback_url = callback_url.replace("http://", "https://", 1)
+        # Render sits behind a proxy, so Flask may see HTTP
+        # even though the public URL is HTTPS.
+        if request.headers.get("X-Forwarded-Proto") == "https":
+            callback_url = callback_url.replace("http://", "https://", 1)
 
-token = discord_sess.fetch_token(
-    TOKEN_URL,
-    client_secret=CLIENT_SECRET,
-    authorization_response=callback_url
-)
+        token = discord_sess.fetch_token(
+            TOKEN_URL,
+            client_secret=CLIENT_SECRET,
+            authorization_response=callback_url
+        )
+
         session['linked_role_access_token'] = token['access_token']
 
-        user_data = discord_sess.get('https://discord.com/api/users/@me').json()
+        user_data = discord_sess.get(
+            'https://discord.com/api/users/@me'
+        ).json()
+
         session['linked_role_username'] = user_data.get('username')
+
     except Exception:
         app.logger.exception("Linked role OAuth callback failed")
-        return render_template("linked_role.html", stage="error")
+        return render_template(
+            "linked_role.html",
+            stage="error"
+        )
 
-    return render_template("linked_role.html", stage="agree", username=session.get('linked_role_username'))
-
-
+    return render_template(
+        "linked_role.html",
+        stage="agree",
+        username=session.get('linked_role_username')
+    )
+    
 @app.route("/linked-role/agree", methods=["POST"])
 def linked_role_agree():
     access_token = session.get('linked_role_access_token')
