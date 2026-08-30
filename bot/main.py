@@ -404,11 +404,18 @@ def linked_role_callback():
 
     try:
         discord_sess = make_linked_role_oauth_session(state=session.get('linked_role_oauth_state'))
-        token = discord_sess.fetch_token(
-            TOKEN_URL,
-            client_secret=CLIENT_SECRET,
-            authorization_response=request.url
-        )
+        callback_url = request.url
+
+# Render sits behind a proxy, so Flask may see the request as HTTP
+# even though Discord redirected to our public HTTPS URL.
+if request.headers.get("X-Forwarded-Proto") == "https":
+    callback_url = callback_url.replace("http://", "https://", 1)
+
+token = discord_sess.fetch_token(
+    TOKEN_URL,
+    client_secret=CLIENT_SECRET,
+    authorization_response=callback_url
+)
         session['linked_role_access_token'] = token['access_token']
 
         user_data = discord_sess.get('https://discord.com/api/users/@me').json()
