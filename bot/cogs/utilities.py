@@ -538,5 +538,58 @@ class UtilityCog(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"❌ Scan error: {e}")
 
+    @app_commands.command(name="say", description="Send a message as the bot")
+    @app_commands.describe(
+        message="The message you want the bot to send",
+        message_link="Optional message link to reply to"
+    )
+    async def say(
+        self,
+        interaction: discord.Interaction,
+        message: str,
+        message_link: str = None
+    ):
+        # If a message link was provided, try to reply to that message
+        if message_link:
+            try:
+                # Expected Discord message link:
+                # https://discord.com/channels/GUILD_ID/CHANNEL_ID/MESSAGE_ID
+                parts = message_link.rstrip("/").split("/")
+
+                if len(parts) < 3:
+                    raise ValueError("Invalid Discord message link.")
+
+                channel_id = int(parts[-2])
+                message_id = int(parts[-1])
+
+                channel = self.bot.get_channel(channel_id)
+
+                if channel is None:
+                    channel = await self.bot.fetch_channel(channel_id)
+
+                target_message = await channel.fetch_message(message_id)
+
+                await target_message.reply(message)
+                await interaction.response.send_message(
+                    "✅ Message sent as a reply.",
+                    ephemeral=True
+                )
+                return
+
+            except (ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException):
+                await interaction.response.send_message(
+                    "❌ I couldn't use that message link. Make sure it's a valid Discord message link that I can access.",
+                    ephemeral=True
+                )
+                return
+
+        # No message link = normal message
+        await interaction.channel.send(message)
+
+        await interaction.response.send_message(
+            "✅ Message sent.",
+            ephemeral=True
+        )
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(UtilityCog(bot))
