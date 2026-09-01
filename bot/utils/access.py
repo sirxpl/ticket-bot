@@ -21,6 +21,7 @@ _DEFAULTS = {
     "basic_command_roles": [],
     "basic_command_users": [],
     "transcripts_roles": [],
+    "analytics_roles": [],
     "remove_cooldown_roles": [],
 }
 
@@ -65,6 +66,7 @@ def get_access_settings():
         doc.setdefault("basic_command_roles", [])
         doc.setdefault("basic_command_users", [])
         doc.setdefault("transcripts_roles", [])
+        doc.setdefault("analytics_roles", [])
         doc.setdefault("remove_cooldown_roles", [])
         return doc
 
@@ -85,6 +87,7 @@ def get_access_settings():
         data.setdefault("basic_command_roles", [])
         data.setdefault("basic_command_users", [])
         data.setdefault("transcripts_roles", [])
+        data.setdefault("analytics_roles", [])
         data.setdefault("remove_cooldown_roles", [])
         return data
     except Exception:
@@ -286,6 +289,51 @@ def has_transcripts_access(user_id: str, member_role_ids=None) -> bool:
     if is_admin(user_id):
         return True
     roles = get_transcripts_role_ids()
+    if not roles:
+        return True
+    if member_role_ids:
+        role_ids = {str(r) for r in member_role_ids}
+        if role_ids.intersection(set(roles)):
+            return True
+    return False
+
+
+def add_analytics_role(role_id: str) -> bool:
+    """Add a role allowed to view the Analytics page."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["analytics_roles"]:
+        data["analytics_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_analytics_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["analytics_roles"]:
+        data["analytics_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_analytics_role_ids():
+    return get_access_settings().get("analytics_roles", [])
+
+
+def has_analytics_access(user_id: str, member_role_ids=None) -> bool:
+    """Return True if this user can view the Analytics page.
+
+    Admins always pass. Opt-in like the other section permissions: while
+    analytics_roles is empty, anyone with dashboard access can view it;
+    once at least one role is added, only members with one of those roles
+    (or admins) get in.
+    """
+    if is_admin(user_id):
+        return True
+    roles = get_analytics_role_ids()
     if not roles:
         return True
     if member_role_ids:
