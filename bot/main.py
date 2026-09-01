@@ -45,6 +45,7 @@ from utils.storage import (
     save_redirect_message,
     get_welcome_message,
     save_welcome_message,
+    get_ticket_analytics,
 )
 
 # Import access-control helpers
@@ -72,12 +73,15 @@ from utils.access import (
     remove_transcripts_role,
     add_remove_cooldown_role,
     remove_remove_cooldown_role,
+    add_analytics_role,
+    remove_analytics_role,
     set_log_channel,
     set_blacklist_log_channel,
     has_dashboard_access,
     has_carry_manager_access,
     has_transcripts_access,
     has_remove_cooldown_access,
+    has_analytics_access,
     is_admin,
 )
 
@@ -584,10 +588,27 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         remove_cooldown_roles.append({"id": rid, "name": role.name if role else None})
 
+    analytics_roles = []
+    for rid in access_settings.get("analytics_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        analytics_roles.append({"id": rid, "name": role.name if role else None})
+
     is_admin_user = is_admin(user_data["id"])
     can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
     can_access_transcripts = has_transcripts_access(user_data["id"], role_ids)
     can_remove_cooldown = has_remove_cooldown_access(user_data["id"], role_ids)
+    can_access_analytics = has_analytics_access(user_data["id"], role_ids)
+
+    analytics = None
+    analytics_period = 7
+    if can_access_analytics:
+        try:
+            analytics_period = int(request.args.get("analytics_period", 7))
+        except (TypeError, ValueError):
+            analytics_period = 7
+        if analytics_period not in (7, 14, 30):
+            analytics_period = 7
+        analytics = get_ticket_analytics(analytics_period)
 
     blacklist_roles = []
     for rid in access_settings.get("blacklist_roles", []):
@@ -668,10 +689,14 @@ def home():
         carry_manager_roles=carry_manager_roles,
         transcripts_roles=transcripts_roles,
         remove_cooldown_roles=remove_cooldown_roles,
+        analytics_roles=analytics_roles,
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
         can_access_transcripts=can_access_transcripts,
         can_remove_cooldown=can_remove_cooldown,
+        can_access_analytics=can_access_analytics,
+        analytics=analytics,
+        analytics_period=analytics_period,
         ticket_categories=get_ticket_categories(),
         panel_draft=get_ticket_panel_draft(),
         redirect_message=get_redirect_message(),
@@ -1226,6 +1251,26 @@ def access_add_transcripts_role():
 def access_remove_transcripts_role(role_id):
     remove_transcripts_role(role_id)
     flash("🗑️ Role removed from Transcripts access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-analytics-role", methods=["POST"])
+@admin_required
+def access_add_analytics_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_analytics_role(role_id)
+        flash("✅ Role added to Analytics access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-analytics-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_analytics_role(role_id):
+    remove_analytics_role(role_id)
+    flash("🗑️ Role removed from Analytics access.", "info")
     return redirect(url_for("home"))
 
 
