@@ -1025,7 +1025,7 @@
                 <label>Message:</label>
                 <textarea name="redirect_content" rows="2" maxlength="1000" placeholder="e.g. ✅ Ticket created! Please head over to {channel}.">{{ (redirect_message | default({})).content | default('') }}</textarea>
                 <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
-                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code>
+                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code> <code>{tds_level}</code>
                 </p>
                 <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Redirect Message</button>
             </form>
@@ -1064,13 +1064,13 @@
                 <input type="text" name="welcome_footer" maxlength="200" value="{{ welcome_message.footer }}" placeholder="e.g. Powered by Carry Bot">
 
                 <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
-                    Placeholders: <code>{user}</code> <code>{user_name}</code> <code>{channel}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code>
+                    Placeholders: <code>{user}</code> <code>{user_name}</code> <code>{channel}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code> <code>{tds_level}</code>
                 </p>
 
                 <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0;">
 
                 <p class="card-subtitle" style="margin-bottom:8px;">Which of the opener's form answers should be shown as fields?</p>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
                     <div>
                         <label>Show Timezone:</label>
                         <select name="welcome_show_timezone">
@@ -1090,6 +1090,13 @@
                         <select name="welcome_show_can_join">
                             <option value="yes" {% if welcome_message.show_can_join %}selected{% endif %}>Yes</option>
                             <option value="no" {% if not welcome_message.show_can_join %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show TDS Level:</label>
+                        <select name="welcome_show_tds_level">
+                            <option value="yes" {% if welcome_message.show_tds_level %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_tds_level %}selected{% endif %}>No</option>
                         </select>
                     </div>
                 </div>
