@@ -1151,6 +1151,10 @@ class TicketsCog(commands.Cog):
             try:
                 member = guild.get_member(int(user_id))
                 if member is None:
+                    # This is a real, uncached HTTP call every time (Members
+                    # intent is disabled), so pace it - firing one of these
+                    # per active ticket back-to-back with zero delay is what
+                    # was triggering Discord's rate limiting.
                     try:
                         await guild.fetch_member(int(user_id))
                     except discord.NotFound:
@@ -1174,6 +1178,8 @@ class TicketsCog(commands.Cog):
                         # transient API issue — don't assume they left, just
                         # skip the rest of this tick's checks for this ticket
                         pass
+                    finally:
+                        await asyncio.sleep(1.2)
             except Exception:
                 logger.exception(
                     f"autoclose_watcher: membership check failed for channel={channel_id}"
