@@ -167,7 +167,25 @@ def remove_active_ticket(ticket_id):d=get_tickets_data();d["active_tickets"]=[t 
 def add_cooldown(user_id,hours=8):
     d=get_tickets_data();expires=int(time.time())+int(hours)*3600;d["cooldowns"]=[c for c in d.get("cooldowns",[]) if str(c.get("user_id"))!=str(user_id)];d["cooldowns"].append({"user_id":str(user_id),"expires_ts":expires,"expires_at":datetime.datetime.fromtimestamp(expires,datetime.timezone.utc).isoformat()});_save_tickets_data(d)
 def remove_cooldown(user_id):d=get_tickets_data();b=len(d.get("cooldowns",[]));d["cooldowns"]=[c for c in d.get("cooldowns",[]) if str(c.get("user_id"))!=str(user_id)];_save_tickets_data(d);return len(d["cooldowns"])<b
-def get_cooldowns():return get_tickets_data().get("cooldowns",[])
+def _prune_expired_cooldowns(d):
+    """Remove cooldown entries whose expires_ts has already passed. Returns
+    True if anything was actually removed, so callers know whether the
+    pruned result needs to be persisted."""
+    now=int(time.time())
+    cooldowns=d.get("cooldowns",[])
+    kept=[c for c in cooldowns if int(c.get("expires_ts",0) or 0)>now]
+    if len(kept)!=len(cooldowns):
+        d["cooldowns"]=kept
+        return True
+    return False
+def get_cooldowns():
+    """Returns only cooldowns that haven't expired yet — expired ones are
+    pruned from storage as a side effect of reading, so they don't pile up
+    or show as stale entries on the dashboard."""
+    d=get_tickets_data()
+    if _prune_expired_cooldowns(d):
+        _save_tickets_data(d)
+    return d.get("cooldowns",[])
 def is_on_cooldown(user_id):
     n=int(time.time())
     for c in get_cooldowns():
