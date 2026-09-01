@@ -759,9 +759,18 @@ class TicketView(discord.ui.View):
                     max_length=10,
                 )
 
+                self.tds_level = discord.ui.TextInput(
+                    label="🏆 What level are you in TDS? *",
+                    placeholder="e.g. 50",
+                    required=True,
+                    style=discord.TextStyle.short,
+                    max_length=10,
+                )
+
                 self.add_item(self.timezone)
                 self.add_item(self.display_name)
                 self.add_item(self.can_join)
+                self.add_item(self.tds_level)
 
             async def on_submit(
                 self, modal_interaction: discord.Interaction
@@ -863,6 +872,7 @@ class TicketView(discord.ui.View):
                         "timezone": self.timezone.value or "",
                         "display_name": self.display_name.value or "",
                         "can_join": self.can_join.value or "",
+                        "tds_level": self.tds_level.value or "",
                     }
 
                     welcome_cfg = get_welcome_message()
@@ -906,6 +916,12 @@ class TicketView(discord.ui.View):
                                 value=self.can_join.value,
                                 inline=False,
                             )
+                        if welcome_cfg.get("show_tds_level", True) and self.tds_level.value:
+                            embed.add_field(
+                                name="TDS Level",
+                                value=self.tds_level.value,
+                                inline=False,
+                            )
                         if category_cfg and category_cfg.get("open_note"):
                             embed.add_field(
                                 name="Note",
@@ -940,6 +956,8 @@ class TicketView(discord.ui.View):
                             plain_parts.append(f"**Display name:** {self.display_name.value}")
                         if welcome_cfg.get("show_can_join", True):
                             plain_parts.append(f"**Can join private server?** {self.can_join.value}")
+                        if welcome_cfg.get("show_tds_level", True) and self.tds_level.value:
+                            plain_parts.append(f"**TDS Level:** {self.tds_level.value}")
                         if category_cfg and category_cfg.get("open_note"):
                             plain_parts.append(f"**Note:** {category_cfg['open_note']}")
                         await ticket_channel.send(content="\n".join(plain_parts))
@@ -998,6 +1016,7 @@ class TicketView(discord.ui.View):
                                 "timezone": self.timezone.value,
                                 "display_name": self.display_name.value,
                                 "can_join": self.can_join.value,
+                                "tds_level": self.tds_level.value,
                             },
                         })
                     except Exception as e:
