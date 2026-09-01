@@ -1208,6 +1208,7 @@ def save_welcome_message_route():
         "show_timezone": request.form.get("welcome_show_timezone") == "yes",
         "show_display_name": request.form.get("welcome_show_display_name") == "yes",
         "show_can_join": request.form.get("welcome_show_can_join") == "yes",
+        "show_tds_level": request.form.get("welcome_show_tds_level") == "yes",
     }
     save_welcome_message(data)
     flash("✅ Ticket-channel welcome message saved.", "success")
