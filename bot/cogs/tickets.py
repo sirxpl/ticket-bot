@@ -935,7 +935,7 @@ class TicketView(discord.ui.View):
                                 )
                             )
 
-                        await ticket_channel.send(
+                        welcome_msg = await ticket_channel.send(
                             content=render_ticket_template(
                                 welcome_cfg.get("content") or "", **template_vars
                             )
@@ -960,7 +960,30 @@ class TicketView(discord.ui.View):
                             plain_parts.append(f"**TDS Level:** {self.tds_level.value}")
                         if category_cfg and category_cfg.get("open_note"):
                             plain_parts.append(f"**Note:** {category_cfg['open_note']}")
-                        await ticket_channel.send(content="\n".join(plain_parts))
+                        welcome_msg = await ticket_channel.send(content="\n".join(plain_parts))
+
+                    # Pin the welcome message — it's the one place that has
+                    # both the "ticket created" info and the opener's
+                    # answers (timezone/display name/TDS level/etc), so
+                    # staff can see it without scrolling once the channel
+                    # fills up with conversation.
+                    try:
+                        await welcome_msg.pin(
+                            reason="Ticket welcome message — kept visible for staff reference"
+                        )
+                    except discord.Forbidden:
+                        logger.warning(
+                            f"Missing permission to pin welcome message in channel={ticket_channel.id}"
+                        )
+                    except discord.HTTPException:
+                        # Most commonly Discord's 50-pin-per-channel cap
+                        logger.warning(
+                            f"Failed to pin welcome message in channel={ticket_channel.id} (pin limit reached?)"
+                        )
+                    except Exception:
+                        logger.exception(
+                            f"Unexpected error pinning welcome message in channel={ticket_channel.id}"
+                        )
 
                     # Attach close button view
                     await ticket_channel.send(
