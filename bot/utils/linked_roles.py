@@ -1,5 +1,7 @@
 import requests
 
+from utils.discord_http import discord_request
+
 DISCORD_API = "https://discord.com/api/v10"
 
 BOOLEAN_EQUAL = 7
@@ -23,33 +25,38 @@ def _headers(token: str, *, bot: bool = False):
     }
 
 
+def _raise_for_discord_error(resp: requests.Response, action: str):
+    if resp.ok:
+        return
+    detail = resp.text[:500]
+    raise RuntimeError(f"Discord {action} failed ({resp.status_code}): {detail}")
+
+
 def register_metadata(application_id: str, bot_token: str):
     if not application_id or not bot_token:
         raise RuntimeError("DISCORD_CLIENT_ID and DISCORD_BOT_TOKEN are required")
     url = f"{DISCORD_API}/applications/{application_id}/role-connections/metadata"
-    resp = requests.put(
+    resp = discord_request(
+        "PUT",
         url,
         headers=_headers(bot_token, bot=True),
         json=ROLE_CONNECTION_METADATA,
         timeout=15,
+        max_retries=5,
     )
-    if not resp.ok:
-        raise RuntimeError(
-            f"Discord metadata registration failed ({resp.status_code}): {resp.text[:500]}"
-        )
+    _raise_for_discord_error(resp, "metadata registration")
     return resp.json()
 
 
 def get_oauth_application(access_token: str):
-    resp = requests.get(
+    resp = discord_request(
+        "GET",
         f"{DISCORD_API}/oauth2/@me",
         headers=_headers(access_token),
         timeout=15,
+        max_retries=5,
     )
-    if not resp.ok:
-        raise RuntimeError(
-            f"Discord OAuth session lookup failed ({resp.status_code}): {resp.text[:500]}"
-        )
+    _raise_for_discord_error(resp, "OAuth session lookup")
     return resp.json()
 
 
@@ -78,14 +85,13 @@ def push_role_connection(
         "platform_username": platform_username[:100],
         "metadata": {"agreed_to_rules": 1 if agreed else 0},
     }
-    resp = requests.put(
+    resp = discord_request(
+        "PUT",
         url,
         headers=_headers(access_token),
         json=payload,
         timeout=15,
+        max_retries=5,
     )
-    if not resp.ok:
-        raise RuntimeError(
-            f"Discord Linked Role update failed ({resp.status_code}): {resp.text[:500]}"
-        )
+    _raise_for_discord_error(resp, "Linked Role update")
     return resp.json() if resp.content else {}
