@@ -7,7 +7,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from utils.access import is_admin
 from utils.storage import get_trial_schedule_settings, save_trial_schedule_settings
 
 logger = logging.getLogger("trial_schedule")
@@ -73,7 +72,10 @@ def _slot_start(number: int) -> dt.datetime:
     return ANCHOR + (SLOT * number)
 
 
-def _discord_timestamp(when: dt.datetime, style: str = "F") -> str:
+def _discord_timestamp(
+    when: dt.datetime,
+    style: str = "F",
+) -> str:
     """
     Create a Discord timestamp.
 
@@ -121,17 +123,23 @@ def build_trial_schedule_embed(
         start_time = _slot_start(slot_no)
         end_time = start_time + SLOT
 
-        # Determine whether this is currently active,
-        # upcoming, or the first scheduled trial.
+        # Determine whether this trial is currently active or upcoming.
         if start_time <= now < end_time:
-            status = f"🟢 **ACTIVE** • Ends {_discord_timestamp(end_time, 'R')}"
+            status = (
+                f"🟢 **ACTIVE** • "
+                f"Ends {_discord_timestamp(end_time, 'R')}"
+            )
+
         elif start_time > now:
             status = (
                 f"🕐 Starts {_discord_timestamp(start_time, 'F')} "
                 f"({_discord_timestamp(start_time, 'R')})"
             )
+
         else:
-            status = f"🕐 {_discord_timestamp(start_time, 'F')}"
+            status = (
+                f"🕐 {_discord_timestamp(start_time, 'F')}"
+            )
 
         lines.append(
             f"{emoji} **{name}**\n"
@@ -172,10 +180,11 @@ class TrialSchedule(commands.Cog):
         force: bool = False,
     ):
         """
-        Create or update the configured Trial Schedule message.
+        Create or update the configured public Trial Schedule message.
 
-        This intentionally avoids repeatedly editing the Discord message.
-        Discord handles the <t:...:R> countdown on the client side.
+        This is separate from /trial_schedule.
+        The public schedule remains public and automatically updates
+        when the 3-hour trial changes.
         """
 
         async with self._update_lock:
@@ -220,7 +229,7 @@ class TrialSchedule(commands.Cog):
                 == target_id
             )
 
-            # Try to reuse the existing schedule message.
+            # Reuse the existing public schedule message.
             if stored_message_id and same_channel:
                 try:
                     message = await channel.fetch_message(
@@ -238,17 +247,20 @@ class TrialSchedule(commands.Cog):
 
             try:
                 if message:
-                    # Only edit when the actual 3-hour slot changes,
-                    # or when a forced update is requested.
+                    # Only edit the public message when the 3-hour
+                    # trial changes, or when explicitly forced.
                     #
-                    # The relative Discord timestamps update automatically
-                    # for users, so there is no reason to edit every minute.
+                    # Discord updates relative timestamps itself,
+                    # so we don't need to edit every minute.
                     if force or self._last_slot != slot_no:
                         await message.edit(embed=embed)
 
                 else:
-                    # No existing message was found, so create one.
-                    message = await channel.send(embed=embed)
+                    # Create the public schedule message if one
+                    # doesn't already exist.
+                    message = await channel.send(
+                        embed=embed
+                    )
 
                     save_trial_schedule_settings(
                         {
@@ -262,8 +274,8 @@ class TrialSchedule(commands.Cog):
                 return message
 
             except discord.HTTPException as exc:
-                # discord.py handles Discord's rate-limit responses.
-                # Do not create a manual hot-loop retry.
+                # discord.py handles Discord's rate limits.
+                # Do not manually hot-loop retries.
                 logger.warning(
                     "Trial schedule Discord API request failed: %s",
                     exc,
@@ -285,11 +297,8 @@ class TrialSchedule(commands.Cog):
             dt.datetime.now(EASTERN)
         )
 
-        # The message only needs to be edited when the 3-hour
-        # trial changes.
-        #
-        # Discord itself updates <t:...:R> timestamps for users,
-        # meaning we don't need to make an API request every minute.
+        # Only update the public message when the 3-hour
+        # trial boundary changes.
         if self._last_slot != current_slot:
             await self.publish_or_update()
 
@@ -299,43 +308,24 @@ class TrialSchedule(commands.Cog):
 
     @app_commands.command(
         name="trial_schedule",
-        description="Post or refresh the current Trial Schedule",
+        description="View the current Trial Schedule",
     )
     async def trial_schedule(
         self,
         interaction: discord.Interaction,
     ):
-        if not is_admin(interaction.user.id):
-            await interaction.response.send_message(
-                "❌ You do not have permission to use "
-                "`/trial_schedule`.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(
-            ephemeral=True,
-            thinking=True,
-        )
-
+        # Anyone can use this command.
+        #
+        # The response is ephemeral, meaning ONLY the person
+        # who used /trial_schedule can see it.
+        #
+        # This does not modify the public dashboard schedule.
         embed, _ = build_trial_schedule_embed()
 
-        try:
-            await interaction.channel.send(
-                embed=embed
-            )
-
-            await interaction.followup.send(
-                "✅ Trial Schedule posted.",
-                ephemeral=True,
-            )
-
-        except discord.HTTPException:
-            await interaction.followup.send(
-                "❌ I couldn't post the Trial Schedule "
-                "in this channel.",
-                ephemeral=True,
-            )
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot):
