@@ -70,14 +70,15 @@ def build_trial_schedule_embed(
 
     if current_start <= now < current_end:
         lines.append(
-            f"{current_emoji} **{current_name}** "
+            f"{current_emoji} 🟢 **{current_name}** "
             f"ends {_discord_timestamp(current_end, 'R')}"
         )
         start_offset = 1
     else:
         start_offset = 0
 
-    for offset in range(start_offset, 13):
+    # Show the rest of the current rotation without duplicates.
+    for offset in range(start_offset, len(TRIALS)):
         slot_no = first_slot + offset
         emoji, name = TRIALS[slot_no % len(TRIALS)]
         start_time = _slot_start(slot_no)
