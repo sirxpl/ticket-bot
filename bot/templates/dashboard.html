@@ -834,6 +834,9 @@
                     <button type="button" class="nav-item" data-page="carry-settings" onclick="showPage('carry-settings', this)">
                         <span class="nav-icon">⚙️</span><span class="nav-text">Carry Manager Settings</span>
                     </button>
+                    <button type="button" class="nav-item" data-page="trial-schedules" onclick="showPage('trial-schedules', this)">
+                        <span class="nav-icon">🗓️</span><span class="nav-text">Trial Schedules</span>
+                    </button>
                     {% endif %}
                     <button type="button" class="nav-item" data-page="blacklist" onclick="showPage('blacklist', this)">
                         <span class="nav-icon">🚫</span><span class="nav-text">Blacklist</span>
@@ -1158,6 +1161,51 @@
         <div class="card">
             <h3><span class="card-icon">🔒</span> Restricted</h3>
             <p style="color: var(--text-dim);">You don't have the required role to access Carry Manager Settings. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
+        </section>
+
+        <section class="page" id="page-trial-schedules">
+        {% if can_access_carry_settings %}
+        <div class="card">
+            <h3><span class="card-icon">🗓️</span> Trial Schedules</h3>
+            <p class="card-subtitle">
+                Choose where the bot should keep the Trial Schedule posted. The schedule content is automatic — there are no message-editing controls here.
+            </p>
+            <form action="/dashboard/trial-schedule/save" method="POST">
+                <label>Automatic schedule:</label>
+                <select name="trial_enabled">
+                    <option value="yes" {% if trial_schedule.enabled %}selected{% endif %}>Enabled</option>
+                    <option value="no" {% if not trial_schedule.enabled %}selected{% endif %}>Disabled</option>
+                </select>
+
+                <label>Post / update channel:</label>
+                <select name="trial_channel_id">
+                    <option value="">Choose a channel...</option>
+                    {% for channel in channels %}
+                        <option value="{{ channel.id }}" {% if trial_schedule.channel_id and channel.id|string == trial_schedule.channel_id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <div style="margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--raised); color:var(--text-dim); font-size:0.9em; line-height:1.6;">
+                    <strong style="color:var(--text);">How it works</strong><br>
+                    • Eastern Time (America/New_York; EST/EDT automatically)<br>
+                    • The current modifier updates at each 3-hour trial boundary<br>
+                    • Discord's relative timestamp handles the live “ends in …” countdown without constant bot edits<br>
+                    • Saving while enabled immediately creates or refreshes the tracked schedule message
+                </div>
+
+                {% if trial_schedule.message_id %}
+                <p class="card-subtitle" style="margin-top:12px;">Tracked Discord message ID: <code>{{ trial_schedule.message_id }}</code></p>
+                {% endif %}
+
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save &amp; Update Schedule</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="card">
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to access Trial Schedules.</p>
         </div>
         {% endif %}
         </section>
