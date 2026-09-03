@@ -19,7 +19,10 @@ DOC_URL = (
     "edit?tab=t.pdj0ytau4jf4"
 )
 
+# Limitation starts September 2, 2026 at 11:00 PM Eastern Time.
 ANCHOR = dt.datetime(2026, 9, 2, 23, 0, tzinfo=EASTERN)
+
+# Every trial lasts 3 hours.
 SLOT = dt.timedelta(hours=3)
 
 TRIALS = [
@@ -41,21 +44,29 @@ TRIALS = [
 
 def _slot_number(now: dt.datetime) -> int:
     now = now.astimezone(EASTERN)
-    return int((now - ANCHOR).total_seconds() // SLOT.total_seconds())
+    return int(
+        (now - ANCHOR).total_seconds()
+        // SLOT.total_seconds()
+    )
 
 
 def _slot_start(number: int) -> dt.datetime:
     return ANCHOR + SLOT * number
 
 
-def _discord_timestamp(when: dt.datetime, style: str) -> str:
+def _discord_timestamp(
+    when: dt.datetime,
+    style: str,
+) -> str:
     return f"<t:{int(when.timestamp())}:{style}>"
 
 
 def build_trial_schedule_embed(
     now: dt.datetime | None = None,
 ) -> tuple[discord.Embed, int]:
-    now = (now or dt.datetime.now(EASTERN)).astimezone(EASTERN)
+    now = (
+        now or dt.datetime.now(EASTERN)
+    ).astimezone(EASTERN)
 
     slot_number = _slot_number(now)
     first_slot = max(slot_number, 0)
@@ -66,20 +77,35 @@ def build_trial_schedule_embed(
 
     current_start = _slot_start(first_slot)
     current_end = current_start + SLOT
-    current_emoji, current_name = TRIALS[first_slot % len(TRIALS)]
 
+    # Currently active trial
     if current_start <= now < current_end:
+        emoji, name = TRIALS[first_slot % len(TRIALS)]
+
         lines.append(
-            f"{current_emoji} 🟢 **{current_name}** "
+            f"{emoji} 🟢 **{name}** "
             f"ends {_discord_timestamp(current_end, 'R')}"
         )
-        start_offset = 1
-    else:
-        start_offset = 0
 
-    # Show the rest of the current rotation without duplicates.
-    for offset in range(start_offset, len(TRIALS)):
-        slot_no = first_slot + offset
+        upcoming_start = first_slot + 1
+
+    # Before the first scheduled trial
+    else:
+        emoji, name = TRIALS[first_slot % len(TRIALS)]
+        start_time = _slot_start(first_slot)
+
+        lines.append(
+            f"{emoji} **{name}** "
+            f"starts {_discord_timestamp(start_time, 't')}"
+        )
+
+        upcoming_start = first_slot + 1
+
+    # Show the rest of the rotation without duplicates.
+    for slot_no in range(
+        upcoming_start,
+        first_slot + len(TRIALS),
+    ):
         emoji, name = TRIALS[slot_no % len(TRIALS)]
         start_time = _slot_start(slot_no)
 
@@ -106,6 +132,7 @@ class TrialSchedule(commands.Cog):
         self.bot = bot
         self._last_slot = None
         self._update_lock = asyncio.Lock()
+
         self.auto_updater.start()
 
     def cog_unload(self):
@@ -120,7 +147,9 @@ class TrialSchedule(commands.Cog):
             cfg = get_trial_schedule_settings()
 
             target_id = str(
-                channel_id or cfg.get("channel_id") or ""
+                channel_id
+                or cfg.get("channel_id")
+                or ""
             ).strip()
 
             if not target_id:
@@ -131,6 +160,7 @@ class TrialSchedule(commands.Cog):
                     self.bot.get_channel(int(target_id))
                     or await self.bot.fetch_channel(int(target_id))
                 )
+
             except (
                 discord.HTTPException,
                 discord.NotFound,
@@ -150,7 +180,8 @@ class TrialSchedule(commands.Cog):
             stored_message_id = cfg.get("message_id")
 
             same_channel = (
-                str(cfg.get("channel_id") or "") == target_id
+                str(cfg.get("channel_id") or "")
+                == target_id
             )
 
             if stored_message_id and same_channel:
@@ -158,6 +189,7 @@ class TrialSchedule(commands.Cog):
                     message = await channel.fetch_message(
                         int(stored_message_id)
                     )
+
                 except (
                     discord.NotFound,
                     discord.Forbidden,
@@ -169,10 +201,14 @@ class TrialSchedule(commands.Cog):
 
             try:
                 if message:
+                    # Only edit when the actual 3-hour trial changes.
                     if force or self._last_slot != slot_no:
                         await message.edit(embed=embed)
+
                 else:
-                    message = await channel.send(embed=embed)
+                    message = await channel.send(
+                        embed=embed
+                    )
 
                     save_trial_schedule_settings(
                         {
@@ -195,13 +231,18 @@ class TrialSchedule(commands.Cog):
     async def auto_updater(self):
         cfg = get_trial_schedule_settings()
 
-        if not cfg.get("enabled") or not cfg.get("channel_id"):
+        if not cfg.get("enabled"):
+            return
+
+        if not cfg.get("channel_id"):
             return
 
         current_slot = _slot_number(
             dt.datetime.now(EASTERN)
         )
 
+        # Discord handles the relative timestamp itself,
+        # so only update the public message when the trial changes.
         if self._last_slot != current_slot:
             await self.publish_or_update()
 
@@ -217,6 +258,8 @@ class TrialSchedule(commands.Cog):
         self,
         interaction: discord.Interaction,
     ):
+        # Anyone can use the command.
+        # The response is visible only to the user who ran it.
         embed, _ = build_trial_schedule_embed()
 
         await interaction.response.send_message(
