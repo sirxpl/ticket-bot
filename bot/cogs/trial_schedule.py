@@ -62,10 +62,8 @@ def build_trial_schedule_embed(
 
     lines = [
         f"Strategies for modifiers [here]({DOC_URL}).",
-        "",
     ]
 
-    # Current trial
     current_start = _slot_start(first_slot)
     current_end = current_start + SLOT
     current_emoji, current_name = TRIALS[first_slot % len(TRIALS)]
@@ -75,12 +73,10 @@ def build_trial_schedule_embed(
             f"{current_emoji} **{current_name}** "
             f"ends {_discord_timestamp(current_end, 'R')}"
         )
-
         start_offset = 1
     else:
         start_offset = 0
 
-    # Upcoming trials
     for offset in range(start_offset, 13):
         slot_no = first_slot + offset
         emoji, name = TRIALS[slot_no % len(TRIALS)]
@@ -93,7 +89,7 @@ def build_trial_schedule_embed(
 
     embed = discord.Embed(
         title="Trial Schedule",
-        description="\n\n".join(lines),
+        description="\n".join(lines),
         color=discord.Color.from_rgb(47, 49, 54),
     )
 
