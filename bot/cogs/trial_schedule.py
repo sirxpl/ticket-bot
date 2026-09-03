@@ -11,8 +11,6 @@ from utils.storage import get_trial_schedule_settings, save_trial_schedule_setti
 
 logger = logging.getLogger("trial_schedule")
 
-# Trial schedule uses Eastern Time.
-# America/New_York automatically handles EST/EDT daylight-saving changes.
 EASTERN = ZoneInfo("America/New_York")
 
 DOC_URL = (
@@ -21,21 +19,9 @@ DOC_URL = (
     "edit?tab=t.pdj0ytau4jf4"
 )
 
-# Schedule anchor:
-# Limitation starts September 2, 2026 at 11:00 PM Eastern Time.
-ANCHOR = dt.datetime(
-    2026,
-    9,
-    2,
-    23,
-    0,
-    tzinfo=EASTERN,
-)
-
-# Every trial lasts 3 hours.
+ANCHOR = dt.datetime(2026, 9, 2, 23, 0, tzinfo=EASTERN)
 SLOT = dt.timedelta(hours=3)
 
-# Trial rotation.
 TRIALS = [
     ("📦", "Limitation"),
     ("🌪️", "Flying"),
@@ -54,58 +40,24 @@ TRIALS = [
 
 
 def _slot_number(now: dt.datetime) -> int:
-    """
-    Return which 3-hour slot the current time belongs to.
-
-    Slot 0 starts at the Limitation anchor.
-    """
     now = now.astimezone(EASTERN)
-
-    return int(
-        (now - ANCHOR).total_seconds()
-        // SLOT.total_seconds()
-    )
+    return int((now - ANCHOR).total_seconds() // SLOT.total_seconds())
 
 
 def _slot_start(number: int) -> dt.datetime:
-    """Return the Eastern Time start datetime for a slot."""
-    return ANCHOR + (SLOT * number)
+    return ANCHOR + SLOT * number
 
 
-def _discord_timestamp(
-    when: dt.datetime,
-    style: str = "F",
-) -> str:
-    """
-    Create a Discord timestamp.
-
-    F = full date/time
-    f = short date/time
-    R = relative time
-    """
-    timestamp = int(when.timestamp())
-    return f"<t:{timestamp}:{style}>"
+def _discord_timestamp(when: dt.datetime, style: str) -> str:
+    return f"<t:{int(when.timestamp())}:{style}>"
 
 
 def build_trial_schedule_embed(
     now: dt.datetime | None = None,
 ) -> tuple[discord.Embed, int]:
-    """
-    Build the Trial Schedule embed.
-
-    Every trial receives Discord timestamps so Discord automatically
-    displays the correct time for each user's timezone.
-    """
-
-    now = (
-        now or dt.datetime.now(EASTERN)
-    ).astimezone(EASTERN)
+    now = (now or dt.datetime.now(EASTERN)).astimezone(EASTERN)
 
     slot_number = _slot_number(now)
-
-    # If the current time is before the initial Limitation anchor,
-    # start the displayed schedule at Limitation rather than showing
-    # the previous cycle's Fog trial.
     first_slot = max(slot_number, 0)
 
     lines = [
@@ -113,46 +65,35 @@ def build_trial_schedule_embed(
         "",
     ]
 
-    # Show the next 13 trials, including the current/upcoming one.
-    for offset in range(13):
-        slot_no = first_slot + offset
+    # Current trial
+    current_start = _slot_start(first_slot)
+    current_end = current_start + SLOT
+    current_emoji, current_name = TRIALS[first_slot % len(TRIALS)]
 
-        trial_index = slot_no % len(TRIALS)
-        emoji, name = TRIALS[trial_index]
-
-        start_time = _slot_start(slot_no)
-        end_time = start_time + SLOT
-
-        # Determine whether this trial is currently active or upcoming.
-        if start_time <= now < end_time:
-            status = (
-                f"🟢 **ACTIVE** • "
-                f"Ends {_discord_timestamp(end_time, 'R')}"
-            )
-
-        elif start_time > now:
-            status = (
-                f"🕐 Starts {_discord_timestamp(start_time, 'F')} "
-                f"({_discord_timestamp(start_time, 'R')})"
-            )
-
-        else:
-            status = (
-                f"🕐 {_discord_timestamp(start_time, 'F')}"
-            )
-
+    if current_start <= now < current_end:
         lines.append(
-            f"{emoji} **{name}**\n"
-            f"   {status}\n"
-            f"   🕒 Ends {_discord_timestamp(end_time, 'F')}"
+            f"{current_emoji} **{current_name}** "
+            f"ends {_discord_timestamp(current_end, 'R')}"
         )
 
-        if offset != 12:
-            lines.append("")
+        start_offset = 1
+    else:
+        start_offset = 0
+
+    # Upcoming trials
+    for offset in range(start_offset, 13):
+        slot_no = first_slot + offset
+        emoji, name = TRIALS[slot_no % len(TRIALS)]
+        start_time = _slot_start(slot_no)
+
+        lines.append(
+            f"{emoji} **{name}** "
+            f"{_discord_timestamp(start_time, 't')}"
+        )
 
     embed = discord.Embed(
         title="Trial Schedule",
-        description="\n".join(lines),
+        description="\n\n".join(lines),
         color=discord.Color.from_rgb(47, 49, 54),
     )
 
@@ -168,7 +109,6 @@ class TrialSchedule(commands.Cog):
         self.bot = bot
         self._last_slot = None
         self._update_lock = asyncio.Lock()
-
         self.auto_updater.start()
 
     def cog_unload(self):
@@ -179,21 +119,11 @@ class TrialSchedule(commands.Cog):
         channel_id: int | str | None = None,
         force: bool = False,
     ):
-        """
-        Create or update the configured public Trial Schedule message.
-
-        This is separate from /trial_schedule.
-        The public schedule remains public and automatically updates
-        when the 3-hour trial changes.
-        """
-
         async with self._update_lock:
             cfg = get_trial_schedule_settings()
 
             target_id = str(
-                channel_id
-                or cfg.get("channel_id")
-                or ""
+                channel_id or cfg.get("channel_id") or ""
             ).strip()
 
             if not target_id:
@@ -204,7 +134,6 @@ class TrialSchedule(commands.Cog):
                     self.bot.get_channel(int(target_id))
                     or await self.bot.fetch_channel(int(target_id))
                 )
-
             except (
                 discord.HTTPException,
                 discord.NotFound,
@@ -221,21 +150,17 @@ class TrialSchedule(commands.Cog):
             embed, slot_no = build_trial_schedule_embed()
 
             message = None
-
             stored_message_id = cfg.get("message_id")
 
             same_channel = (
-                str(cfg.get("channel_id") or "")
-                == target_id
+                str(cfg.get("channel_id") or "") == target_id
             )
 
-            # Reuse the existing public schedule message.
             if stored_message_id and same_channel:
                 try:
                     message = await channel.fetch_message(
                         int(stored_message_id)
                     )
-
                 except (
                     discord.NotFound,
                     discord.Forbidden,
@@ -247,20 +172,10 @@ class TrialSchedule(commands.Cog):
 
             try:
                 if message:
-                    # Only edit the public message when the 3-hour
-                    # trial changes, or when explicitly forced.
-                    #
-                    # Discord updates relative timestamps itself,
-                    # so we don't need to edit every minute.
                     if force or self._last_slot != slot_no:
                         await message.edit(embed=embed)
-
                 else:
-                    # Create the public schedule message if one
-                    # doesn't already exist.
-                    message = await channel.send(
-                        embed=embed
-                    )
+                    message = await channel.send(embed=embed)
 
                     save_trial_schedule_settings(
                         {
@@ -270,35 +185,26 @@ class TrialSchedule(commands.Cog):
                     )
 
                 self._last_slot = slot_no
-
                 return message
 
             except discord.HTTPException as exc:
-                # discord.py handles Discord's rate limits.
-                # Do not manually hot-loop retries.
                 logger.warning(
                     "Trial schedule Discord API request failed: %s",
                     exc,
                 )
-
                 return None
 
     @tasks.loop(seconds=60)
     async def auto_updater(self):
         cfg = get_trial_schedule_settings()
 
-        if not cfg.get("enabled"):
-            return
-
-        if not cfg.get("channel_id"):
+        if not cfg.get("enabled") or not cfg.get("channel_id"):
             return
 
         current_slot = _slot_number(
             dt.datetime.now(EASTERN)
         )
 
-        # Only update the public message when the 3-hour
-        # trial boundary changes.
         if self._last_slot != current_slot:
             await self.publish_or_update()
 
@@ -314,12 +220,6 @@ class TrialSchedule(commands.Cog):
         self,
         interaction: discord.Interaction,
     ):
-        # Anyone can use this command.
-        #
-        # The response is ephemeral, meaning ONLY the person
-        # who used /trial_schedule can see it.
-        #
-        # This does not modify the public dashboard schedule.
         embed, _ = build_trial_schedule_embed()
 
         await interaction.response.send_message(
