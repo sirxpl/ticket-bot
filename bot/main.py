@@ -46,6 +46,8 @@ from utils.storage import (
     get_welcome_message,
     save_welcome_message,
     get_ticket_analytics,
+    get_trial_schedule_settings,
+    save_trial_schedule_settings,
 )
 
 # Import access-control helpers
@@ -701,9 +703,51 @@ def home():
         panel_draft=get_ticket_panel_draft(),
         redirect_message=get_redirect_message(),
         welcome_message=get_welcome_message(),
+        trial_schedule=get_trial_schedule_settings(),
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id")
     )
+
+
+@app.route("/dashboard/trial-schedule/save", methods=["POST"])
+@carry_manager_required
+def save_trial_schedule_route():
+    channel_id = request.form.get("trial_channel_id", "").strip()
+    enabled = request.form.get("trial_enabled") == "yes"
+
+    if enabled and not channel_id:
+        flash("❌ Choose a channel before enabling Trial Schedules.", "danger")
+        return redirect(url_for("home"))
+
+    old = get_trial_schedule_settings()
+    # When the configured channel changes, forget the old message ID so the
+    # bot creates one clean schedule post in the new channel instead of trying
+    # to fetch a message from the wrong place.
+    update = {"enabled": enabled, "channel_id": channel_id or None}
+    if str(old.get("channel_id") or "") != channel_id:
+        update["message_id"] = None
+    save_trial_schedule_settings(update)
+
+    if enabled and channel_id:
+        cog = bot.get_cog("TrialSchedule")
+        if cog:
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    cog.publish_or_update(channel_id=channel_id, force=True), bot.loop
+                )
+                message = future.result(timeout=15)
+                if message:
+                    flash("✅ Trial Schedule saved and published/updated.", "success")
+                else:
+                    flash("⚠️ Settings saved, but the bot could not publish the Trial Schedule. Check channel permissions.", "warning")
+            except Exception:
+                flash("⚠️ Settings saved. The bot will retry the Trial Schedule automatically.", "warning")
+        else:
+            flash("✅ Trial Schedule settings saved. The scheduler will start when the bot cog is loaded.", "success")
+    else:
+        flash("✅ Trial Schedule settings saved.", "success")
+
+    return redirect(url_for("home"))
 
 
 @app.route("/login")
