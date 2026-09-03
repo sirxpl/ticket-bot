@@ -53,6 +53,25 @@ def save_settings(settings):
 def set_tickets_enabled(status):
     s=get_settings();s["tickets_enabled"]=bool(status);save_settings(s)
 
+# --- Trial schedule settings ---
+def get_trial_schedule_settings():
+    """Persistent config for the automatically maintained Trial Schedule post."""
+    defaults = {
+        "enabled": False,
+        "channel_id": None,
+        "message_id": None,
+    }
+    saved = get_settings().get("trial_schedule") or {}
+    return {**defaults, **saved}
+
+def save_trial_schedule_settings(data):
+    s = get_settings()
+    current = s.get("trial_schedule") or {}
+    current.update(data or {})
+    s["trial_schedule"] = current
+    save_settings(s)
+    return {**{"enabled": False, "channel_id": None, "message_id": None}, **current}
+
 # --- Existing coffee preference API ---
 def get_coffee_dm_enabled(user_id):
     uid=str(user_id);db=get_db()
