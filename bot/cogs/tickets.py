@@ -2308,7 +2308,7 @@ class TicketsCog(commands.Cog):
                 filename, expires_seconds=3600
             )
 
-            if creator_id:
+            if creator_id and signed_url:
                 try:
                     user = await self.bot.fetch_user(int(creator_id))
 

@@ -56,9 +56,11 @@ To run your own copy of this bot, fork the repository first rather than cloning 
 1. Go to the [Developer Portal](https://discord.com/developers/applications) → **New Application**
 2. **Bot** tab → reset/copy your bot token → this becomes `DISCORD_BOT_TOKEN`
 3. **OAuth2 → General** → copy **Client ID** and **Client Secret** → these become `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`
-4. **OAuth2 → General → Redirects** → add:
-   - `https://YOUR-RENDER-URL.onrender.com/callback`
-   - `https://YOUR-RENDER-URL.onrender.com/linked-role/callback` *(only if using Linked Roles)*
+4. **OAuth2 → General → Redirects** → add, for every domain you serve the dashboard on:
+   - `https://YOUR-DOMAIN/callback`
+   - `https://YOUR-DOMAIN/linked-role/callback` *(only if using Linked Roles)*
+
+   The app builds these URLs from whatever host the request came in on, so `http://localhost:5000/callback` works for local development without any config change.
 
 > **Privileged intents:** this bot runs with **Message Content** and **Server Members** intents both *disabled* by default, and the core ticket/dashboard system doesn't need them. You only need to enable **Message Content** if you want `chat-exporter` to include real message text in saved transcripts — without it, transcripts still generate, just with limited content.
 
@@ -103,13 +105,14 @@ If you don't want this feature, it's safe to leave unconfigured — nothing else
 | `DISCORD_BOT_TOKEN` | ✅ | Your bot's token from the Developer Portal |
 | `DISCORD_CLIENT_ID` | ✅ | Your application's Client ID (used for OAuth2 and Linked Roles) |
 | `DISCORD_CLIENT_SECRET` | ✅ | Your application's Client Secret |
-| `OAUTH2_REDIRECT_URI` | ✅ | `https://your-service.onrender.com/callback` |
+| `OAUTH2_REDIRECT_URI` | Optional | Overrides the login callback URL. Auto-derived from the request host, so only set it if the app is reached through a host it can't see (e.g. a rewrite proxy) |
+| `PUBLIC_BASE_URL` | Optional | Forces the public origin (e.g. `https://tickets.example.com`) used for OAuth redirects, transcript links and site links. Auto-detected when unset |
 | `SECRET_KEY` | ✅ | Random string used to sign dashboard session cookies — **set your own**, don't rely on the code's fallback default |
 | `MONGODB_URI` | Recommended | MongoDB Atlas connection string — without this, all settings fall back to local files that **do not survive a redeploy** on most hosts |
 | `ADMIN_USER_IDS` | Optional | Comma-separated Discord user IDs granted admin dashboard access |
 | `LOG_CHANNEL_ID` | Optional | Channel ID for general ticket activity logs |
 | `CARRY_RULES_ROLE_ID` | Optional | Role granted after a member accepts your rules agreement |
-| `LINKED_ROLE_REDIRECT_URI` | Optional | `https://your-service.onrender.com/linked-role/callback` — only needed if using Linked Roles |
+| `LINKED_ROLE_REDIRECT_URI` | Optional | Overrides the Linked Roles callback URL; auto-derived like `OAUTH2_REDIRECT_URI` |
 | `VIRUSTOTAL_API_KEY` | Optional | Enables the `/scan_url` utility command |
 | `PORT` | Optional | Defaults to `5000`; Render sets this automatically |
 

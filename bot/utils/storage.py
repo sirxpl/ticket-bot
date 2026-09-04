@@ -296,8 +296,28 @@ def save_transcript_html(filename,html):
     except Exception:return False
 
 # --- Transcript links ---
+_detected_base_url=None
+
+def remember_base_url(url):
+    """Record the public origin the web app is actually being served from.
+
+    The bot side (embeds, transcript links) runs outside any request context,
+    so the web layer calls this on each request to keep a usable origin around
+    for whatever domain the app happens to be deployed on.
+    """
+    global _detected_base_url
+    url=(url or '').rstrip('/')
+    if not url or url==_detected_base_url:return
+    _detected_base_url=url
+    try:
+        s=get_settings()
+        if s.get('public_base_url')!=url:s['public_base_url']=url;save_settings(s)
+    except Exception:logger.exception('remember_base_url failed to persist')
+
 def get_dashboard_base_url():
-    b=os.getenv('DASHBOARD_URL') or os.getenv('OAUTH2_REDIRECT_URI') or 'https://ticket-bot-f184.onrender.com';return b.removesuffix('/callback').rstrip('/')
+    for b in (os.getenv('PUBLIC_BASE_URL'),os.getenv('DASHBOARD_URL'),_detected_base_url,(get_settings() or {}).get('public_base_url'),os.getenv('OAUTH2_REDIRECT_URI')):
+        if b:return b.strip().removesuffix('/callback').rstrip('/')
+    return ''
 def generate_transcript_token(filename,expires_seconds=3600):
     import hmac,hashlib,base64
     exp=int(time.time())+int(expires_seconds);p=f"{filename}|{exp}".encode();sig=hmac.new((os.getenv('SECRET_KEY') or 'supersecretkey123').encode(),p,hashlib.sha256).digest();return base64.urlsafe_b64encode(p+b"|"+sig).decode()
@@ -306,4 +326,6 @@ def verify_transcript_token(token):
     try:
         raw=base64.urlsafe_b64decode(token.encode());parts=raw.split(b"|");fn=parts[0].decode();exp=int(parts[1]);sig=b"|".join(parts[2:]);p=f"{fn}|{exp}".encode();key=(os.getenv('SECRET_KEY') or 'supersecretkey123').encode();return {"filename":fn,"expires":exp} if hmac.compare_digest(sig,hmac.new(key,p,hashlib.sha256).digest()) and time.time()<=exp else None
     except Exception:return None
-def generate_transcript_url(filename,expires_seconds=3600):return f"{get_dashboard_base_url()}/transcripts/{filename}?token={generate_transcript_token(filename,expires_seconds)}"
+def generate_transcript_url(filename,expires_seconds=3600):
+    base=get_dashboard_base_url()
+    return f"{base}/transcripts/{filename}?token={generate_transcript_token(filename,expires_seconds)}" if base else ""

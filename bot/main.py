@@ -21,6 +21,7 @@ from flask import (
     send_from_directory
 )
 from requests_oauthlib import OAuth2Session
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Import storage helpers
 from utils.storage import (
@@ -43,6 +44,7 @@ from utils.storage import (
     save_ticket_panel_draft,
     get_redirect_message,
     save_redirect_message,
+    remember_base_url,
     get_welcome_message,
     save_welcome_message,
     get_ticket_analytics,
@@ -92,11 +94,16 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/callback")
-LINKED_ROLE_REDIRECT_URI = os.getenv(
-    "LINKED_ROLE_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/linked-role/callback"
-)
-# Optional Discord role granted after a member accepts the Carry Service System Rules.\n# Set this to the role ID in your hosting environment.\nCARRY_RULES_ROLE_ID = os.getenv("CARRY_RULES_ROLE_ID", "").strip()
+# Optional overrides. Left unset, every public URL (OAuth2 redirect URIs,
+# transcript links, the site links in Discord embeds) is derived from the
+# incoming request, so the same deployment works on any domain - localhost, a
+# preview host or a custom domain - without touching the config.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "").strip()
+LINKED_ROLE_REDIRECT_URI = os.getenv("LINKED_ROLE_REDIRECT_URI", "").strip()
+# Optional Discord role granted after a member accepts the Carry Service System
+# Rules. Set this to the role ID in your hosting environment.
+CARRY_RULES_ROLE_ID = os.getenv("CARRY_RULES_ROLE_ID", "").strip()
 
 AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
 TOKEN_URL = 'https://discord.com/api/oauth2/token'
@@ -107,6 +114,39 @@ os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 # Flask App
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
+# Hosts like Render terminate TLS in front of the app, so without this Flask
+# builds http:// URLs for an https:// site and Discord rejects the redirect.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+def current_base_url():
+    """Public origin of the current request, honouring PUBLIC_BASE_URL."""
+    return PUBLIC_BASE_URL or request.url_root.rstrip("/")
+
+
+def external_url(endpoint, **values):
+    """url_for(..., _external=True) rooted at the public origin."""
+    return f"{current_base_url()}{url_for(endpoint, **values)}"
+
+
+def request_url():
+    """The current request URL as the browser saw it. Used as the OAuth
+    authorization_response, whose origin has to match the redirect_uri."""
+    if not PUBLIC_BASE_URL:
+        return request.url
+    return f"{PUBLIC_BASE_URL}{request.full_path if request.query_string else request.path}"
+
+
+@app.context_processor
+def _inject_public_urls():
+    return {"base_url": current_base_url(), "external_url": external_url}
+
+
+@app.before_request
+def _remember_public_origin():
+    # The bot side (embeds, transcript links) has no request context, so it
+    # reads back the origin remembered here.
+    remember_base_url(current_base_url())
 
 # Discord Bot
 intents = discord.Intents.default()
@@ -133,7 +173,7 @@ def make_oauth_session(state=None):
         client_id=CLIENT_ID,
         state=state,
         scope=['identify', 'guilds', 'guilds.members.read'],
-        redirect_uri=REDIRECT_URI
+        redirect_uri=REDIRECT_URI or external_url("callback")
     )
 
 
@@ -145,7 +185,7 @@ def make_linked_role_oauth_session(state=None):
         client_id=CLIENT_ID,
         state=state,
         scope=['identify', 'role_connections.write'],
-        redirect_uri=LINKED_ROLE_REDIRECT_URI
+        redirect_uri=LINKED_ROLE_REDIRECT_URI or external_url("linked_role_callback")
     )
 
 
@@ -417,17 +457,10 @@ def linked_role_callback():
             state=session.get('linked_role_oauth_state')
         )
 
-        callback_url = request.url
-
-        # Render sits behind a proxy, so Flask may see HTTP
-        # even though the public URL is HTTPS.
-        if request.headers.get("X-Forwarded-Proto") == "https":
-            callback_url = callback_url.replace("http://", "https://", 1)
-
         token = discord_sess.fetch_token(
             TOKEN_URL,
             client_secret=CLIENT_SECRET,
-            authorization_response=callback_url
+            authorization_response=request_url()
         )
 
         session['linked_role_access_token'] = token['access_token']
@@ -670,6 +703,7 @@ def home():
     return render_template(
         "dashboard.html",
         user=user_data,
+        guild_name=guild.name if guild else None,
         channels=channels,
         categories=categories,
         roles=roles,
@@ -767,7 +801,7 @@ def callback():
     token = discord_sess.fetch_token(
         TOKEN_URL,
         client_secret=CLIENT_SECRET,
-        authorization_response=request.url
+        authorization_response=request_url()
     )
     session['oauth2_token'] = token
     

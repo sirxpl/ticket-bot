@@ -268,6 +268,9 @@ SITE_ABOUT_TEXT = (
 def _site_links():
     base = get_dashboard_base_url().rstrip("/")
 
+    if not base:
+        return []
+
     return [
         {
             "label": "Dashboard",
