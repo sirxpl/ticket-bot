@@ -1121,62 +1121,133 @@ class UtilityCog(commands.Cog):
                             f"https://www.virustotal.com/gui/url/{url_id}"
                         )
 
+                        # Send the complete scan result to the user's DMs.
+                        # The command can be used from any channel, but the
+                        # potentially sensitive scan result and URL stay out
+                        # of the channel where /scan_url was invoked.
+                        try:
+                            await interaction.user.send(
+                                embed=embed,
+                                view=VirusTotalLinkView(vt_web_link),
+                            )
+                        except discord.Forbidden:
+                            await interaction.followup.send(
+                                "❌ I couldn't DM you the VirusTotal results. "
+                                "Please enable DMs from this server and try again.",
+                                ephemeral=True,
+                            )
+                            return
+                        except discord.HTTPException:
+                            await interaction.followup.send(
+                                "❌ Discord rejected the VirusTotal DM. Please try again later.",
+                                ephemeral=True,
+                            )
+                            return
+
                         await interaction.followup.send(
-                            embed=embed,
-                            view=VirusTotalLinkView(vt_web_link),
+                            "✅ VirusTotal scan results sent to your DMs.",
                             ephemeral=True,
                         )
 
                         return
 
                     if response.status == 404:
-                        await interaction.followup.send(
-                            "⚠️ VirusTotal doesn't currently have a "
-                            "report for that URL. Try submitting/scanning "
-                            "the URL on VirusTotal directly.",
-                            ephemeral=True,
+                        dm_message = (
+                            "⚠️ VirusTotal doesn't currently have a report for that URL. "
+                            "Try submitting/scanning the URL on VirusTotal directly."
                         )
-                        return
-
-                    if response.status == 401:
-                        await interaction.followup.send(
+                    elif response.status == 401:
+                        dm_message = (
                             "❌ VirusTotal rejected the API key. "
-                            "Check the `VIRUSTOTAL_API_KEY` environment variable.",
+                            "Check the `VIRUSTOTAL_API_KEY` environment variable."
+                        )
+                    elif response.status == 429:
+                        dm_message = (
+                            "⏳ VirusTotal rate limit reached. Please try again later."
+                        )
+                    else:
+                        dm_message = (
+                            f"⚠️ VirusTotal returned HTTP {response.status}."
+                        )
+
+                    try:
+                        await interaction.user.send(dm_message)
+                    except discord.Forbidden:
+                        await interaction.followup.send(
+                            "❌ I couldn't DM you the VirusTotal result. "
+                            "Please enable DMs from this server and try again.",
                             ephemeral=True,
                         )
                         return
-
-                    if response.status == 429:
+                    except discord.HTTPException:
                         await interaction.followup.send(
-                            "⏳ VirusTotal rate limit reached. "
-                            "Please try again later.",
+                            "❌ Discord rejected the VirusTotal DM. Please try again later.",
                             ephemeral=True,
                         )
                         return
 
                     await interaction.followup.send(
-                        f"⚠️ VirusTotal returned HTTP {response.status}.",
+                        "ℹ️ VirusTotal scan result sent to your DMs.",
                         ephemeral=True,
                     )
 
         except asyncio.TimeoutError:
-            await interaction.followup.send(
-                "⏳ VirusTotal took too long to respond. Please try again.",
-                ephemeral=True,
-            )
+            dm_message = "⏳ VirusTotal took too long to respond. Please try again."
+            try:
+                await interaction.user.send(dm_message)
+                await interaction.followup.send(
+                    "ℹ️ VirusTotal result sent to your DMs.",
+                    ephemeral=True,
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "❌ I couldn't DM you the VirusTotal result. Please enable DMs from this server and try again.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                await interaction.followup.send(
+                    "❌ Discord rejected the VirusTotal DM. Please try again later.",
+                    ephemeral=True,
+                )
 
         except aiohttp.ClientError:
-            await interaction.followup.send(
-                "❌ I couldn't connect to VirusTotal. Please try again later.",
-                ephemeral=True,
-            )
+            dm_message = "❌ I couldn't connect to VirusTotal. Please try again later."
+            try:
+                await interaction.user.send(dm_message)
+                await interaction.followup.send(
+                    "ℹ️ VirusTotal result sent to your DMs.",
+                    ephemeral=True,
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "❌ I couldn't DM you the VirusTotal result. Please enable DMs from this server and try again.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                await interaction.followup.send(
+                    "❌ Discord rejected the VirusTotal DM. Please try again later.",
+                    ephemeral=True,
+                )
 
         except Exception:
             # Don't expose internal exception details to Discord users.
-            await interaction.followup.send(
-                "❌ An unexpected error occurred while scanning the URL.",
-                ephemeral=True,
-            )
+            dm_message = "❌ An unexpected error occurred while scanning the URL."
+            try:
+                await interaction.user.send(dm_message)
+                await interaction.followup.send(
+                    "ℹ️ VirusTotal result sent to your DMs.",
+                    ephemeral=True,
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "❌ I couldn't DM you the VirusTotal result. Please enable DMs from this server and try again.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                await interaction.followup.send(
+                    "❌ Discord rejected the VirusTotal DM. Please try again later.",
+                    ephemeral=True,
+                )
 
     # --------------------------------------------------------
     # /say
