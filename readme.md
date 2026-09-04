@@ -111,6 +111,7 @@ If you don't want this feature, it's safe to leave unconfigured — nothing else
 | `CARRY_RULES_ROLE_ID` | Optional | Role granted after a member accepts your rules agreement |
 | `LINKED_ROLE_REDIRECT_URI` | Optional | `https://your-service.onrender.com/linked-role/callback` — only needed if using Linked Roles |
 | `VIRUSTOTAL_API_KEY` | Optional | Enables the `/scan_url` utility command |
+| `BLOXLINK_API_KEY` | Optional | Required for ticket categories using Bloxlink verification / Roblox badge requirements ([get one here](https://blox.link/dashboard)) |
 | `PORT` | Optional | Defaults to `5000`; Render sets this automatically |
 
 ---

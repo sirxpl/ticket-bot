@@ -730,10 +730,11 @@ class TicketView(discord.ui.View):
             pass
 
         class TicketModal(discord.ui.Modal, title=f"{selection}"):
-            def __init__(self, author, selection):
+            def __init__(self, author, selection, use_bloxlink=False):
                 super().__init__()
                 self.author = author
                 self.selection = selection
+                self.use_bloxlink = use_bloxlink
 
                 self.timezone = discord.ui.TextInput(
                     label="⏰ Which country and timezone are you from? *",
@@ -781,6 +782,79 @@ class TicketView(discord.ui.View):
 
                 await modal_interaction.response.defer(ephemeral=True)
 
+                from utils.storage import get_ticket_categories
+
+                categories = get_ticket_categories()
+                category_cfg = next(
+                    (c for c in categories if c.get("label") == self.selection),
+                    None,
+                ) or {}
+
+                # Bloxlink verification and badge requirements run BEFORE any
+                # channel is created and before a ticket number is drawn, so a
+                # failed check leaves no channel and no gap in the numbering.
+                verification = None
+                if self.use_bloxlink:
+                    from utils.bloxlink import BloxlinkError, verify_user
+
+                    try:
+                        verification = await verify_user(
+                            user.id,
+                            guild.id if guild else None,
+                            category_cfg.get("required_badges") or [],
+                            category_cfg.get("badge_requirement") or "ANY",
+                        )
+                    except BloxlinkError as e:
+                        await modal_interaction.followup.send(
+                            embed=discord.Embed(
+                                title="🔗 Bloxlink Verification Failed",
+                                description=f"{e}\n\nNo ticket was created.",
+                                color=discord.Color.red(),
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+                    except Exception as e:
+                        logger.exception(
+                            f"Bloxlink verification errored for user={user.id}: {e}"
+                        )
+                        await modal_interaction.followup.send(
+                            "❌ Couldn't verify your Roblox account right now. No ticket was created — please try again later.",
+                            ephemeral=True,
+                        )
+                        return
+
+                    if not verification["has_required_badges"]:
+                        needed = (
+                            "every required badge"
+                            if verification["badge_requirement"] == "ALL"
+                            else "at least one required badge"
+                        )
+                        missing = ", ".join(
+                            f"[{b}](https://www.roblox.com/badges/{b})"
+                            for b in verification["missing_badges"][:10]
+                        )
+                        emb = discord.Embed(
+                            title="🏆 Badge Requirement Not Met",
+                            description=(
+                                f"**{self.selection}** requires {needed}.\n"
+                                f"Verified as **{verification.get('roblox_username') or verification['roblox_id']}**.\n\n"
+                                "No ticket was created."
+                            ),
+                            color=discord.Color.red(),
+                        )
+                        if missing:
+                            emb.add_field(name="Missing badges", value=missing, inline=False)
+                        await modal_interaction.followup.send(embed=emb, ephemeral=True)
+                        return
+
+                if verification is None:
+                    has_badges_text = "Not checked"
+                elif not verification["required_badges"]:
+                    has_badges_text = "✅ Yes (no badges required)"
+                else:
+                    has_badges_text = "✅ Yes"
+
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(
                         read_messages=False
@@ -820,16 +894,8 @@ class TicketView(discord.ui.View):
                 except Exception:
                     pass
 
-                from utils.storage import get_ticket_categories
-
-                categories = get_ticket_categories()
-                category_cfg = next(
-                    (c for c in categories if c.get("label") == self.selection),
-                    None,
-                )
-
                 category_id = (
-                    (category_cfg or {}).get("discord_category_id")
+                    category_cfg.get("discord_category_id")
                     or settings.get("default_category_id")
                 )
                 category = (
@@ -838,7 +904,7 @@ class TicketView(discord.ui.View):
                     else None
                 )
 
-                prefix = (category_cfg or {}).get("name_prefix") or slugify(
+                prefix = category_cfg.get("name_prefix") or slugify(
                     self.selection
                 )
                 from utils.storage import increment_ticket_counter
@@ -873,6 +939,9 @@ class TicketView(discord.ui.View):
                         "display_name": self.display_name.value or "",
                         "can_join": self.can_join.value or "",
                         "tds_level": self.tds_level.value or "",
+                        "has_badges": has_badges_text,
+                        "roblox_username": (verification or {}).get("roblox_username") or "",
+                        "roblox_id": (verification or {}).get("roblox_id") or "",
                     }
 
                     welcome_cfg = get_welcome_message()
@@ -922,7 +991,13 @@ class TicketView(discord.ui.View):
                                 value=self.tds_level.value,
                                 inline=False,
                             )
-                        if category_cfg and category_cfg.get("open_note"):
+                        if verification and welcome_cfg.get("show_has_badges", True):
+                            embed.add_field(
+                                name="Has Required Badges",
+                                value=has_badges_text,
+                                inline=False,
+                            )
+                        if category_cfg.get("open_note"):
                             embed.add_field(
                                 name="Note",
                                 value=category_cfg["open_note"],
@@ -958,7 +1033,9 @@ class TicketView(discord.ui.View):
                             plain_parts.append(f"**Can join private server?** {self.can_join.value}")
                         if welcome_cfg.get("show_tds_level", True) and self.tds_level.value:
                             plain_parts.append(f"**TDS Level:** {self.tds_level.value}")
-                        if category_cfg and category_cfg.get("open_note"):
+                        if verification and welcome_cfg.get("show_has_badges", True):
+                            plain_parts.append(f"**Has Required Badges:** {has_badges_text}")
+                        if category_cfg.get("open_note"):
                             plain_parts.append(f"**Note:** {category_cfg['open_note']}")
                         welcome_msg = await ticket_channel.send(content="\n".join(plain_parts))
 
@@ -1040,6 +1117,15 @@ class TicketView(discord.ui.View):
                                 "display_name": self.display_name.value,
                                 "can_join": self.can_join.value,
                                 "tds_level": self.tds_level.value,
+                                "has_badges": has_badges_text,
+                            },
+                            "bloxlink": {
+                                "used": bool(verification),
+                                "roblox_id": (verification or {}).get("roblox_id"),
+                                "roblox_username": (verification or {}).get("roblox_username"),
+                                "required_badges": (verification or {}).get("required_badges", []),
+                                "badge_requirement": (verification or {}).get("badge_requirement"),
+                                "owned_badges": (verification or {}).get("owned_badges", []),
                             },
                         })
                     except Exception as e:
@@ -1075,7 +1161,62 @@ class TicketView(discord.ui.View):
                         ephemeral=True,
                     )
 
-        modal = TicketModal(interaction.user, selection)
+        # Bloxlink requirement for this category:
+        # Yes  = always verify, No = never verify,
+        # Both = the user chooses before the modal opens
+        try:
+            from utils.storage import get_ticket_categories
+
+            selected_cfg = next(
+                (
+                    c for c in get_ticket_categories()
+                    if c.get("label") == selection
+                ),
+                None,
+            ) or {}
+        except Exception:
+            selected_cfg = {}
+        bloxlink_mode = str(selected_cfg.get("bloxlink_verification") or "No").capitalize()
+
+        if bloxlink_mode == "Both":
+            class BloxlinkChoiceView(discord.ui.View):
+                def __init__(self, author):
+                    super().__init__(timeout=120)
+                    self.author = author
+
+                async def interaction_check(self, inter: discord.Interaction):
+                    return inter.user.id == self.author.id
+
+                @discord.ui.button(
+                    label="Verify with Bloxlink",
+                    emoji="🔗",
+                    style=discord.ButtonStyle.success,
+                )
+                async def verify(self, inter: discord.Interaction, btn: discord.ui.Button):
+                    await inter.response.send_modal(
+                        TicketModal(self.author, selection, use_bloxlink=True)
+                    )
+
+                @discord.ui.button(
+                    label="Continue without verifying",
+                    style=discord.ButtonStyle.secondary,
+                )
+                async def skip(self, inter: discord.Interaction, btn: discord.ui.Button):
+                    await inter.response.send_modal(
+                        TicketModal(self.author, selection, use_bloxlink=False)
+                    )
+
+            await interaction.response.send_message(
+                f"**{selection}** can verify your Roblox account through Bloxlink. "
+                "Verifying also checks the badges this category requires.",
+                view=BloxlinkChoiceView(interaction.user),
+                ephemeral=True,
+            )
+            return
+
+        modal = TicketModal(
+            interaction.user, selection, use_bloxlink=(bloxlink_mode == "Yes")
+        )
         await interaction.response.send_modal(modal)
 
 

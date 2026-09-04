@@ -1172,19 +1172,26 @@ def save_ticket_categories_route():
     discord_category_ids = request.form.getlist("cat_discord_category_id")
     dropdown_enabled_raw = request.form.getlist("cat_dropdown_enabled")
     variables_raw = request.form.getlist("cat_variables")
+    bloxlink_raw = request.form.getlist("cat_bloxlink_verification")
+    required_badges_raw = request.form.getlist("cat_required_badges")
+    badge_requirement_raw = request.form.getlist("cat_badge_requirement")
 
     # these lists aren't guaranteed to line up 1:1 with the other lists
     # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw):
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids,
+                dropdown_enabled_raw, variables_raw, bloxlink_raw, required_badges_raw,
+                badge_requirement_raw):
         while len(lst) < len(labels):
             lst.append("")
 
     from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw in zip(
+    for (label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled,
+         vars_raw, blox_raw, badges_raw, badge_mode_raw) in zip(
         labels, descriptions, emojis, blacklist_roles_raw,
         name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw,
+        bloxlink_raw, required_badges_raw, badge_requirement_raw,
     ):
         label = label.strip()
         if not label:
@@ -1201,6 +1208,15 @@ def save_ticket_categories_route():
                         variables[key] = str(v)[:100]
         except Exception:
             variables = {}
+        bloxlink_verification = blox_raw.strip().capitalize()
+        if bloxlink_verification not in ("Yes", "No", "Both"):
+            bloxlink_verification = "No"
+        required_badges = []
+        for token in re.split(r"[\s,]+", badges_raw or ""):
+            token = token.strip()
+            if token.isdigit() and token not in required_badges:
+                required_badges.append(token)
+        badge_requirement = "ALL" if badge_mode_raw.strip().upper() == "ALL" else "ANY"
         categories.append({
             "label": label[:100],
             "description": desc.strip()[:100],
@@ -1211,6 +1227,9 @@ def save_ticket_categories_route():
             "discord_category_id": disc_cat_raw.strip() or None,
             "dropdown_enabled": dd_enabled == "true",
             "variables": variables,
+            "bloxlink_verification": bloxlink_verification,
+            "required_badges": required_badges,
+            "badge_requirement": badge_requirement,
         })
 
     if not categories:
@@ -1253,6 +1272,7 @@ def save_welcome_message_route():
         "show_display_name": request.form.get("welcome_show_display_name") == "yes",
         "show_can_join": request.form.get("welcome_show_can_join") == "yes",
         "show_tds_level": request.form.get("welcome_show_tds_level") == "yes",
+        "show_has_badges": request.form.get("welcome_show_has_badges") == "yes",
     }
     save_welcome_message(data)
     flash("✅ Ticket-channel welcome message saved.", "success")

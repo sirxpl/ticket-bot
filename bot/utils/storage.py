@@ -104,7 +104,7 @@ def render_ticket_template(template,**kwargs):
 
 def get_redirect_message():return {**{"content":"✅ Ticket created! Please head over to {channel}."},**(get_settings().get("ticket_redirect_message") or {})}
 def save_redirect_message(content):s=get_settings();s["ticket_redirect_message"]={"content":content};save_settings(s)
-def get_welcome_message():return {**{"use_embed":True,"content":"{user_mention}","title":"🎫 {category} - {user_name}","description":"","color":"#3498db"},**(get_settings().get("ticket_welcome_message") or {})}
+def get_welcome_message():return {**{"use_embed":True,"content":"{user_mention}","title":"🎫 {category} - {user_name}","description":"","color":"#3498db","show_has_badges":True},**(get_settings().get("ticket_welcome_message") or {})}
 def save_welcome_message(data):s=get_settings();s["ticket_welcome_message"]=data;save_settings(s)
 
 def slugify(text):return re.sub(r"[^a-z0-9]+","-",(text or "").lower().strip()).strip("-") or "ticket"
@@ -156,13 +156,19 @@ def get_ticket_categories():
         # Both = user can choose whether to verify
         x.setdefault("bloxlink_verification","No")
 
+        if str(x.get("bloxlink_verification")).capitalize() not in ("Yes","No","Both"):
+            x["bloxlink_verification"]="No"
+        else:
+            x["bloxlink_verification"]=str(x["bloxlink_verification"]).capitalize()
+
         # Roblox badge IDs required by this ticket category.
         x.setdefault("required_badges",[])
+        x["required_badges"]=[str(b).strip() for b in (x.get("required_badges") or []) if str(b).strip().isdigit()]
 
         # Badge requirement mode:
         # ANY = user needs at least one badge
         # ALL = user needs every listed badge
-        x.setdefault("badge_requirement","ANY")
+        x["badge_requirement"]="ALL" if str(x.get("badge_requirement","ANY")).upper()=="ALL" else "ANY"
 
     return c
 

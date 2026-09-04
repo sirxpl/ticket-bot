@@ -1102,6 +1102,13 @@
                             <option value="no" {% if not welcome_message.show_tds_level %}selected{% endif %}>No</option>
                         </select>
                     </div>
+                    <div>
+                        <label>Show Has Required Badges:</label>
+                        <select name="welcome_show_has_badges">
+                            <option value="yes" {% if welcome_message.show_has_badges %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_has_badges %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
                 </div>
 
                 <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Welcome Message</button>
@@ -1928,7 +1935,7 @@ function addCatBlacklistChip(row, roleId, roleName) {
     list.appendChild(chip);
 }
 
-function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables) {
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables, bloxlinkVerification, requiredBadges, badgeRequirement) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -1968,6 +1975,22 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
             <input type="hidden" name="cat_blacklist_roles" class="cat-blacklist-hidden" value="">
         </div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Bloxlink Verification</strong>
+            <p style="color:var(--text-dim);font-size:.85em;margin:4px 0;">Yes = required, No = never asked, Both = the user chooses when opening the ticket.</p>
+            <select name="cat_bloxlink_verification" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin-bottom:6px;">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+                <option value="Both">Both</option>
+            </select>
+            <strong style="font-size:.9em;">Required Roblox Badge IDs</strong>
+            <p style="color:var(--text-dim);font-size:.85em;margin:4px 0;">Comma or newline separated badge IDs. Only checked when the ticket is verified through Bloxlink.</p>
+            <textarea name="cat_required_badges" rows="2" placeholder="2124469113, 2124469114" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;"></textarea>
+            <select name="cat_badge_requirement" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin-top:6px;">
+                <option value="ANY">At least one badge</option>
+                <option value="ALL">All badges</option>
+            </select>
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
             <strong style="font-size:.9em;">Ticket Naming</strong>
             <input type="text" name="cat_name_prefix" placeholder="Name prefix" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin:6px 0;">
             <input type="text" name="cat_open_note" placeholder="Optional opening note" maxlength="200" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin-bottom:6px;">
@@ -1981,6 +2004,9 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     if (namePrefix) row.querySelector('[name="cat_name_prefix"]').value = namePrefix;
     if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
     if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
+    row.querySelector('[name="cat_bloxlink_verification"]').value = bloxlinkVerification || 'No';
+    row.querySelector('[name="cat_required_badges"]').value = (requiredBadges || []).join(', ');
+    row.querySelector('[name="cat_badge_requirement"]').value = badgeRequirement === 'ALL' ? 'ALL' : 'ANY';
 
     const varText = Object.entries(variables || {}).map(([k,v]) => `${k}=${v}`).join('\\n');
     row.querySelector('.cat-variables').value = varText;
@@ -1991,7 +2017,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
 }
 
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables, c.bloxlink_verification, c.required_badges, c.badge_requirement));
 if (existingCategories.length === 0) addCategoryRow();
 
 document.getElementById('categoriesForm')?.addEventListener('submit', function() {
