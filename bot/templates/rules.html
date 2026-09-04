@@ -61,13 +61,13 @@
 <body>
 
 <div class="topbar">
-  <a href="/" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
+  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
   <div class="topnav">
-    <a href="/docs">Docs</a>
-    <a href="/rules" class="active">Rules &amp; Regulations</a>
-    <a href="/guidelines">Carry Guidelines</a>
-    <a href="/privacy">Privacy</a>
-    <a href="/status">Status</a>
+    <a href="{{ url_for('docs') }}">Docs</a>
+    <a href="{{ url_for('rules') }}" class="active">Rules &amp; Regulations</a>
+    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
+    <a href="{{ url_for('privacy_policy') }}">Privacy</a>
+    <a href="{{ url_for('status_page') }}">Status</a>
   </div>
 </div>
 
