@@ -26,19 +26,19 @@ ANCHOR = dt.datetime(2026, 9, 2, 23, 0, tzinfo=EASTERN)
 SLOT = dt.timedelta(hours=3)
 
 TRIALS = [
-    ("📦", "Limitation"),
-    ("🌪️", "Flying"),
-    ("🔒", "Jailed Towers"),
-    ("💥", "Exploding"),
-    ("💰", "Inflation"),
-    ("🧲", "Committed"),
-    ("🚫", "Hidden"),
-    ("💸", "Broke"),
-    ("🤝", "Healthy"),
-    ("⚡", "Speedy"),
-    ("➕", "Glass"),
-    ("☣️", "Quarantine"),
-    ("🌳", "Fog"),
+    ("<:LimitationModifier:1545248731480195122>", "Limitation"),
+    ("<:FlyingEnemiesModifier:1545248724614381688>", "Flying"),
+    ("<:JailedModifier:1545248730293207040>", "Jailed Towers"),
+    ("<:ExplodingEnemiesModifier:1545248723389648937>", "Exploding"),
+    ("<:InflationModifier:1545248729202823260>", "Inflation"),
+    ("<:CommittedModifier:1545248722324168744>", "Committed"),
+    ("<:HiddenEnemiesModifier:1545248728405909574>", "Hidden"),
+    ("<:BrokeModifier:1545248721099292674>", "Broke"),
+    ("<:HealthyEnemiesModifier:1545248727663517708>", "Healthy"),
+    ("<:SpeedyEnemiesModifier:1545248734038859796>", "Speedy"),
+    ("<:GlassModifier:1545248726849818734>", "Glass"),
+    ("<:QuarantineModifier:1545248732474515507>", "Quarantine"),
+    ("<:FogModifier:1545248725788790894>", "Fog"),
 ]
 
 
