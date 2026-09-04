@@ -113,7 +113,7 @@ _DEFAULT_TICKET_CATEGORIES=[
         "label":"General Support",
         "description":"General help or questions",
         "emoji":"❓",
-        "rover_verification":"No",
+        "bloxlink_verification":"No",
         "required_badges":[],
         "badge_requirement":"ANY",
     },
@@ -121,7 +121,7 @@ _DEFAULT_TICKET_CATEGORIES=[
         "label":"Report a User",
         "description":"Report another user",
         "emoji":"⚠️",
-        "rover_verification":"No",
+        "bloxlink_verification":"No",
         "required_badges":[],
         "badge_requirement":"ANY",
     },
@@ -129,7 +129,7 @@ _DEFAULT_TICKET_CATEGORIES=[
         "label":"Appeal / Ban Review",
         "description":"Appeal moderation action",
         "emoji":"📝",
-        "rover_verification":"No",
+        "bloxlink_verification":"No",
         "required_badges":[],
         "badge_requirement":"ANY",
     },
@@ -150,11 +150,11 @@ def get_ticket_categories():
         x.setdefault("dropdown_enabled",True)
         x.setdefault("variables",{})
 
-        # RoVer verification:
+        # Bloxlink verification:
         # Yes  = verification required
         # No   = verification not required
         # Both = user can choose whether to verify
-        x.setdefault("rover_verification","No")
+        x.setdefault("bloxlink_verification","No")
 
         # Roblox badge IDs required by this ticket category.
         x.setdefault("required_badges",[])
