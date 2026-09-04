@@ -108,12 +108,69 @@ def get_welcome_message():return {**{"use_embed":True,"content":"{user_mention}"
 def save_welcome_message(data):s=get_settings();s["ticket_welcome_message"]=data;save_settings(s)
 
 def slugify(text):return re.sub(r"[^a-z0-9]+","-",(text or "").lower().strip()).strip("-") or "ticket"
-_DEFAULT_TICKET_CATEGORIES=[{"label":"General Support","description":"General help or questions","emoji":"❓"},{"label":"Report a User","description":"Report another user","emoji":"⚠️"},{"label":"Appeal / Ban Review","description":"Appeal moderation action","emoji":"📝"}]
+_DEFAULT_TICKET_CATEGORIES=[
+    {
+        "label":"General Support",
+        "description":"General help or questions",
+        "emoji":"❓",
+        "rover_verification":"No",
+        "required_badges":[],
+        "badge_requirement":"ANY",
+    },
+    {
+        "label":"Report a User",
+        "description":"Report another user",
+        "emoji":"⚠️",
+        "rover_verification":"No",
+        "required_badges":[],
+        "badge_requirement":"ANY",
+    },
+    {
+        "label":"Appeal / Ban Review",
+        "description":"Appeal moderation action",
+        "emoji":"📝",
+        "rover_verification":"No",
+        "required_badges":[],
+        "badge_requirement":"ANY",
+    },
+]
+
+
 def get_ticket_categories():
     c=get_settings().get("ticket_categories") or list(_DEFAULT_TICKET_CATEGORIES)
-    for x in c:x.setdefault("blacklist_roles",[]);x.setdefault("name_prefix",slugify(x.get("label","ticket")));x.setdefault("open_note","");x.setdefault("discord_category_id",None);x.setdefault("dropdown_enabled",True);x.setdefault("variables",{})
+
+    for x in c:
+        x.setdefault("blacklist_roles",[])
+        x.setdefault(
+            "name_prefix",
+            slugify(x.get("label","ticket"))
+        )
+        x.setdefault("open_note","")
+        x.setdefault("discord_category_id",None)
+        x.setdefault("dropdown_enabled",True)
+        x.setdefault("variables",{})
+
+        # RoVer verification:
+        # Yes  = verification required
+        # No   = verification not required
+        # Both = user can choose whether to verify
+        x.setdefault("rover_verification","No")
+
+        # Roblox badge IDs required by this ticket category.
+        x.setdefault("required_badges",[])
+
+        # Badge requirement mode:
+        # ANY = user needs at least one badge
+        # ALL = user needs every listed badge
+        x.setdefault("badge_requirement","ANY")
+
     return c
-def save_ticket_categories(categories):s=get_settings();s["ticket_categories"]=categories;save_settings(s)
+
+
+def save_ticket_categories(categories):
+    s=get_settings()
+    s["ticket_categories"]=categories
+    save_settings(s)
 def get_ticket_panel_draft():return get_settings().get("ticket_panel_draft") or {}
 def save_ticket_panel_draft(draft):s=get_settings();s["ticket_panel_draft"]=draft;save_settings(s)
 
