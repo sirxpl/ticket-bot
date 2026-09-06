@@ -583,6 +583,19 @@ class WarningsCog(commands.Cog):
             else:
                 role_status = "The warning role no longer exists."
 
+        timeout_status = None
+        if user.timed_out_until and user.timed_out_until > discord.utils.utcnow():
+            try:
+                await user.timeout(
+                    None,
+                    reason=f"Timeout removed after warning {revoked_warning.get('case_id')} was revoked",
+                )
+                timeout_status = "Removed the active timeout."
+            except (discord.Forbidden, discord.HTTPException):
+                timeout_status = "Could not remove the active timeout; check bot permissions."
+        elif user.timed_out_until:
+            timeout_status = "The timeout had already expired."
+
         embed = discord.Embed(
             title="✅ Warning Revoked",
             description="One specific warning has been marked as revoked.",
@@ -622,6 +635,8 @@ class WarningsCog(commands.Cog):
         )
         if role_status:
             embed.add_field(name="Role", value=role_status, inline=False)
+        if timeout_status:
+            embed.add_field(name="Timeout", value=timeout_status, inline=False)
         embed.set_footer(text="Moderation warning audit record")
 
         dm_embed = discord.Embed(
@@ -640,6 +655,8 @@ class WarningsCog(commands.Cog):
         )
         dm_embed.add_field(name="Revocation reason", value=revoke_reason[:1024], inline=False)
         dm_embed.add_field(name="Case", value=str(revoked_warning.get("case_id", "Unknown")))
+        if timeout_status:
+            dm_embed.add_field(name="Timeout", value=timeout_status, inline=False)
         dm_embed.set_footer(text=f"{interaction.guild.name if interaction.guild else 'Server'} moderation")
         if not await self._send_member_dm(user, dm_embed):
             embed.add_field(name="Member DM", value="Could not deliver the revocation DM.")
