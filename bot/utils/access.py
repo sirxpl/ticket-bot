@@ -23,6 +23,8 @@ _DEFAULTS = {
     "transcripts_roles": [],
     "analytics_roles": [],
     "remove_cooldown_roles": [],
+    "moderation_command_roles": [],
+    "moderation_command_users": [],
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -68,6 +70,8 @@ def get_access_settings():
         doc.setdefault("transcripts_roles", [])
         doc.setdefault("analytics_roles", [])
         doc.setdefault("remove_cooldown_roles", [])
+        doc.setdefault("moderation_command_roles", [])
+        doc.setdefault("moderation_command_users", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -89,6 +93,8 @@ def get_access_settings():
         data.setdefault("transcripts_roles", [])
         data.setdefault("analytics_roles", [])
         data.setdefault("remove_cooldown_roles", [])
+        data.setdefault("moderation_command_roles", [])
+        data.setdefault("moderation_command_users", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -598,3 +604,91 @@ def has_dashboard_access(user_id: str, member_role_ids=None) -> bool:
             return True
 
     return False
+
+# --- Moderation warning command access ---
+
+def add_moderation_command_role(role_id: str) -> bool:
+    """Allow a role to use /w1, /w2, /w3, and /unwarn."""
+    data = get_access_settings()
+    role_id = str(role_id)
+
+    roles = data.setdefault("moderation_command_roles", [])
+    if role_id in roles:
+        return False
+
+    roles.append(role_id)
+    _save(data)
+    return True
+
+
+def remove_moderation_command_role(role_id: str) -> bool:
+    """Remove a role from the warning-command allow-list."""
+    data = get_access_settings()
+    role_id = str(role_id)
+
+    roles = data.setdefault("moderation_command_roles", [])
+    if role_id not in roles:
+        return False
+
+    roles.remove(role_id)
+    _save(data)
+    return True
+
+
+def add_moderation_command_user(user_id: str) -> bool:
+    """Allow a user to use /w1, /w2, /w3, and /unwarn."""
+    data = get_access_settings()
+    user_id = str(user_id)
+
+    users = data.setdefault("moderation_command_users", [])
+    if user_id in users:
+        return False
+
+    users.append(user_id)
+    _save(data)
+    return True
+
+
+def remove_moderation_command_user(user_id: str) -> bool:
+    """Remove a user from the warning-command allow-list."""
+    data = get_access_settings()
+    user_id = str(user_id)
+
+    users = data.setdefault("moderation_command_users", [])
+    if user_id not in users:
+        return False
+
+    users.remove(user_id)
+    _save(data)
+    return True
+
+
+def get_moderation_command_role_ids():
+    return get_access_settings().get("moderation_command_roles", [])
+
+
+def get_moderation_command_user_ids():
+    return get_access_settings().get("moderation_command_users", [])
+
+
+def has_moderation_command_access(user_id: str, member_role_ids=None) -> bool:
+    """Check permission for /w1, /w2, /w3, and /unwarn.
+
+    Admins always have access. Until you configure a moderation role or user,
+    this stays open; once configured, only matching roles/users and admins
+    can use the warning commands.
+    """
+    if is_admin(user_id):
+        return True
+
+    roles = get_moderation_command_role_ids()
+    users = get_moderation_command_user_ids()
+
+    if not roles and not users:
+        return True
+
+    if str(user_id) in {str(item) for item in users}:
+        return True
+
+    member_roles = {str(role_id) for role_id in (member_role_ids or [])}
+    return bool(member_roles.intersection({str(role_id) for role_id in roles}))
