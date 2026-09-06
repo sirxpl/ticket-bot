@@ -431,11 +431,7 @@ def terms_unblock(token):
         return redirect(url_for("login"))
     if str(user.get("id")) != str(token_data["user_id"]):
         return (
-            "<h1>Different Discord account</h1>"
-            "<p>This link was generated for a different Discord account. "
-            "Switch accounts, then authenticate with the intended account.</p>"
-            f"<p><a href=\"{url_for('terms_unblock_switch_account', token=token)}\">"
-            "Switch Discord account</a></p>",
+            render_template("terms_account_mismatch.html", token=token),
             403,
         )
     terms_path = Path(__file__).resolve().parent.parent / "docs" / "terms_and_conditions.txt"
