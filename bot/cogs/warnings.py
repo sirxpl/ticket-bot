@@ -416,6 +416,99 @@ class WarningsCog(commands.Cog):
         await self.issue_warning(interaction, user, reason, "W3")
 
     @app_commands.command(
+        name="modlogs",
+        description="View your warning history or another member's warning history.",
+    )
+    @app_commands.describe(
+        user="Optional member to look up. Looking up another member requires moderation access.",
+        status="Which warning records to show.",
+    )
+    @app_commands.choices(
+        status=[
+            app_commands.Choice(name="All warnings", value="all"),
+            app_commands.Choice(name="Active warnings", value="active"),
+            app_commands.Choice(name="Revoked / inactive warnings", value="inactive"),
+        ]
+    )
+    async def modlogs(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member | None = None,
+        status: app_commands.Choice[str] | None = None,
+    ) -> None:
+        target = user or interaction.user
+        if user is not None and user.id != interaction.user.id:
+            if await self._deny_if_no_access(interaction):
+                return
+
+        selected_status = status.value if status else "all"
+        records = get_warnings_for_user(
+            target.id,
+            include_revoked=selected_status != "active",
+        )
+        if selected_status == "active":
+            records = [
+                item for item in records
+                if item.get("status") == "active" and not item.get("revoked")
+            ]
+        elif selected_status == "inactive":
+            records = [
+                item for item in records
+                if item.get("status") != "active" or item.get("revoked")
+            ]
+
+        if not records:
+            status_label = {
+                "all": "warning",
+                "active": "active warning",
+                "inactive": "revoked or inactive warning",
+            }[selected_status]
+            await interaction.response.send_message(
+                f"No {status_label} records found for {target.mention}.",
+                ephemeral=True,
+            )
+            return
+
+        pages = []
+        for offset in range(0, len(records), 10):
+            embed = discord.Embed(
+                title=f"Moderation Logs — {target}",
+                description=(
+                    f"Showing {selected_status} warning records for "
+                    f"{target.mention} (`{target.id}`)."
+                ),
+                color=discord.Color.blurple(),
+                timestamp=datetime.datetime.now(datetime.timezone.utc),
+            )
+            for record in records[offset:offset + 10]:
+                is_active = record.get("status") == "active" and not record.get("revoked")
+                issued_at = str(record.get("issued_at") or "Unknown")
+                expires_at = str(record.get("expires_at") or "Not recorded")
+                role_expires_at = str(record.get("role_expires_at") or "No role expiry")
+                value = (
+                    f"**Status:** {'Active' if is_active else 'Revoked / inactive'}\n"
+                    f"**Reason:** {str(record.get('reason') or 'No reason provided.')[:700]}\n"
+                    f"**Moderator:** {record.get('issued_by_name', 'Unknown')} "
+                    f"(`{record.get('issued_by_id', 'Unknown')}`)\n"
+                    f"**Issued:** {issued_at}\n"
+                    f"**Timeout expiry:** {expires_at}\n"
+                    f"**Role expiry:** {role_expires_at}"
+                )
+                if record.get("revoked_at"):
+                    value += f"\n**Revoked:** {record['revoked_at']}"
+                embed.add_field(
+                    name=f"{record.get('tier', 'Warning')} · Case {record.get('case_id', 'Unknown')}",
+                    value=value[:1024],
+                    inline=False,
+                )
+            embed.set_footer(text=f"Page {offset // 10 + 1} of {(len(records) + 9) // 10}")
+            pages.append(embed)
+
+        await interaction.response.send_message(embed=pages[0], ephemeral=True)
+        for page in pages[1:]:
+            await interaction.followup.send(embed=page, ephemeral=True)
+
+    @app_commands.command(
         name="unwarn",
         description="Revoke one specific active warning from a member.",
     )
