@@ -428,7 +428,13 @@ def terms_unblock(token):
     user = session.get("user")
     if not user:
         session["terms_unblock_token"] = token
-        return redirect(url_for("login"))
+        terms_path = Path(__file__).resolve().parent.parent / "docs" / "terms_and_conditions.txt"
+        return render_template(
+            "terms_unblock.html",
+            user=None,
+            terms_token=token,
+            terms_content=terms_path.read_text(encoding="utf-8"),
+        )
     if str(user.get("id")) != str(token_data["user_id"]):
         return (
             render_template("terms_account_mismatch.html", token=token),
