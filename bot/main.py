@@ -104,6 +104,9 @@ from utils.access import (
     get_globally_blocked_users,
     add_globally_blocked_user,
     remove_globally_blocked_user,
+    create_unblock_terms_token,
+    get_terms_unblock_token,
+    consume_terms_unblock_token,
 )
 
 # Environment & OAuth Setup
@@ -412,6 +415,46 @@ def carry_agreement():
             "<a href='/'>Back to home</a>",
             500,
         )
+
+
+@app.route("/terms/unblock/<token>")
+def terms_unblock(token):
+    token_data = get_terms_unblock_token(token)
+    if not token_data:
+        return "This terms link is invalid, expired, or already used.", 410
+
+    user = session.get("user")
+    if not user:
+        session["terms_unblock_token"] = token
+        return redirect(url_for("login"))
+    if str(user.get("id")) != str(token_data["user_id"]):
+        return (
+            "This link was generated for a different Discord account. "
+            "Log out and authenticate with the intended account.",
+            403,
+        )
+    return render_template(
+        "carry_agreement.html",
+        user=user,
+        agreement=None,
+        terms_token=token,
+        unblock_mode=True,
+    )
+
+
+@app.route("/terms/unblock/<token>/accept", methods=["POST"])
+@login_required
+def accept_terms_unblock(token):
+    token_data = get_terms_unblock_token(token)
+    user = session.get("user") or {}
+    if not token_data or str(user.get("id")) != str(token_data["user_id"]):
+        return "This terms link is invalid or does not belong to this Discord account.", 403
+    if not consume_terms_unblock_token(token, user["id"]):
+        return "This terms link is invalid, expired, or already used.", 410
+    if not remove_globally_blocked_user(user["id"]):
+        return "This account is not currently globally blocked.", 409
+    flash("✅ Terms accepted. Your global block has been removed.", "success")
+    return redirect(url_for("home"))
 
 @app.route("/carry-agreement/accept", methods=["POST"])
 @login_required
@@ -899,6 +942,9 @@ def callback():
     }
     
     flash(f"👋 Welcome back, {user_data.get('username')}!", "success")
+    terms_token = session.pop("terms_unblock_token", None)
+    if terms_token:
+        return redirect(url_for("terms_unblock", token=terms_token))
     return redirect(url_for('home'))
 
 
@@ -1209,6 +1255,19 @@ def access_remove_global_block(user_id):
         flash("✅ Global block removed.", "success")
     else:
         flash("❌ That user is not globally blocked.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/generate-unblock-link", methods=["POST"])
+@admin_required
+def access_generate_unblock_link():
+    user_id = request.form.get("user_id", "").strip()
+    try:
+        token = create_unblock_terms_token(user_id)
+        link = external_url("terms_unblock", token=token)
+        flash(f"Terms unblock link for {user_id}: {link}", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
     return redirect(url_for("home"))
 
 

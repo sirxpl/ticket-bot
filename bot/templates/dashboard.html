@@ -1752,6 +1752,18 @@
                 <p style="color:var(--text-dim);">No globally blocked users.</p>
             {% endfor %}
 
+            <h4 style="margin-top: 24px;">Generate Terms Unblock Link</h4>
+            <p class="card-subtitle">
+                Creates a single-use link valid for 24 hours. The recipient must authenticate with the matching Discord account before accepting the terms.
+            </p>
+            <form action="/dashboard/access/generate-unblock-link" method="POST" class="access-form">
+                <div>
+                    <label>Blocked Discord User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
+                </div>
+                <button type="submit" class="btn-view">Generate Link</button>
+            </form>
+
             <h4 style="margin-top: 20px;">Allowed Users</h4>
             <form action="/dashboard/access/add-user" method="POST" class="access-form">
                 <div>
