@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Carry Ticket Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14151f; --surface-2:#191b28; --border:#25273a;
+    --text:#eef0f7; --muted:#8d90a8; --yellow:#ffc93c; --indigo:#7c6cf0; --indigo-dim:#7c6cf033;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; line-height:1.7; margin:0;}
+  h1,h2,strong,.brand{font-family:'Space Grotesk',sans-serif;}
+  .topbar{
+    height:64px; border-bottom:1px solid var(--border); display:flex; align-items:center;
+    justify-content:space-between; padding:0 28px; position:sticky; top:0; z-index:50;
+    background:rgba(11,12,18,0.92); backdrop-filter:blur(10px);
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:17px; color:var(--text); text-decoration:none;}
+  .brand .stub{width:26px; height:20px; background:var(--yellow); border-radius:5px; position:relative;}
+  .brand .stub::after{content:""; position:absolute; left:60%; top:-3px; bottom:-3px; border-left:2px dashed #0b0c1288;}
+  .topnav{display:flex; gap:24px; font-size:14px;}
+  .topnav a{color:var(--muted); text-decoration:none;}
+  .topnav a:hover, .topnav a.active{color:var(--yellow);}
+  .layout{display:flex; max-width:1300px; margin:0 auto;}
+  .toc{
+    width:280px; flex-shrink:0; padding:32px 18px 60px 28px; position:sticky; top:64px;
+    height:calc(100vh - 64px); overflow-y:auto; font-size:13.5px;
+  }
+  .toc-title{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:12px; font-weight:600;}
+  .toc a{
+    display:block; color:var(--muted); text-decoration:none; padding:7px 10px; border-radius:7px;
+    border-left:2px solid transparent; margin-bottom:1px; line-height:1.35;
+  }
+  .toc a:hover{color:var(--text); background:var(--surface);}
+  main{flex:1; padding:40px 44px 120px 44px; min-width:0; max-width:760px;}
+  .doc-header{margin-bottom:8px;}
+  .eyebrow{color:var(--indigo); font-weight:600; font-size:13px; margin-bottom:8px;}
+  h1.doctitle{font-size:34px; font-weight:700; margin:0 0 6px 0; letter-spacing:-0.5px;}
+  .rev{color:var(--muted); font-size:13px; margin-bottom:36px;}
+  .content h2{
+    font-size:21px; margin:44px 0 14px 0; padding-top:8px; border-top:1px solid var(--border);
+    font-weight:700; color:var(--yellow); scroll-margin-top:80px;
+  }
+  .content h2:first-child{border-top:none; margin-top:0;}
+  .content h3{font-size:16px; margin:22px 0 8px 0; color:var(--text); scroll-margin-top:80px;}
+  .content p{color:#c7c9db; font-size:14.5px; margin:0 0 14px 0;}
+  .content strong{color:var(--text);}
+  .content ul{color:#c7c9db; font-size:14.5px; padding-left:22px; margin-bottom:14px;}
+  .content li{margin-bottom:6px;}
+  .content a{color:var(--yellow);}
+  .callout{
+    border-left:2px dashed var(--yellow); background:var(--surface); border-radius:8px;
+    padding:14px 18px; margin:18px 0; font-size:14px; color:#c7c9db;
+  }
+  .footer-note{margin-top:56px; text-align:center; color:var(--muted); font-size:13px;}
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
+  @media (max-width:900px){ .toc{display:none;} main{padding:28px 20px;} }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
+  <div class="topnav">
+    <a href="{{ url_for('docs') }}">Docs</a>
+    <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
+    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
+    <a href="{{ url_for('privacy_policy') }}" class="active">Privacy</a>
+    <a href="{{ url_for('status_page') }}">Status</a>
+  </div>
+</div>
+
+<div class="layout">
+  <aside class="toc">
+    <div class="toc-title">On this page</div>
+    <a href="#what-we-collect">1. What We Collect</a>
+    <a href="#why-we-collect">2. Why We Collect It</a>
+    <a href="#where-stored">3. Where Data Is Stored</a>
+    <a href="#what-we-dont-do">4. What We Don't Do</a>
+    <a href="#retention">5. Retention &amp; Deletion</a>
+    <a href="#your-rights">6. Your Rights</a>
+    <a href="#changes">7. Changes to This Policy</a>
+    <a href="#contact">8. Contact</a>
+  </aside>
+
+  <main>
+    <div class="doc-header">
+      <div class="eyebrow">Carry Ticket Bot</div>
+      <h1 class="doctitle">Privacy Policy</h1>
+      <div class="rev">Last updated: August 14, 2026</div>
+    </div>
+    <div class="content">
+
+      <p>This Privacy Policy explains what data this Discord bot ("the Bot", "Carry Ticket Bot") collects, why it's collected, how it's stored, and how you can request its removal. By using the Bot in a server, you agree to the practices described below.</p>
+
+      <h2 id="what-we-collect">1. What We Collect</h2>
+      <ul>
+        <li><strong>Discord user ID and username</strong> — to identify who opened a ticket and who is interacting with it.</li>
+        <li><strong>Discord role IDs</strong> — to check ticket-access permissions (e.g. blacklist roles, staff roles) via the Bot's access control settings.</li>
+        <li><strong>Message content within ticket channels</strong> — messages sent inside a support ticket channel are read and saved into a transcript when the ticket is closed.</li>
+        <li><strong>Attachment metadata</strong> — filenames and URLs of files/images shared in a ticket (the files themselves remain hosted on Discord's CDN; we do not download or re-host them).</li>
+        <li><strong>Timestamps</strong> — when tickets are created, messages sent, and tickets closed.</li>
+      </ul>
+      <p>We do <strong>not</strong> collect data from channels outside of ticket channels, and we do not read messages in channels where a ticket is not active.</p>
+
+      <h2 id="why-we-collect">2. Why We Collect It</h2>
+      <ul>
+        <li>To generate a <strong>ticket transcript</strong> so staff and the ticket creator have a record of what was discussed.</li>
+        <li>To enforce <strong>role-based access control</strong>, such as preventing specific roles from opening tickets or specific ticket categories.</li>
+        <li>To display <strong>ticket history and status</strong> on our web dashboard for staff to review.</li>
+        <li>To apply <strong>cooldowns</strong> that prevent ticket spam.</li>
+      </ul>
+
+      <h2 id="where-stored">3. Where Data Is Stored</h2>
+      <p>Data described above is stored on our own server infrastructure (not a Discord-provided service), separately from Discord. This includes:</p>
+      <ul>
+        <li>Ticket transcripts (HTML files containing message content, usernames, and timestamps)</li>
+        <li>Configuration data (role IDs, user IDs) used for access control</li>
+        <li>Ticket metadata (creation/close timestamps, ticket counters, cooldowns)</li>
+      </ul>
+      <div class="callout">Transcript links shared with ticket creators expire after a limited time (currently 1 hour) for security, but the underlying transcript file remains stored so staff can access ticket history through the dashboard.</div>
+
+      <h2 id="what-we-dont-do">4. What We Don't Do</h2>
+      <ul>
+        <li>We do <strong>not</strong> sell or share your data with third parties.</li>
+        <li>We do <strong>not</strong> use message content or any collected data to train machine learning or AI models.</li>
+        <li>We do <strong>not</strong> track presence/online status.</li>
+        <li>We do <strong>not</strong> collect data from servers or channels where the Bot is not actively managing a ticket.</li>
+      </ul>
+
+      <h2 id="retention">5. Retention &amp; Deletion</h2>
+      <p>Ticket transcripts and related metadata are retained to preserve support history. If you would like your data removed (for example, a specific ticket transcript deleted), contact the server administrators who operate this Bot, or reach out using the contact method below.</p>
+
+      <h2 id="your-rights">6. Your Rights</h2>
+      <ul>
+        <li>You may request a copy of data associated with your Discord user ID.</li>
+        <li>You may request deletion of your ticket transcripts and associated data.</li>
+        <li>You may leave any server using this Bot at any time, which stops any further data collection from that server.</li>
+      </ul>
+
+      <h2 id="changes">7. Changes to This Policy</h2>
+      <p>This policy may be updated as the Bot's features change. Material changes will be reflected by updating the "Last updated" date above.</p>
+
+      <h2 id="contact">8. Contact</h2>
+      <p>For questions, data access requests, or deletion requests, please contact the server administrators operating this Bot, or reach out via Discord.</p>
+
+      <div class="footer-note">🤖 Built with Claude AI</div>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

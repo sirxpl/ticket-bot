@@ -1,7 +1,9 @@
 import os
 import glob
 import json
+import re
 import asyncio
+import time
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -16,10 +18,10 @@ from flask import (
     session, 
     url_for, 
     jsonify, 
-    send_from_directory,
-    abort
+    send_from_directory
 )
 from requests_oauthlib import OAuth2Session
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Import storage helpers
 from utils.storage import (
@@ -30,7 +32,71 @@ from utils.storage import (
     get_settings,
     set_tickets_enabled,
     get_ticket_logs,
-    get_logs_for_ticket
+    get_logs_for_ticket,
+    get_transcript_info,
+    get_transcript_html,
+    list_transcript_filenames,
+    get_ticket_categories,
+    save_ticket_categories,
+    get_ticket_panel_draft,
+    get_carry_rules_agreement,
+    save_carry_rules_agreement,
+    save_ticket_panel_draft,
+    get_redirect_message,
+    save_redirect_message,
+    remember_base_url,
+    get_welcome_message,
+    save_welcome_message,
+    get_ticket_analytics,
+    get_trial_schedule_settings,
+    save_trial_schedule_settings,
+    get_premade_warning_reasons,
+    add_premade_warning_reason,
+    update_premade_warning_reason,
+    remove_premade_warning_reason,
+)
+
+# Import access-control helpers
+from utils.access import (
+    get_access_settings,
+    add_allowed_user,
+    remove_allowed_user,
+    add_allowed_role,
+    remove_allowed_role,
+    add_blacklist_role,
+    remove_blacklist_role,
+    add_carry_manager_role,
+    remove_carry_manager_role,
+    add_ticket_viewer_role,
+    remove_ticket_viewer_role,
+    add_powerful_command_role,
+    remove_powerful_command_role,
+    add_powerful_command_user,
+    remove_powerful_command_user,
+    add_moderation_command_role,
+    remove_moderation_command_role,
+    add_moderation_command_user,
+    remove_moderation_command_user,
+    has_moderation_command_access,
+    add_basic_command_role,
+    remove_basic_command_role,
+    add_basic_command_user,
+    remove_basic_command_user,
+    add_transcripts_role,
+    remove_transcripts_role,
+    add_remove_cooldown_role,
+    remove_remove_cooldown_role,
+    add_analytics_role,
+    remove_analytics_role,
+    set_log_channel,
+    set_blacklist_log_channel,
+    set_warning_log_channel,
+    has_dashboard_access,
+    has_carry_manager_access,
+    has_transcripts_access,
+    has_remove_cooldown_access,
+    has_analytics_access,
+    is_admin,
 )
 
 # Environment & OAuth Setup
@@ -38,7 +104,16 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
 CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "https://ticket-bot-f184.onrender.com/callback")
+# Optional overrides. Left unset, every public URL (OAuth2 redirect URIs,
+# transcript links, the site links in Discord embeds) is derived from the
+# incoming request, so the same deployment works on any domain - localhost, a
+# preview host or a custom domain - without touching the config.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+REDIRECT_URI = os.getenv("OAUTH2_REDIRECT_URI", "").strip()
+LINKED_ROLE_REDIRECT_URI = os.getenv("LINKED_ROLE_REDIRECT_URI", "").strip()
+# Optional Discord role granted after a member accepts the Carry Service System
+# Rules. Set this to the role ID in your hosting environment.
+CARRY_RULES_ROLE_ID = os.getenv("CARRY_RULES_ROLE_ID", "").strip()
 
 AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
 TOKEN_URL = 'https://discord.com/api/oauth2/token'
@@ -49,12 +124,58 @@ os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 # Flask App
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
+# Hosts like Render terminate TLS in front of the app, so without this Flask
+# builds http:// URLs for an https:// site and Discord rejects the redirect.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+def current_base_url():
+    """Public origin of the current request, honouring PUBLIC_BASE_URL."""
+    return PUBLIC_BASE_URL or request.url_root.rstrip("/")
+
+
+def external_url(endpoint, **values):
+    """url_for(..., _external=True) rooted at the public origin."""
+    return f"{current_base_url()}{url_for(endpoint, **values)}"
+
+
+def request_url():
+    """The current request URL as the browser saw it. Used as the OAuth
+    authorization_response, whose origin has to match the redirect_uri."""
+    if not PUBLIC_BASE_URL:
+        return request.url
+    return f"{PUBLIC_BASE_URL}{request.full_path if request.query_string else request.path}"
+
+
+@app.context_processor
+def _inject_public_urls():
+    return {"base_url": current_base_url(), "external_url": external_url}
+
+
+@app.before_request
+def _remember_public_origin():
+    # The bot side (embeds, transcript links) has no request context, so it
+    # reads back the origin remembered here.
+    remember_base_url(current_base_url())
 
 # Discord Bot
 intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+# NOTE: message_content and members are privileged intents. This app is now
+# past Discord's "high user count" threshold and can't self-toggle them until
+# the Privileged Intents review is approved - temporarily disabled so the bot
+# can start. Ticket blacklist-role checks still work fine without these (they
+# read interaction.user.roles from the interaction payload, not the member
+# cache). What's degraded: transcript message text will save blank, and the
+# dashboard's "members blocked by role" preview list will be empty. Re-enable
+# both the moment the intents review is approved.
+intents.message_content = False
+intents.members = False
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Tracks when the bot last became ready, used by the public /status page and
+# /api/status JSON endpoint below. None means it hasn't connected yet since
+# this process started.
+bot_ready_since = None
 
 
 def make_oauth_session(state=None):
@@ -62,7 +183,19 @@ def make_oauth_session(state=None):
         client_id=CLIENT_ID,
         state=state,
         scope=['identify', 'guilds', 'guilds.members.read'],
-        redirect_uri=REDIRECT_URI
+        redirect_uri=REDIRECT_URI or external_url("callback")
+    )
+
+
+def make_linked_role_oauth_session(state=None):
+    """Separate OAuth2 session for the Linked Roles verification flow —
+    different scope (role_connections.write) and its own redirect URI, so
+    it doesn't collide with the dashboard login session above."""
+    return OAuth2Session(
+        client_id=CLIENT_ID,
+        state=state,
+        scope=['identify', 'role_connections.write'],
+        redirect_uri=LINKED_ROLE_REDIRECT_URI or external_url("linked_role_callback")
     )
 
 
@@ -76,34 +209,394 @@ def login_required(f):
     return decorated_function
 
 
-def configured_admin_ids():
-    """Return Discord user IDs configured for admin-panel access."""
-    raw_ids = os.getenv("ADMIN_USER_IDS", "")
-    return {
-        user_id.strip()
-        for user_id in raw_ids.split(",")
-        if user_id.strip()
-    }
+def get_member_role_ids(user_id):
+    """Look up a logged-in user's role IDs in the bot's guild, used to check
+    access-control role matches. Returns [] if the guild/member isn't found.
+
+    Tries the local member cache first (instant, no API call), and falls
+    back to a direct REST fetch if the member isn't cached — this matters
+    because the Members privileged intent is currently disabled (see the
+    NOTE above), so the cache is mostly empty and get_member() alone would
+    silently return [] for anyone the bot hasn't recently seen a gateway
+    event for, even though they do have the role. fetch_member() is a plain
+    REST call and works fine without that intent.
+    """
+    guild = bot.guilds[0] if bot.guilds else None
+    if not guild:
+        return []
+    member = guild.get_member(int(user_id))
+    if not member:
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                guild.fetch_member(int(user_id)), bot.loop
+            )
+            member = future.result(timeout=10)
+        except Exception:
+            member = None
+    if not member:
+        return []
+    return [str(r.id) for r in member.roles]
+
+
+# Small persistent cache so repeated dashboard loads don't re-fetch the same
+# users' names over and over — usernames rarely change, and this avoids
+# piling up several blocking REST calls (one per unresolved user) on every
+# single page load.
+_username_cache = {}
+
+
+def resolve_username(guild, user_id):
+    """Best-effort username lookup for display purposes (e.g. showing a name
+    next to a raw user ID on the dashboard). Returns None if it can't be
+    resolved — callers should fall back to showing the raw ID.
+
+    Uses a short 3s timeout on the REST fallback (unlike
+    get_member_role_ids's 10s) since this may run several times in a row
+    while rendering one page, and a slow/failed lookup shouldn't stall the
+    whole dashboard load.
+    """
+    if not guild or not user_id:
+        return None
+    key = str(user_id)
+    if key in _username_cache:
+        return _username_cache[key]
+
+    try:
+        member = guild.get_member(int(user_id))
+    except (TypeError, ValueError):
+        return None
+
+    if not member:
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                guild.fetch_member(int(user_id)), bot.loop
+            )
+            member = future.result(timeout=3)
+        except Exception:
+            member = None
+
+    name = str(member) if member else None
+    _username_cache[key] = name
+    return name
+
+
+def access_required(f):
+    """Like login_required, but also enforces the Access Control allow-list."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def carry_manager_required(f):
+    """Like access_required, but also requires Carry Manager Settings access
+    (either an admin, or a matching role from carry_manager_roles)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        if not has_carry_manager_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to use Carry Manager Settings.", "danger")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def remove_cooldown_required(f):
+    """Like access_required, but also requires Remove Cooldown access
+    (either an admin, or a matching role from remove_cooldown_roles)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        if not has_remove_cooldown_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to remove cooldowns.", "danger")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 def admin_required(f):
-    """Require a logged-in user whose ID is explicitly configured as an admin."""
+    """Restricts a route to admins only (see utils.access.is_admin) — used
+    for the Access Control page and its management routes."""
     @wraps(f)
-    @login_required
     def decorated_function(*args, **kwargs):
-        user = session.get("user") or {}
-        if str(user.get("id", "")) not in configured_admin_ids():
-            abort(403)
+        user_data = session.get("user")
+        if not user_data:
+            flash("🔒 Please log in with Discord to access the dashboard.", "warning")
+            return redirect(url_for("login"))
+        role_ids = get_member_role_ids(user_data["id"])
+        if not has_dashboard_access(user_data["id"], role_ids):
+            flash("⛔ You don't have permission to view this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
+        if not is_admin(user_data["id"]):
+            flash("⛔ Access Control is restricted to admins only.", "danger")
+            return redirect(url_for("home"))
         return f(*args, **kwargs)
     return decorated_function
 
 
 # --- FLASK ROUTES ---
+
+
+@app.route("/carry-agreement")
+def carry_agreement():
+    try:
+        agreement = None
+        if session.get("user"):
+            agreement = get_carry_rules_agreement(session["user"].get("id"))
+        return render_template("carry_agreement.html", user=session.get("user"), agreement=agreement)
+    except Exception:
+        app.logger.exception("carry_agreement page crashed")
+        return (
+            "<h1>Something went wrong loading this page</h1>"
+            "<p>Please try again shortly. If this keeps happening, contact the server admin.</p>"
+            "<a href='/'>Back to home</a>",
+            500,
+        )
+
+@app.route("/carry-agreement/accept", methods=["POST"])
+@login_required
+def accept_carry_agreement():
+    try:
+        user = session.get("user") or {}
+        user_id = str(user.get("id") or "")
+        if not user_id:
+            flash("Unable to identify your Discord account. Please log in again.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        if not CARRY_RULES_ROLE_ID.isdigit():
+            flash("The Carry Rules role has not been configured yet.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        guild = bot.guilds[0] if bot.guilds else None
+        if not guild:
+            flash("The Discord bot is not connected to the server right now.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        member = guild.get_member(int(user_id))
+        if member is None:
+            future = asyncio.run_coroutine_threadsafe(guild.fetch_member(int(user_id)), bot.loop)
+            member = future.result(timeout=10)
+
+        role = guild.get_role(int(CARRY_RULES_ROLE_ID))
+        if role is None:
+            flash("The configured Carry Rules role could not be found.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        if role >= guild.me.top_role:
+            flash("The bot cannot assign that role. Move the role below the bot's highest role.", "danger")
+            return redirect(url_for("carry_agreement"))
+
+        if role not in member.roles:
+            future = asyncio.run_coroutine_threadsafe(member.add_roles(role, reason="Accepted Carry Service System Rules"), bot.loop)
+            future.result(timeout=10)
+
+        save_carry_rules_agreement(user_id, user.get("username"))
+        flash("✅ Rules accepted. Your Carry Rules role has been granted.", "success")
+    except Exception:
+        app.logger.exception("Carry rules role assignment failed")
+        flash("Something went wrong while assigning your Carry Rules role.", "danger")
+
+    return redirect(url_for("carry_agreement"))
+
+
+@app.route("/linked-role")
+def linked_role_start():
+    """The verification URL you paste into the Developer Portal's Linked
+    Roles Verification URL field. Starts the OAuth2 flow — this is what
+    makes the connect button send people through Discord's own OAuth
+    screen, which is what gets this bot listed under Connections -> Apps.
+    """
+    try:
+        if not CLIENT_ID or not CLIENT_SECRET:
+            app.logger.error(
+                "linked_role_start: DISCORD_CLIENT_ID or DISCORD_CLIENT_SECRET is missing"
+            )
+            return render_template(
+                "linked_role.html", stage="error",
+                error_message="This bot isn't configured for verification yet. Please contact the server admin."
+            )
+        discord_sess = make_linked_role_oauth_session()
+        authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
+        session['linked_role_oauth_state'] = state
+        return render_template("linked_role.html", stage="start", discord_auth_url=authorization_url)
+    except Exception:
+        app.logger.exception("linked_role_start crashed")
+        return render_template(
+            "linked_role.html", stage="error",
+            error_message="Something went wrong starting verification. Please try again shortly."
+        )
+
+
+@app.route("/linked-role/callback")
+def linked_role_callback():
+    if request.args.get('error'):
+        return render_template(
+            "linked_role.html",
+            stage="error",
+            error_message=request.args['error']
+        )
+
+    try:
+        discord_sess = make_linked_role_oauth_session(
+            state=session.get('linked_role_oauth_state')
+        )
+
+        token = discord_sess.fetch_token(
+            TOKEN_URL,
+            client_secret=CLIENT_SECRET,
+            authorization_response=request_url()
+        )
+
+        session['linked_role_access_token'] = token['access_token']
+
+        user_data = discord_sess.get(
+            'https://discord.com/api/users/@me'
+        ).json()
+
+        session['linked_role_username'] = user_data.get('username')
+
+    except Exception:
+        app.logger.exception("Linked role OAuth callback failed")
+        return render_template(
+            "linked_role.html",
+            stage="error"
+        )
+
+    return render_template(
+        "linked_role.html",
+        stage="agree",
+        username=session.get('linked_role_username')
+    )
+    
+@app.route("/linked-role/agree", methods=["POST"])
+def linked_role_agree():
+    access_token = session.get('linked_role_access_token')
+    if not access_token:
+        return render_template("linked_role.html", stage="error", error_message="Your session expired — please start over.")
+
+    if request.form.get("agree") != "on":
+        return render_template("linked_role.html", stage="agree", username=session.get('linked_role_username'))
+
+    try:
+        from utils.linked_roles import push_role_connection
+        push_role_connection(access_token, agreed=True)
+    except Exception:
+        app.logger.exception("Failed to push linked role connection metadata")
+        return render_template("linked_role.html", stage="error", error_message="Discord rejected the verification. Please try again.")
+    finally:
+        session.pop('linked_role_access_token', None)
+
+    return render_template("linked_role.html", stage="done")
+
+
+@app.route("/dashboard/linked-role/register-metadata", methods=["POST"])
+@admin_required
+def register_linked_role_metadata():
+    try:
+        from utils.linked_roles import register_metadata
+        register_metadata(CLIENT_ID, TOKEN)
+        flash("✅ Linked Roles metadata registered. You can now add the 'Agreed to Rules' requirement to a role in Server Settings → Roles → Links.", "success")
+    except Exception as e:
+        app.logger.exception("Failed to register linked role metadata")
+        flash(f"❌ Failed to register metadata: {e}", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/privacy")
+def privacy_policy():
+    return render_template("privacy.html")
+
+
+@app.route("/docs")
+def docs():
+    return render_template("docs.html")
+
+
+@app.route("/rules")
+def rules():
+    return render_template("rules.html")
+
+
+@app.route("/guidelines")
+def guidelines():
+    return render_template("guidelines.html")
+
+
+@app.route("/api/status")
+def api_status():
+    online = bool(bot.is_ready()) and not bot.is_closed()
+    latency_ms = None
+    if online:
+        try:
+            lat = bot.latency
+            if lat is not None and lat == lat:  # filters out NaN
+                latency_ms = round(lat * 1000)
+        except Exception:
+            latency_ms = None
+    uptime_seconds = None
+    if online and bot_ready_since:
+        uptime_seconds = round(time.time() - bot_ready_since)
+    guild_count = len(bot.guilds) if online else 0
+    return jsonify({
+        "online": online,
+        "latency_ms": latency_ms,
+        "uptime_seconds": uptime_seconds,
+        "guild_count": guild_count,
+    })
+
+
+@app.route("/api/status-history")
+def api_status_history():
+    from utils.status_history import get_daily_uptime, get_overall_uptime_pct, get_incidents_by_month
+    return jsonify({
+        "daily": get_daily_uptime(90),
+        "overall_uptime_pct": get_overall_uptime_pct(90),
+        "months": get_incidents_by_month(3),
+    })
+
+
+@app.route("/status")
+def status_page():
+    return render_template("status.html")
+
+
 @app.route("/")
 def home():
     user_data = session.get("user", None)
     if not user_data:
-        return render_template("dashboard.html", user=None)
+        return render_template("dashboard.html", user=None, panel_draft={}, redirect_message={"content": ""}, welcome_message={})
+
+    role_ids = get_member_role_ids(user_data["id"])
+    if not has_dashboard_access(user_data["id"], role_ids):
+        flash("⛔ You don't have permission to view this dashboard. Ask an admin to add your user ID or role in Access Control.", "danger")
+        session.pop("user", None)
+        return redirect(url_for("home"))
 
     guild = bot.guilds[0] if bot.guilds else None
     channels = guild.text_channels if guild else []
@@ -113,24 +606,203 @@ def home():
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
     settings = get_settings()
+    warning_presets = get_premade_warning_reasons()
+    access_settings = get_access_settings()
 
-    transcripts = []
-    if os.path.exists(TRANSCRIPTS_DIR):
-        transcripts = [os.path.basename(f) for f in glob.glob(f"{TRANSCRIPTS_DIR}/*.html")]
+    allowed_users = []
+    for uid in access_settings.get("allowed_users", []):
+        member = guild.get_member(int(uid)) if guild else None
+        allowed_users.append({"id": uid, "name": str(member) if member else None})
+
+    allowed_roles = []
+    for rid in access_settings.get("allowed_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        allowed_roles.append({"id": rid, "name": role.name if role else None})
+
+    carry_manager_roles = []
+    for rid in access_settings.get("carry_manager_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        carry_manager_roles.append({"id": rid, "name": role.name if role else None})
+
+    transcripts_roles = []
+    for rid in access_settings.get("transcripts_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        transcripts_roles.append({"id": rid, "name": role.name if role else None})
+
+    remove_cooldown_roles = []
+    for rid in access_settings.get("remove_cooldown_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        remove_cooldown_roles.append({"id": rid, "name": role.name if role else None})
+
+    analytics_roles = []
+    for rid in access_settings.get("analytics_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        analytics_roles.append({"id": rid, "name": role.name if role else None})
+
+    is_admin_user = is_admin(user_data["id"])
+    can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
+    can_access_transcripts = has_transcripts_access(user_data["id"], role_ids)
+    can_remove_cooldown = has_remove_cooldown_access(user_data["id"], role_ids)
+    can_access_analytics = has_analytics_access(user_data["id"], role_ids)
+
+    analytics = None
+    analytics_period = 7
+    if can_access_analytics:
+        try:
+            analytics_period = int(request.args.get("analytics_period", 7))
+        except (TypeError, ValueError):
+            analytics_period = 7
+        if analytics_period not in (7, 14, 30):
+            analytics_period = 7
+        analytics = get_ticket_analytics(analytics_period)
+
+    blacklist_roles = []
+    for rid in access_settings.get("blacklist_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        blacklist_roles.append({"id": rid, "name": role.name if role else None})
+
+    ticket_viewer_roles = []
+    for rid in access_settings.get("ticket_viewer_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        ticket_viewer_roles.append({"id": rid, "name": role.name if role else None})
+
+    powerful_command_roles = []
+    for rid in access_settings.get("powerful_command_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        powerful_command_roles.append({"id": rid, "name": role.name if role else None})
+    powerful_command_users = access_settings.get("powerful_command_users", [])
+
+    moderation_command_roles = []
+    for rid in access_settings.get("moderation_command_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        moderation_command_roles.append({"id": rid, "name": role.name if role else None})
+    moderation_command_users = access_settings.get("moderation_command_users", [])
+
+    basic_command_roles = []
+    for rid in access_settings.get("basic_command_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        basic_command_roles.append({"id": rid, "name": role.name if role else None})
+    basic_command_users = access_settings.get("basic_command_users", [])
+
+    # members who are blocked from creating tickets via a Ticket Blacklist Role
+    # (in addition to the individually-blacklisted user IDs above)
+    role_blacklisted_members = []
+    if guild:
+        blacklist_role_id_set = {str(rid) for rid in access_settings.get("blacklist_roles", [])}
+        if blacklist_role_id_set:
+            for member in guild.members:
+                member_role_ids = {str(r.id) for r in member.roles}
+                matched = member_role_ids.intersection(blacklist_role_id_set)
+                if matched:
+                    matched_role = guild.get_role(int(next(iter(matched))))
+                    role_blacklisted_members.append({
+                        "id": str(member.id),
+                        "name": str(member),
+                        "role_name": matched_role.name if matched_role else None,
+                    })
+
+    active_tickets = []
+    for t in tickets_info.get("active_tickets", []):
+        t = dict(t)
+        t["username"] = resolve_username(guild, t.get("user_id"))
+        active_tickets.append(t)
+
+    cooldowns = []
+    for cd in tickets_info.get("cooldowns", []):
+        cd = dict(cd)
+        cd["username"] = resolve_username(guild, cd.get("user_id"))
+        cooldowns.append(cd)
+
+    transcripts = [
+        get_transcript_info(fn) for fn in list_transcript_filenames()
+    ]
 
     return render_template(
         "dashboard.html",
         user=user_data,
+        guild_name=guild.name if guild else None,
         channels=channels,
         categories=categories,
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
         total_tickets=tickets_info.get("ticket_counter", 0),
-        active_tickets=tickets_info.get("active_tickets", []),
+        active_tickets=active_tickets,
         transcripts=transcripts,
-        cooldowns=tickets_info.get("cooldowns", []),
-        blacklisted_users=blacklist_info.get("blacklisted_users", [])
+        cooldowns=cooldowns,
+        blacklisted_users=blacklist_info.get("blacklisted_users", []),
+        role_blacklisted_members=role_blacklisted_members,
+        allowed_users=allowed_users,
+        allowed_roles=allowed_roles,
+        blacklist_roles=blacklist_roles,
+        ticket_viewer_roles=ticket_viewer_roles,
+        powerful_command_roles=powerful_command_roles,
+        powerful_command_users=powerful_command_users,
+        moderation_command_roles=moderation_command_roles,
+        moderation_command_users=moderation_command_users,
+        basic_command_roles=basic_command_roles,
+        basic_command_users=basic_command_users,
+        carry_manager_roles=carry_manager_roles,
+        transcripts_roles=transcripts_roles,
+        remove_cooldown_roles=remove_cooldown_roles,
+        analytics_roles=analytics_roles,
+        is_admin_user=is_admin_user,
+        can_access_carry_settings=can_access_carry_settings,
+        can_access_transcripts=can_access_transcripts,
+        can_remove_cooldown=can_remove_cooldown,
+        can_access_analytics=can_access_analytics,
+        analytics=analytics,
+        analytics_period=analytics_period,
+        ticket_categories=get_ticket_categories(),
+        panel_draft=get_ticket_panel_draft(),
+        redirect_message=get_redirect_message(),
+        welcome_message=get_welcome_message(),
+        trial_schedule=get_trial_schedule_settings(),
+        warning_presets=warning_presets,
+        log_channel_id=access_settings.get("log_channel_id"),
+        blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
+        warning_log_channel_id=access_settings.get("warning_log_channel_id")
     )
+
+
+@app.route("/dashboard/trial-schedule/save", methods=["POST"])
+@carry_manager_required
+def save_trial_schedule_route():
+    channel_id = request.form.get("trial_channel_id", "").strip()
+    enabled = request.form.get("trial_enabled") == "yes"
+
+    if enabled and not channel_id:
+        flash("❌ Choose a channel before enabling Trial Schedules.", "danger")
+        return redirect(url_for("home"))
+
+    old = get_trial_schedule_settings()
+    # When the configured channel changes, forget the old message ID so the
+    # bot creates one clean schedule post in the new channel instead of trying
+    # to fetch a message from the wrong place.
+    update = {"enabled": enabled, "channel_id": channel_id or None}
+    if str(old.get("channel_id") or "") != channel_id:
+        update["message_id"] = None
+    save_trial_schedule_settings(update)
+
+    if enabled and channel_id:
+        cog = bot.get_cog("TrialSchedule")
+        if cog:
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    cog.publish_or_update(channel_id=channel_id, force=True), bot.loop
+                )
+                message = future.result(timeout=15)
+                if message:
+                    flash("✅ Trial Schedule saved and published/updated.", "success")
+                else:
+                    flash("⚠️ Settings saved, but the bot could not publish the Trial Schedule. Check channel permissions.", "warning")
+            except Exception:
+                flash("⚠️ Settings saved. The bot will retry the Trial Schedule automatically.", "warning")
+        else:
+            flash("✅ Trial Schedule settings saved. The scheduler will start when the bot cog is loaded.", "success")
+    else:
+        flash("✅ Trial Schedule settings saved.", "success")
+
+    return redirect(url_for("home"))
 
 
 @app.route("/login")
@@ -150,7 +822,7 @@ def callback():
     token = discord_sess.fetch_token(
         TOKEN_URL,
         client_secret=CLIENT_SECRET,
-        authorization_response=request.url
+        authorization_response=request_url()
     )
     session['oauth2_token'] = token
     
@@ -176,19 +848,52 @@ def logout():
     flash("Logged out successfully.", "info")
     return redirect(url_for('home'))
 
-
-@app.route("/admin")
+@app.route("/dashboard/warnings/add-preset", methods=["POST"])
 @admin_required
-def admin_panel():
-    return render_template(
-        "admin_panel.html",
-        user=session.get("user"),
-        admin_ids=sorted(configured_admin_ids()),
-    )
+def add_warning_preset_route():
+    name = request.form.get("name", "").strip()
+    reason = request.form.get("reason", "").strip()
 
+    try:
+        add_premade_warning_reason(name, reason)
+        flash("Warning preset added.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Failed to add warning preset")
+        flash("Could not add the warning preset.", "danger")
+
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/warnings/edit-preset/<int:preset_id>", methods=["POST"])
+@admin_required
+def edit_warning_preset_route(preset_id):
+    name = request.form.get("name", "").strip()
+    reason = request.form.get("reason", "").strip()
+
+    preset = update_premade_warning_reason(preset_id, name, reason)
+
+    if preset:
+        flash("Warning preset updated.", "success")
+    else:
+        flash("Could not update that warning preset.", "danger")
+
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/warnings/delete-preset/<int:preset_id>", methods=["POST"])
+@admin_required
+def delete_warning_preset_route(preset_id):
+    if remove_premade_warning_reason(preset_id):
+        flash("Warning preset deleted.", "success")
+    else:
+        flash("Could not find that warning preset.", "danger")
+
+    return redirect(url_for("home"))
 
 @app.route("/dashboard/toggle-tickets", methods=["POST"])
-@login_required
+@carry_manager_required
 def toggle_tickets():
     is_enabled = request.form.get("tickets_enabled") in ["on", "true", "True"]
     set_tickets_enabled(is_enabled)
@@ -201,24 +906,31 @@ def toggle_tickets():
 @app.route("/transcripts/<path:filename>")
 def get_transcript(filename):
     # Allow access with a valid short-lived token (for DMed links); otherwise require login
-    from flask import request, abort
+    from flask import request, abort, Response
+
+    def _serve():
+        html = get_transcript_html(filename)
+        if html is None:
+            abort(404)
+        return Response(html, mimetype="text/html")
+
     token = request.args.get('token')
     if token:
         from utils.storage import verify_transcript_token
         info = verify_transcript_token(token)
         if not info or info.get('filename') != filename:
             abort(403)
-        return send_from_directory(TRANSCRIPTS_DIR, filename)
+        return _serve()
 
     # no token, require logged-in session
     if not session.get('user'):
         flash("🔒 Please log in with Discord to access the transcript.", "warning")
         return redirect(url_for('login'))
-    return send_from_directory(TRANSCRIPTS_DIR, filename)
+    return _serve()
 
 
 @app.route("/tickets/logs")
-@login_required
+@access_required
 def view_ticket_logs():
     logs = get_ticket_logs()
     # sort descending
@@ -239,7 +951,7 @@ def debug_ticket_logs():
 
 
 @app.route("/tickets/<ticket_id>")
-@login_required
+@access_required
 def view_ticket(ticket_id):
     logs = get_logs_for_ticket(ticket_id)
     ticket = None
@@ -269,49 +981,90 @@ def view_ticket(ticket_id):
 
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@login_required
+@access_required
 def api_unblacklist(user_id):
     remove_from_blacklist(user_id)
     return jsonify({"success": True})
 
 
 @app.route("/api/remove-cooldown/<user_id>", methods=["POST"])
-@login_required
+@remove_cooldown_required
 def api_remove_cooldown(user_id):
     from utils.storage import remove_cooldown
     ok = remove_cooldown(user_id)
     return jsonify({"success": ok})
 
 
-@app.route("/dashboard/tickets", methods=["POST"])
-@login_required
-def deploy_ticket_panel():
-    def safe_int(val):
-        try:
-            return int(val) if val and str(val).strip() else None
-        except ValueError:
-            return None
+def _safe_int(val):
+    try:
+        return int(val) if val and str(val).strip() else None
+    except ValueError:
+        return None
 
-    channel_id = safe_int(request.form.get("channel_id"))
-    category_id = safe_int(request.form.get("category_id"))
-    support_role_id = safe_int(request.form.get("support_role_id"))
+
+def _panel_draft_from_form():
+    raw_fields_json = request.form.get("fields_json", "[]")
+    raw_components_json = request.form.get("components_json", "[]")
+    try:
+        fields = json.loads(raw_fields_json)
+    except Exception:
+        fields = []
+    try:
+        components = json.loads(raw_components_json)
+        if not isinstance(components, list):
+            components = []
+    except Exception:
+        components = []
+
+    return {
+        "channel_id": _safe_int(request.form.get("channel_id")),
+        "category_id": _safe_int(request.form.get("category_id")),
+        "support_role_id": _safe_int(request.form.get("support_role_id")),
+        "title": request.form.get("title", "Request Carry"),
+        "description": request.form.get(
+            "description", "Click below to request a carry ticket!"
+        ),
+        "embed_color": request.form.get("embed_color", "#58b9ff"),
+        "image_url": request.form.get("image_url", "").strip() or None,
+        "thumbnail_url": request.form.get("thumbnail_url", "").strip() or None,
+        "footer_text": request.form.get("footer_text", "").strip() or None,
+        "fields": fields,
+        "components": components,
+    }
+
+
+@app.route("/dashboard/tickets/save-draft", methods=["POST"])
+@carry_manager_required
+def save_ticket_panel_draft_route():
+    draft = _panel_draft_from_form()
+    save_ticket_panel_draft(draft)
+    flash("💾 Panel draft saved. It'll be pre-filled next time you open this builder.", "success")
+    return redirect("/")
+
+
+@app.route("/dashboard/tickets", methods=["POST"])
+@carry_manager_required
+def deploy_ticket_panel():
+    draft = _panel_draft_from_form()
+    # Deploying also remembers this config, so it's pre-filled next time -
+    # not just an explicit "Save Draft" click.
+    save_ticket_panel_draft(draft)
+
+    channel_id = draft["channel_id"]
+    category_id = draft["category_id"]
+    support_role_id = draft["support_role_id"]
 
     if not channel_id:
         flash("❌ Please select a valid target channel.", "danger")
         return redirect("/")
 
-    title = request.form.get("title", "Request Carry")
-    description = request.form.get("description", "Click below to request a carry ticket!")
-    embed_color = request.form.get("embed_color", "#58b9ff")
-    image_url = request.form.get("image_url", "").strip() or None
-    thumbnail_url = request.form.get("thumbnail_url", "").strip() or None
-    footer_text = request.form.get("footer_text", "").strip() or None
-
-    raw_fields_json = request.form.get("fields_json", "[]")
-    try:
-        fields = json.loads(raw_fields_json)
-    except Exception:
-        fields = []
+    title = draft["title"]
+    description = draft["description"]
+    embed_color = draft["embed_color"]
+    image_url = draft["image_url"]
+    thumbnail_url = draft["thumbnail_url"]
+    footer_text = draft["footer_text"]
+    fields = draft["fields"]
 
     cog = bot.get_cog("TicketsCog") or bot.get_cog("Tickets")
     if cog:
@@ -326,7 +1079,8 @@ def deploy_ticket_panel():
                 image_url=image_url,
                 thumbnail_url=thumbnail_url,
                 footer_text=footer_text,
-                fields=fields
+                fields=fields,
+                components=draft.get("components") or []
             ),
             bot.loop
         )
@@ -344,6 +1098,412 @@ def deploy_ticket_panel():
     return redirect("/")
 
 
+@app.route("/dashboard/access/add-user", methods=["POST"])
+@admin_required
+def access_add_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_allowed_user(user_id)
+        flash("✅ User added to the dashboard allow-list.", "success")
+    else:
+        flash("❌ Please enter a valid numeric Discord user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_user(user_id):
+    remove_allowed_user(user_id)
+    flash("🗑️ User removed from the allow-list.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-role", methods=["POST"])
+@admin_required
+def access_add_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_allowed_role(role_id)
+        flash("✅ Role added to the dashboard allow-list.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_role(role_id):
+    remove_allowed_role(role_id)
+    flash("🗑️ Role removed from the allow-list.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-blacklist-role", methods=["POST"])
+@admin_required
+def access_add_blacklist_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_blacklist_role(role_id)
+        flash("✅ Role added to the Ticket Blacklist.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-blacklist-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_blacklist_role(role_id):
+    remove_blacklist_role(role_id)
+    flash("🗑️ Role removed from the Ticket Blacklist.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-viewer-role", methods=["POST"])
+@admin_required
+def access_add_viewer_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_ticket_viewer_role(role_id)
+        flash("✅ Role added as a Ticket Viewer Role.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-viewer-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_viewer_role(role_id):
+    remove_ticket_viewer_role(role_id)
+    flash("🗑️ Role removed from Ticket Viewer Roles.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-powerful-command-role", methods=["POST"])
+@admin_required
+def access_add_powerful_command_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_powerful_command_role(role_id)
+        flash("✅ Role added to Powerful Command Access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-powerful-command-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_powerful_command_role(role_id):
+    remove_powerful_command_role(role_id)
+    flash("🗑️ Role removed from Powerful Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-powerful-command-user", methods=["POST"])
+@admin_required
+def access_add_powerful_command_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_powerful_command_user(user_id)
+        flash("✅ User added to Powerful Command Access.", "success")
+    else:
+        flash("❌ Please enter a valid user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-powerful-command-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_powerful_command_user(user_id):
+    remove_powerful_command_user(user_id)
+    flash("🗑️ User removed from Powerful Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-moderation-command-role", methods=["POST"])
+@admin_required
+def access_add_moderation_command_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_moderation_command_role(role_id)
+        flash("✅ Role added to Moderation Command Access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-moderation-command-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_moderation_command_role(role_id):
+    remove_moderation_command_role(role_id)
+    flash("🗑️ Role removed from Moderation Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-moderation-command-user", methods=["POST"])
+@admin_required
+def access_add_moderation_command_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_moderation_command_user(user_id)
+        flash("✅ User added to Moderation Command Access.", "success")
+    else:
+        flash("❌ Please enter a valid user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-moderation-command-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_moderation_command_user(user_id):
+    remove_moderation_command_user(user_id)
+    flash("🗑️ User removed from Moderation Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-basic-command-role", methods=["POST"])
+@admin_required
+def access_add_basic_command_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_basic_command_role(role_id)
+        flash("✅ Role added to Basic Command Access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-basic-command-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_basic_command_role(role_id):
+    remove_basic_command_role(role_id)
+    flash("🗑️ Role removed from Basic Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-basic-command-user", methods=["POST"])
+@admin_required
+def access_add_basic_command_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_basic_command_user(user_id)
+        flash("✅ User added to Basic Command Access.", "success")
+    else:
+        flash("❌ Please enter a valid user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-basic-command-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_basic_command_user(user_id):
+    remove_basic_command_user(user_id)
+    flash("🗑️ User removed from Basic Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-categories/save", methods=["POST"])
+@carry_manager_required
+def save_ticket_categories_route():
+    labels = request.form.getlist("cat_label")
+    descriptions = request.form.getlist("cat_description")
+    emojis = request.form.getlist("cat_emoji")
+    blacklist_roles_raw = request.form.getlist("cat_blacklist_roles")
+    name_prefixes = request.form.getlist("cat_name_prefix")
+    open_notes = request.form.getlist("cat_open_note")
+    discord_category_ids = request.form.getlist("cat_discord_category_id")
+    dropdown_enabled_raw = request.form.getlist("cat_dropdown_enabled")
+    variables_raw = request.form.getlist("cat_variables")
+
+    # these lists aren't guaranteed to line up 1:1 with the other lists
+    # (older cached pages, etc.) so pad them out defensively
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw):
+        while len(lst) < len(labels):
+            lst.append("")
+
+    from utils.storage import slugify
+
+    categories = []
+    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw in zip(
+        labels, descriptions, emojis, blacklist_roles_raw,
+        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw,
+    ):
+        label = label.strip()
+        if not label:
+            continue
+        blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
+        prefix = slugify(prefix_raw.strip() or label)
+        variables = {}
+        try:
+            parsed_vars = json.loads(vars_raw or "{}")
+            if isinstance(parsed_vars, dict):
+                for k, v in parsed_vars.items():
+                    key = str(k).strip().lower()
+                    if key and re.match(r"^[a-z0-9_\-]{1,32}$", key):
+                        variables[key] = str(v)[:100]
+        except Exception:
+            variables = {}
+        categories.append({
+            "label": label[:100],
+            "description": desc.strip()[:100],
+            "emoji": emoji.strip() or None,
+            "blacklist_roles": blacklist_roles,
+            "name_prefix": prefix,
+            "open_note": note_raw.strip()[:200],
+            "discord_category_id": disc_cat_raw.strip() or None,
+            "dropdown_enabled": dd_enabled == "true",
+            "variables": variables,
+        })
+
+    if not categories:
+        flash("❌ Add at least one category with a label.", "danger")
+        return redirect(url_for("home"))
+
+    if len(categories) > 25:
+        categories = categories[:25]
+        flash("⚠️ Only the first 25 categories were saved (Discord's dropdown limit).", "warning")
+
+    save_ticket_categories(categories)
+    flash("✅ Ticket dropdown categories saved. New panels you deploy will use them; existing panels update after the bot restarts.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-messages/save-redirect", methods=["POST"])
+@carry_manager_required
+def save_redirect_message_route():
+    content = request.form.get("redirect_content", "").strip()
+    if not content:
+        flash("❌ Redirect message can't be empty.", "danger")
+        return redirect(url_for("home"))
+    save_redirect_message(content[:1000])
+    flash("✅ 'Ticket created' redirect message saved.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-messages/save-welcome", methods=["POST"])
+@carry_manager_required
+def save_welcome_message_route():
+    use_embed = request.form.get("welcome_use_embed") == "yes"
+    data = {
+        "use_embed": use_embed,
+        "content": request.form.get("welcome_content", "").strip()[:500],
+        "title": request.form.get("welcome_title", "").strip()[:256],
+        "description": request.form.get("welcome_description", "").strip()[:2000],
+        "color": request.form.get("welcome_color", "#3498db").strip() or "#3498db",
+        "footer": request.form.get("welcome_footer", "").strip()[:200],
+        "show_timezone": request.form.get("welcome_show_timezone") == "yes",
+        "show_display_name": request.form.get("welcome_show_display_name") == "yes",
+        "show_can_join": request.form.get("welcome_show_can_join") == "yes",
+        "show_tds_level": request.form.get("welcome_show_tds_level") == "yes",
+    }
+    save_welcome_message(data)
+    flash("✅ Ticket-channel welcome message saved.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-carry-manager-role", methods=["POST"])
+@admin_required
+def access_add_carry_manager_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_carry_manager_role(role_id)
+        flash("✅ Role added to Carry Manager Settings access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-carry-manager-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_carry_manager_role(role_id):
+    remove_carry_manager_role(role_id)
+    flash("🗑️ Role removed from Carry Manager Settings access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-transcripts-role", methods=["POST"])
+@admin_required
+def access_add_transcripts_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_transcripts_role(role_id)
+        flash("✅ Role added to Transcripts access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-transcripts-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_transcripts_role(role_id):
+    remove_transcripts_role(role_id)
+    flash("🗑️ Role removed from Transcripts access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-analytics-role", methods=["POST"])
+@admin_required
+def access_add_analytics_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_analytics_role(role_id)
+        flash("✅ Role added to Analytics access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-analytics-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_analytics_role(role_id):
+    remove_analytics_role(role_id)
+    flash("🗑️ Role removed from Analytics access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-remove-cooldown-role", methods=["POST"])
+@admin_required
+def access_add_remove_cooldown_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_remove_cooldown_role(role_id)
+        flash("✅ Role added to Remove Cooldown access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-remove-cooldown-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_remove_cooldown_role(role_id):
+    remove_remove_cooldown_role(role_id)
+    flash("🗑️ Role removed from Remove Cooldown access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/set-log-channel", methods=["POST"])
+@admin_required
+def access_set_log_channel():
+    channel_id = request.form.get("log_channel_id", "").strip()
+    set_log_channel(channel_id or None)
+    flash("✅ Ticket activity log channel updated.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/set-blacklist-log-channel", methods=["POST"])
+@admin_required
+def access_set_blacklist_log_channel():
+    channel_id = request.form.get("blacklist_log_channel_id", "").strip()
+    set_blacklist_log_channel(channel_id or None)
+    flash("✅ Blacklist log channel updated.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/set-warning-log-channel", methods=["POST"])
+@admin_required
+def access_set_warning_log_channel():
+    channel_id = request.form.get("warning_log_channel_id", "").strip()
+    set_warning_log_channel(channel_id or None)
+    flash("✅ Warning log channel updated.", "success")
+    return redirect(url_for("home"))
+
+
 # --- BOT EVENT HANDLERS & RUNNER ---
 @bot.event
 async def setup_hook():
@@ -354,6 +1514,8 @@ async def setup_hook():
 
 @bot.event
 async def on_ready():
+    global bot_ready_since
+    bot_ready_since = time.time()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands.")
@@ -366,11 +1528,29 @@ def run_flask():
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 
+
+def run_status_checker():
+    """Runs forever in its own daemon thread, sampling bot connectivity
+    roughly once a minute so the /status page has real uptime history and
+    auto-detected incidents instead of only a live snapshot."""
+    from utils.status_history import record_check
+    while True:
+        try:
+            online = bool(bot.is_ready()) and not bot.is_closed()
+            record_check(online)
+        except Exception as e:
+            print(f"Status checker error: {e}")
+        time.sleep(60)
+
+
 if __name__ == "__main__":
     import threading
-    flask_thread = threading.Thread(target=run_flask)
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    
+
+    status_thread = threading.Thread(target=run_status_checker, daemon=True)
+    status_thread.start()
+
     if TOKEN:
         bot.run(TOKEN)
     else:

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Status — Carry Ticket Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14151f; --surface-2:#191b28; --border:#25273a;
+    --text:#eef0f7; --muted:#8d90a8; --yellow:#ffc93c; --indigo:#7c6cf0; --indigo-dim:#7c6cf033;
+    --green:#3fd68c; --red:#f1556c;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; margin:0; min-height:100vh;}
+  h1,.brand{font-family:'Space Grotesk',sans-serif;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .topbar{
+    height:64px; border-bottom:1px solid var(--border); display:flex; align-items:center;
+    justify-content:space-between; padding:0 28px; position:sticky; top:0; z-index:50;
+    background:rgba(11,12,18,0.92); backdrop-filter:blur(10px);
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:17px; color:var(--text); text-decoration:none;}
+  .brand .stub{width:26px; height:20px; background:var(--yellow); border-radius:5px; position:relative;}
+  .brand .stub::after{content:""; position:absolute; left:60%; top:-3px; bottom:-3px; border-left:2px dashed #0b0c1288;}
+  .topnav{display:flex; gap:24px; font-size:14px;}
+  .topnav a{color:var(--muted); text-decoration:none;}
+  .topnav a:hover, .topnav a.active{color:var(--yellow);}
+
+  main{max-width:760px; margin:0 auto; padding:60px 24px 100px 24px;}
+
+  .status-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:36px; text-align:center; margin-bottom:24px;
+  }
+  .status-icon{
+    width:36px; height:36px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+    margin-right:12px; font-size:16px; vertical-align:middle;
+  }
+  .status-icon.online{background:rgba(63,214,140,0.15); color:var(--green);}
+  .status-icon.offline{background:rgba(241,85,108,0.15); color:var(--red);}
+  .dot{display:none;}
+  .status-label{font-size:24px; font-weight:700; font-family:'Space Grotesk',sans-serif;}
+  .status-sub{color:var(--muted); font-size:14px; margin-top:8px;}
+
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:8px;}
+  .metric{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:18px; text-align:left;
+  }
+  .metric .label{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px;}
+  .metric .value{font-size:20px; font-weight:600;}
+
+  .uptime-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:24px; margin-top:24px;
+  }
+  .uptime-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; font-size:14px;}
+  .uptime-header .url{display:flex; align-items:center; gap:8px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:13px;}
+  .url-check{
+    width:18px; height:18px; border-radius:50%; background:rgba(63,214,140,0.15); color:var(--green);
+    display:inline-flex; align-items:center; justify-content:center; font-size:10px; flex-shrink:0;
+  }
+  .uptime-header .pct{color:var(--green); font-weight:600;}
+  .bars{display:flex; gap:2px; align-items:flex-end; height:34px;}
+  .bar{flex:1; min-width:2px; height:100%; border-radius:2px; background:var(--border); cursor:pointer; position:relative; transition:opacity .1s;}
+  .bar:hover{opacity:0.75;}
+  .bar.up{background:var(--green);}
+  .bar.partial{background:#c9a227;}
+  .bar.down{background:var(--red);}
+  .bar-range{display:flex; justify-content:space-between; color:var(--muted); font-size:11px; letter-spacing:.04em; margin-top:8px;}
+  .bar-detail{text-align:center; padding-top:18px; margin-top:10px; border-top:1px solid var(--border);}
+  .bar-detail-date{font-size:12px; color:var(--muted); letter-spacing:.05em; margin-bottom:8px; text-transform:uppercase;}
+  .bar-detail-status{display:inline-flex; align-items:center; gap:8px; font-size:14.5px; font-weight:600;}
+  .bar-detail-status .s-icon{
+    width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px;
+  }
+  .bar-detail-status.ok .s-icon{background:rgba(63,214,140,0.15); color:var(--green);}
+  .bar-detail-status.bad .s-icon{background:rgba(241,85,108,0.15); color:var(--red);}
+  .bar-detail-status.none .s-icon{background:var(--surface-2); color:var(--muted);}
+
+  .notices{margin-top:28px;}
+  .notices h2{font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:18px; font-weight:700;}
+  .month-block{margin-bottom:26px;}
+  .month-block .month-title{display:flex; align-items:center; gap:14px; font-weight:700; font-size:15px; margin-bottom:14px;}
+  .month-block .month-title::after{content:""; flex:1; height:1px; background:var(--border);}
+  .no-notice{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:14px;}
+  .no-notice .ok-dot{
+    width:20px; height:20px; border-radius:50%; background:rgba(63,214,140,0.15); color:var(--green);
+    display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0;
+  }
+  .incident{margin-bottom:16px;}
+  .incident-title{display:flex; align-items:center; gap:10px; font-weight:600; font-size:14.5px; margin-bottom:10px;}
+  .incident-title .x-dot{
+    width:20px; height:20px; border-radius:50%; background:rgba(241,85,108,0.15); color:var(--red);
+    display:flex; align-items:center; justify-content:center; font-size:11px; flex-shrink:0;
+  }
+  .updates{border-left:2px solid var(--border); margin-left:9px; padding-left:20px;}
+  .update-row{margin-bottom:12px; font-size:13px;}
+  .pill{
+    display:inline-block; padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:600;
+    background:var(--surface-2); border:1px solid var(--border); margin-bottom:5px;
+  }
+  .pill.resolved{color:var(--green);}
+  .pill.identified{color:var(--yellow);}
+  .update-meta{color:var(--muted); font-size:12px; margin-top:2px;}
+  .update-msg{color:#c7c9db; margin-top:2px;}
+
+  .note{color:var(--muted); font-size:13px; text-align:center; margin-top:28px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
+  <div class="topnav">
+    <a href="{{ url_for('docs') }}">Docs</a>
+    <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
+    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
+    <a href="{{ url_for('privacy_policy') }}">Privacy</a>
+    <a href="{{ url_for('status_page') }}" class="active">Status</a>
+  </div>
+</div>
+
+<main>
+  <div class="status-card">
+    <div><span class="status-icon" id="statusIcon">●</span><span class="status-label" id="statusLabel">Checking...</span></div>
+    <div class="status-sub" id="statusSub">Loading current status</div>
+  </div>
+
+  <div class="grid">
+    <div class="metric">
+      <div class="label">Latency</div>
+      <div class="value mono" id="latency">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Uptime (this session)</div>
+      <div class="value mono" id="uptime">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Servers</div>
+      <div class="value mono" id="guilds">—</div>
+    </div>
+    <div class="metric">
+      <div class="label">Last checked</div>
+      <div class="value mono" id="lastChecked">—</div>
+    </div>
+  </div>
+
+  <p class="note">Auto-refreshes every 15 seconds.</p>
+
+  <div class="uptime-card">
+    <div class="uptime-header">
+      <span class="url"><span class="url-check">✓</span> {{ base_url }}/</span>
+      <span class="pct" id="overallPct">—% uptime</span>
+    </div>
+    <div class="bars" id="bars"></div>
+    <div class="bar-range" id="barRange">
+      <span>‹ 90 DAYS AGO</span>
+      <span>TODAY</span>
+    </div>
+    <div class="bar-detail" id="barDetail" style="display:none;">
+      <div class="bar-detail-date" id="barDetailDate"></div>
+      <div class="bar-detail-status" id="barDetailStatus"></div>
+    </div>
+  </div>
+
+  <div class="notices">
+    <h2>Notice History</h2>
+    <div id="monthsContainer"></div>
+  </div>
+</main>
+
+<script>
+function formatUptime(sec){
+  if (sec === null || sec === undefined) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+async function refreshHistory(){
+  try{
+    const res = await fetch('/api/status-history', {cache: 'no-store'});
+    const data = await res.json();
+
+    document.getElementById('overallPct').textContent =
+      (data.overall_uptime_pct !== null && data.overall_uptime_pct !== undefined ? data.overall_uptime_pct : '—') + '% uptime';
+
+    const barsEl = document.getElementById('bars');
+    const detailEl = document.getElementById('barDetail');
+    const detailDate = document.getElementById('barDetailDate');
+    const detailStatus = document.getElementById('barDetailStatus');
+    barsEl.innerHTML = '';
+    data.daily.forEach(day => {
+      const bar = document.createElement('div');
+      let cls = 'bar';
+      if (day.pct !== null && day.pct !== undefined){
+        if (day.pct >= 99) cls += ' up';
+        else if (day.pct > 0) cls += ' partial';
+        else cls += ' down';
+      }
+      bar.className = cls;
+
+      const dateObj = new Date(day.date + 'T00:00:00Z');
+      const dateLabel = dateObj.toLocaleDateString('en-US', {month:'long', day:'2-digit', year:'numeric', timeZone:'UTC'});
+
+      bar.addEventListener('mouseenter', () => {
+        detailEl.style.display = 'block';
+        detailDate.textContent = dateLabel;
+        if (day.pct === null || day.pct === undefined){
+          detailStatus.className = 'bar-detail-status none';
+          detailStatus.innerHTML = '<span class="s-icon">?</span> No data yet';
+        } else if (day.pct >= 99){
+          detailStatus.className = 'bar-detail-status ok';
+          detailStatus.innerHTML = '<span class="s-icon">✓</span> No downtime reported';
+        } else {
+          detailStatus.className = 'bar-detail-status bad';
+          detailStatus.innerHTML = `<span class="s-icon">✕</span> ${day.pct}% uptime`;
+        }
+      });
+      barsEl.appendChild(bar);
+    });
+    barsEl.addEventListener('mouseleave', () => { detailEl.style.display = 'none'; });
+
+    const monthsEl = document.getElementById('monthsContainer');
+    monthsEl.innerHTML = '';
+    data.months.forEach(month => {
+      const block = document.createElement('div');
+      block.className = 'month-block';
+      let html = `<div class="month-title">${month.label}</div>`;
+      if (!month.incidents.length){
+        html += `<div class="no-notice"><span class="ok-dot">✓</span> No notices reported this month</div>`;
+      } else {
+        month.incidents.forEach(inc => {
+          html += `<div class="incident"><div class="incident-title"><span class="x-dot">✕</span> ${inc.title}</div><div class="updates">`;
+          inc.updates.forEach(u => {
+            const dt = new Date(u.timestamp);
+            html += `<div class="update-row">
+              <span class="pill ${u.status}">${u.status.charAt(0).toUpperCase() + u.status.slice(1)}</span>
+              <div class="update-meta">${dt.toLocaleString()}</div>
+              <div class="update-msg">${u.message}</div>
+            </div>`;
+          });
+          html += `</div></div>`;
+        });
+      }
+      block.innerHTML = html;
+      monthsEl.appendChild(block);
+    });
+  } catch(e){
+    console.error('Failed to load status history', e);
+  }
+}
+
+async function refresh(){
+  const icon = document.getElementById('statusIcon');
+  const label = document.getElementById('statusLabel');
+  const sub = document.getElementById('statusSub');
+  try{
+    const res = await fetch('/api/status', {cache: 'no-store'});
+    const data = await res.json();
+    if (data.online){
+      icon.className = 'status-icon online';
+      icon.textContent = '✓';
+      label.textContent = 'All Systems Operational';
+      sub.textContent = 'The bot is online and connected to Discord.';
+    } else {
+      icon.className = 'status-icon offline';
+      icon.textContent = '✕';
+      label.textContent = 'Bot Offline';
+      sub.textContent = 'The bot is not currently connected to Discord.';
+    }
+    document.getElementById('latency').textContent = data.latency_ms !== null && data.latency_ms !== undefined ? data.latency_ms + ' ms' : '—';
+    document.getElementById('uptime').textContent = formatUptime(data.uptime_seconds);
+    document.getElementById('guilds').textContent = data.guild_count ?? '—';
+    document.getElementById('lastChecked').textContent = new Date().toLocaleTimeString();
+  } catch(e){
+    icon.className = 'status-icon offline';
+    icon.textContent = '✕';
+    label.textContent = 'Unable to Reach Server';
+    sub.textContent = 'Could not load status — the web app itself may be down.';
+    document.getElementById('lastChecked').textContent = new Date().toLocaleTimeString();
+  }
+}
+refresh();
+refreshHistory();
+setInterval(refresh, 15000);
+setInterval(refreshHistory, 60000);
+</script>
+
+</body>
+</html>

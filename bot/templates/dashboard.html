@@ -7,327 +7,2403 @@
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css"/>
     <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
+        :root {
+            --void: #0b0d14;
+            --panel: #12141d;
+            --raised: #171a24;
+            --raised-2: #1c202e;
+            --border: #242838;
+            --border-soft: #1e2230;
+            --accent: #5b5bef;
+            --accent-hover: #6d6df2;
+            --accent-soft: rgba(91, 91, 239, 0.14);
+            --text: #eceefb;
+            --text-dim: #9aa0b8;
+            --success: #3ed9a0;
+            --success-soft: rgba(62, 217, 160, 0.14);
+            --danger: #f1556c;
+            --danger-soft: rgba(241, 85, 108, 0.14);
+            --navbar-h: 66px;
+            --sidebar-w: 288px;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #1e1f22;
-            color: #f2f3f5;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            background-color: var(--void);
+            color: var(--text);
             margin: 0;
-            padding: 20px;
+            padding: 0;
         }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: #2b2d31;
-            padding: 25px;
-            border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-        }
-        header {
+        h1, h2, h3, h4 { font-family: 'Sora', 'Inter', sans-serif; letter-spacing: -0.01em; margin: 0; }
+        a { color: inherit; }
+
+        /* --- APP SHELL --- */
+        .app {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid #35363c;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
+            flex-direction: column;
+            min-height: 100vh;
         }
-        .user-info {
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 60;
+            height: var(--navbar-h);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 0 20px;
+            background: var(--panel);
+            border-bottom: 2px solid var(--border);
+        }
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'Sora', 'Inter', sans-serif;
+            font-weight: 700;
+            font-size: 1.05em;
+            text-decoration: none;
+        }
+        .brand-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            background: linear-gradient(145deg, var(--accent), #4038c9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.05em;
+            flex-shrink: 0;
+            box-shadow: 0 8px 24px rgba(91, 91, 239, 0.35);
+        }
+        .hamburger {
+            display: none;
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--raised);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 1.1em;
+            line-height: 1;
+        }
+        .topbar-right {
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        .user-info img {
-            border-radius: 50%;
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--raised);
+            text-decoration: none;
+            font-size: 0.82em;
+            font-weight: 600;
+            color: var(--text-dim);
         }
+        .status-pill:hover { border-color: var(--accent); }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            padding: 5px 14px 5px 5px;
+            border-radius: 999px;
+        }
+        .user-info img { border-radius: 50%; }
+        .user-info span { font-size: 0.88em; color: var(--text-dim); }
+        .user-info strong { color: var(--text); }
         .btn-logout {
-            color: #f23f43;
+            color: var(--danger);
             text-decoration: none;
-            font-weight: bold;
-            margin-left: 10px;
+            font-weight: 600;
+            font-size: 0.88em;
         }
-        .btn-login {
-            background-color: #5865f2;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 5px;
+        .shell {
+            display: flex;
+            flex: 1;
+            min-height: 0;
+        }
+        .sidebar {
+            width: var(--sidebar-w);
+            min-width: var(--sidebar-w);
+            background: var(--panel);
+            border-right: 2px solid var(--border);
+            padding: 16px 14px 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: sticky;
+            top: var(--navbar-h);
+            align-self: flex-start;
+            max-height: calc(100vh - var(--navbar-h));
+            overflow-y: auto;
+        }
+        .server-card {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 12px;
+            border-radius: 10px;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            margin-bottom: 8px;
+        }
+        .server-card .server-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: var(--accent-soft);
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .server-card .server-name {
+            font-size: 0.92em;
+            font-weight: 700;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .server-card .server-sub {
+            font-size: 0.74em;
+            color: var(--text-dim);
+            font-weight: 600;
+        }
+        .nav-group {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .nav-group-label {
+            color: var(--text-dim);
+            font-size: 0.68em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+            padding: 14px 12px 6px;
+        }
+        .nav-item, .sidebar-link {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 12px;
+            background: transparent;
+            color: var(--text-dim);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9em;
+            font-weight: 600;
+            text-align: left;
             text-decoration: none;
-            font-weight: bold;
-            display: inline-block;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
         }
+        .nav-item::before, .sidebar-link::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 2.5px;
+            height: 20px;
+            border-radius: 999px;
+            background: var(--accent);
+            transform: translateY(-50%) scaleY(0.4);
+            opacity: 0;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+        .nav-item:hover, .sidebar-link:hover {
+            background: var(--raised);
+            color: var(--text);
+        }
+        .nav-item:hover::before, .sidebar-link:hover::before {
+            opacity: 0.55;
+            transform: translateY(-50%) scaleY(1);
+        }
+        .nav-item.active {
+            background: var(--accent-soft);
+            color: #fff;
+        }
+        .nav-item.active::before {
+            opacity: 1;
+            transform: translateY(-50%) scaleY(1);
+        }
+        .nav-item.active .nav-icon {
+            background: var(--accent);
+            color: #fff;
+        }
+        .nav-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: var(--raised-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9em;
+            flex-shrink: 0;
+            transition: background 0.15s ease;
+        }
+        .sidebar-link .nav-icon {
+            width: 24px;
+            height: 24px;
+            font-size: 0.8em;
+        }
+        .sidebar-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 55;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(2px);
+        }
+
+        /* --- CONTENT --- */
+        .content {
+            flex: 1;
+            min-width: 0;
+            padding: 26px 30px 60px;
+        }
+        .content-inner {
+            max-width: 980px;
+            margin: 0 auto;
+        }
+        .page { display: none; }
+        .page.active { display: block; }
+        .page-head {
+            margin-bottom: 22px;
+        }
+        .page-head h1 {
+            font-size: 1.6em;
+            font-weight: 700;
+        }
+        .page-head p {
+            margin: 6px 0 0;
+            color: var(--text-dim);
+            font-size: 0.92em;
+        }
+        .flash {
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            font-size: 0.9em;
+            font-weight: 600;
+            border: 1px solid transparent;
+        }
+        .flash-success { background: var(--success-soft); border-color: var(--success); color: var(--success); }
+        .flash-danger { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+
+        /* --- CARDS --- */
         .card {
-            background: #313338;
-            padding: 20px;
-            border-radius: 6px;
-            margin-bottom: 20px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 22px;
+            border-radius: 14px;
+            margin-bottom: 16px;
         }
+        .card > h3, .card-head-text > h3 {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            font-size: 1.02em;
+            font-weight: 700;
+        }
+        .card-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1em;
+            flex-shrink: 0;
+        }
+        .card-subtitle {
+            color: var(--text-dim);
+            margin: 6px 0 16px 0;
+            font-size: 0.88em;
+            line-height: 1.55;
+        }
+        .card h4 {
+            font-size: 0.95em;
+        }
+        /* Collapsible settings card, matching the dashboard's section list */
+        details.card {
+            padding: 0;
+            overflow: hidden;
+        }
+        details.card > summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 18px 22px;
+            cursor: pointer;
+            list-style: none;
+        }
+        details.card > summary::-webkit-details-marker { display: none; }
+        details.card > summary:hover { background: var(--raised); }
+        details.card[open] > summary { border-bottom: 1px solid var(--border); }
+        .card-head-text .card-subtitle { margin: 4px 0 0; }
+        .card-chevron {
+            color: var(--text-dim);
+            flex-shrink: 0;
+            transition: transform 0.2s ease;
+        }
+        details.card[open] .card-chevron { transform: rotate(180deg); }
+        .card-body { padding: 20px 22px 22px; }
+
+        /* --- FORMS --- */
         form label {
             display: block;
-            margin-top: 10px;
-            font-weight: bold;
+            margin-top: 12px;
+            font-weight: 600;
+            font-size: 0.88em;
         }
         form input, form select, form textarea {
             width: 100%;
-            padding: 10px;
-            margin-top: 5px;
-            background: #1e1f22;
-            border: 1px solid #4e5058;
-            color: white;
-            border-radius: 4px;
+            padding: 11px 13px;
+            margin-top: 6px;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 10px;
             box-sizing: border-box;
+            font-family: inherit;
+            font-size: 0.92em;
+        }
+        form input:focus, form select:focus, form textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
         }
         button.btn-submit {
-            background: #23a55a;
+            background: var(--accent);
             color: white;
             border: none;
             padding: 12px 20px;
             margin-top: 15px;
-            border-radius: 4px;
+            border-radius: 10px;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 700;
             width: 100%;
+            font-family: inherit;
+            transition: background 0.15s ease, transform 0.15s ease;
         }
-        .btn-danger {
-            background: #da373c;
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
+        button.btn-submit:hover { background: var(--accent-hover); transform: translateY(-1px); }
+        .btn-view {
+            background: var(--raised-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 9px 16px;
+            border-radius: 9px;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 600;
+            text-decoration: none;
+            font-size: 0.85em;
+            font-family: 'Inter', sans-serif;
+            transition: border-color 0.15s ease, color 0.15s ease;
         }
+        .btn-view:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger {
+            background: var(--danger-soft);
+            color: var(--danger);
+            border: 1px solid transparent;
+            padding: 8px 15px;
+            border-radius: 9px;
+            cursor: pointer;
+            font-weight: 700;
+            font-family: inherit;
+            font-size: 0.85em;
+        }
+        .btn-danger:hover { border-color: var(--danger); }
+        .btn-login {
+            background: var(--accent);
+            color: white;
+            padding: 13px 26px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 700;
+            display: inline-block;
+            box-shadow: 0 8px 24px rgba(91, 91, 239, 0.35);
+        }
+        .btn-login:hover { background: var(--accent-hover); }
         .gatekeeper {
+            max-width: 460px;
+            margin: 0 auto;
             text-align: center;
-            padding: 50px 20px;
+            padding: 90px 20px;
         }
         .list-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px;
-            background: #1e1f22;
-            margin-top: 5px;
-            border-radius: 4px;
+            gap: 12px;
+            padding: 13px 15px;
+            background: var(--raised);
+            margin-top: 8px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
         }
         .pickr .pcr-button {
             width: 40px;
             height: 40px;
             border-radius: 6px;
         }
+        .access-form {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        .access-form > div { flex: 1; }
+        .access-form button {
+            height: 44px;
+            white-space: nowrap;
+        }
+
+        /* --- STATS & ANALYTICS --- */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+        .stat-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px 20px;
+        }
+        .stat-card .stat-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-dim);
+            font-size: 0.78em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .stat-card .stat-value {
+            font-family: 'Sora', sans-serif;
+            font-size: 2em;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .stat-card.accent-success .stat-value { color: var(--success); }
+        .stat-card.accent-warn .stat-value { color: #f6c453; }
+        .stat-delta {
+            margin-top: 6px;
+            font-size: 0.8em;
+            color: var(--success);
+            font-weight: 600;
+        }
+        .period-selector {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .period-selector a {
+            display: inline-block;
+            padding: 7px 15px;
+            border-radius: 9px;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            text-decoration: none;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        .period-selector a.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+        .analytics-chart-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 16px;
+        }
+        .analytics-chart-card h4 { margin: 0 0 2px; }
+        .chart-legend {
+            display: flex;
+            gap: 16px;
+            font-size: 0.82em;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+        .chart-legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .chart-legend .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .leaderboard-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 11px 13px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-bottom: 8px;
+        }
+        .leaderboard-rank {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: var(--border);
+            color: var(--text-dim);
+            font-size: 0.78em;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .leaderboard-rank.rank-1 { background: #f6c453; color: #1a1a1a; }
+        .leaderboard-name { flex: 1; font-weight: 600; }
+        .leaderboard-closes { color: var(--text-dim); font-size: 0.85em; }
+
+        @media (max-width: 1023px) {
+            .hamburger { display: flex; align-items: center; justify-content: center; }
+            .sidebar {
+                position: fixed;
+                top: var(--navbar-h);
+                left: 0;
+                bottom: 0;
+                max-height: none;
+                z-index: 60;
+                width: 86%;
+                max-width: 20rem;
+                transform: translateX(-100%);
+                transition: transform 0.25s ease;
+            }
+            body.sidebar-open .sidebar { transform: translateX(0); }
+            body.sidebar-open .sidebar-backdrop { display: block; }
+            .content { padding: 20px 16px 60px; }
+        }
+        @media (max-width: 720px) {
+            .stat-grid { grid-template-columns: 1fr; }
+            .user-info span { display: none; }
+            .status-pill span:last-child { display: none; }
+            .access-form { flex-direction: column; align-items: stretch; }
+        }
+        /* --- BLOCK-BASED CONTENT EDITOR (panel builder) --- */
+        .block-stack{
+            position: relative;
+            padding-left: 22px;
+        }
+        .block-stack::before{
+            content: "";
+            position: absolute;
+            left: 9px;
+            top: 4px;
+            bottom: 4px;
+            width: 2px;
+            background: var(--accent-2, #2dd4bf);
+            opacity: 0.55;
+            border-radius: 2px;
+        }
+        .block-row{
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .block-drag-handle{
+            cursor: grab;
+            color: var(--text-dim);
+            font-size: 1.1em;
+            line-height: 1;
+            padding-top: 12px;
+            user-select: none;
+            flex-shrink: 0;
+            width: 18px;
+            text-align: center;
+        }
+        .block-row.dragging{ opacity: 0.4; }
+        .block-row.drag-over{ outline: 1px dashed var(--accent-2, #2dd4bf); border-radius: 8px; }
+        .block-body{
+            flex: 1;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+        .block-label{
+            font-size: 0.78em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        .block-body input, .block-body textarea{
+            width: 100%;
+            padding: 8px;
+            background: var(--raised-2);
+            border: 1px solid var(--border);
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+            margin: 0;
+        }
+        .block-remove{
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1em;
+            padding: 12px 2px 0 2px;
+            flex-shrink: 0;
+        }
+        .block-remove:hover{ color: var(--danger); }
+        .block-separator{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 18px 0 12px -22px;
+            padding-left: 0;
+            color: var(--text-dim);
+            font-size: 0.78em;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            font-weight: 700;
+        }
+        .block-separator::before{ content:""; flex:0 0 22px; }
+        .block-separator::after{ content:""; flex:1; height:1px; background: var(--border); }
+        .block-add-btn{
+            width: 100%;
+            background: var(--raised);
+            border: 1px dashed var(--border);
+            color: var(--text-dim);
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        .block-add-btn:hover{ border-color: var(--accent-2, #2dd4bf); color: var(--text); }
+        .block-toolbar-btn{
+            background: var(--raised);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        .block-toolbar-btn.active{ border-color: var(--accent-2, #2dd4bf); color: var(--text); background: rgba(45,212,191,0.12); }
+        #previewPanel{
+            background: #313338;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            border-left: 4px solid #58b9ff;
+        }
+        #previewPanel .pv-title{ color: #fff; font-weight: 700; margin-bottom: 6px; }
+        #previewPanel .pv-desc{ color: #dbdee1; font-size: 0.92em; white-space: pre-wrap; margin-bottom: 8px; }
+        #previewPanel .pv-fields{ display: grid; gap: 8px; margin-bottom: 8px; }
+        #previewPanel .pv-field-name{ color: #fff; font-weight: 600; font-size: 0.85em; }
+        #previewPanel .pv-field-value{ color: #dbdee1; font-size: 0.85em; }
+        #previewPanel .pv-footer{ color: #949ba4; font-size: 0.78em; margin-top: 8px; }
+        #previewPanel img{ max-width: 100%; border-radius: 6px; margin-top: 8px; }
+
+        /* --- Components V2 Panel Builder blocks --- */
+        .pb-block{
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .pb-block[data-type="embed"]{ border-left: 3px solid var(--accent); }
+        .pb-block[data-type="divider"]{ border-left: 3px solid var(--text-dim); }
+        .pb-block[data-type="button"]{ border-left: 3px solid #3ed9a0; }
+        .pb-block[data-type="dropdown"]{ border-left: 3px solid #f6c453; }
+        .pb-block-header{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px 14px;
+            background: var(--raised);
+            border-bottom: 1px solid var(--border);
+        }
+        .pb-block-title{
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-weight: 700;
+            font-size: 0.92em;
+        }
+        .pb-block-icon{
+            width: 26px;
+            height: 26px;
+            border-radius: 7px;
+            background: var(--raised-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9em;
+            flex-shrink: 0;
+        }
+        .pb-block-body{
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+        }
+        .pb-block-body.pb-grid-2{
+            grid-template-columns: 1fr 1fr;
+        }
+        .pb-field label{
+            display: block;
+            font-size: 0.76em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-dim);
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        .pb-field input, .pb-field textarea{
+            width: 100%;
+            padding: 9px 10px;
+            background: var(--raised-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 7px;
+            box-sizing: border-box;
+            font-family: inherit;
+            font-size: 0.92em;
+        }
+        .pb-field input:focus, .pb-field textarea:focus{
+            outline: none;
+            border-color: var(--accent);
+        }
+        .pb-field textarea.pb-autosize{
+            resize: none;
+            overflow-y: hidden;
+            min-height: 38px;
+        }
+        .pb-drag-handle{
+            cursor: grab;
+            color: var(--text-dim);
+            font-size: 1.1em;
+            margin-right: 2px;
+            user-select: none;
+        }
+        .pb-drag-handle:active{ cursor: grabbing; }
+        .pb-block.pb-dragging{
+            opacity: 0.4;
+        }
+        .pb-block.pb-drag-over{
+            outline: 2px dashed var(--accent);
+            outline-offset: 2px;
+        }
+        .pb-children-list .pb-block{
+            cursor: default;
+        }
+        .pb-field input[type="color"]{
+            width: 52px;
+            height: 38px;
+            padding: 3px;
+            cursor: pointer;
+        }
+        .pb-color-row{ display: flex; align-items: center; gap: 10px; }
+        .pb-color-row input[type="text"]{ flex: 1; }
+        .pb-remove-btn{
+            background: var(--danger-soft);
+            color: var(--danger);
+            border: 1px solid transparent;
+            padding: 6px 12px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.82em;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .pb-remove-btn:hover{ border-color: var(--danger); }
+        .pb-children-wrap{
+            margin-top: 4px;
+            padding: 12px;
+            background: var(--raised);
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+        }
+        .pb-children-label{
+            font-size: 0.76em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-dim);
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .pb-children-add{
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .pb-children-add button{
+            background: var(--raised-2);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 6px 12px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.82em;
+        }
+        .pb-children-add button:hover{ border-color: var(--accent); color: var(--text); }
+        .pb-children-list{ display: grid; gap: 8px; }
+        .pb-children-list .pb-block{ margin-bottom: 0; }
+        .pb-divider-line{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px;
+            color: var(--text-dim);
+            font-size: 0.85em;
+        }
+        .pb-divider-line::before, .pb-divider-line::after{
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+        .pb-toolbar{
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 16px 0;
+        }
+        .pb-toolbar button{
+            background: var(--raised);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 9px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.88em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .pb-toolbar button:hover{ border-color: var(--accent); }
     </style>
 </head>
 <body>
 
-<div class="container">
-    {% if user %}
-        <header>
-            <h2>🎫 Carry Bot Control Panel</h2>
+{% if user %}
+<div class="app">
+    <nav class="topbar">
+        <div class="topbar-left">
+            <button type="button" class="hamburger" aria-label="Toggle sidebar" onclick="toggleSidebar()">☰</button>
+            <a href="/" class="brand"><span class="brand-mark">🎫</span> Carry Bot</a>
+        </div>
+        <div class="topbar-right">
+            <a href="/status" class="status-pill" title="View status page">
+                <span id="dashBotDot" style="width:9px; height:9px; border-radius:50%; background:var(--text-dim); display:inline-block;"></span>
+                <span id="dashBotStatus">Checking...</span>
+            </a>
             <div class="user-info">
-                <img src="{{ user.avatar_url }}" width="36" height="36" alt="Avatar">
-                <span>Welcome, <strong>{{ user.username }}</strong>!</span>
+                <img src="{{ user.avatar_url }}" width="32" height="32" alt="Avatar">
+                <span>Welcome, <strong>{{ user.username }}</strong></span>
                 <a href="/logout" class="btn-logout">Logout</a>
             </div>
-        </header>
+        </div>
+    </nav>
+        <script>
+        (function(){
+            const dot = document.getElementById('dashBotDot');
+            const label = document.getElementById('dashBotStatus');
+            async function refresh(){
+                try{
+                    const res = await fetch('/api/status', {cache: 'no-store'});
+                    const data = await res.json();
+                    if (data.online){
+                        dot.style.background = 'var(--success)';
+                        label.textContent = 'Bot Online';
+                        label.style.color = 'var(--success)';
+                    } else {
+                        dot.style.background = 'var(--danger)';
+                        label.textContent = 'Bot Offline';
+                        label.style.color = 'var(--danger)';
+                    }
+                } catch(e){
+                    dot.style.background = 'var(--danger)';
+                    label.textContent = 'Status unknown';
+                }
+            }
+            refresh();
+            setInterval(refresh, 15000);
+        })();
+        </script>
+
+    <div class="shell">
+        <div class="sidebar-backdrop" onclick="toggleSidebar()"></div>
+        <aside class="sidebar">
+            <div class="server-card">
+                <span class="server-mark">🛡️</span>
+                <div style="min-width:0;">
+                    <div class="server-name">{{ guild_name or 'Your Server' }}</div>
+                    <div class="server-sub">Carry ticket system</div>
+                </div>
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-label">General</div>
+                <button type="button" class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
+                    <span class="nav-icon">📊</span><span class="nav-text">Overview</span>
+                </button>
+                {% if can_access_analytics %}
+                <button type="button" class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
+                    <span class="nav-icon">📈</span><span class="nav-text">Analytics</span>
+                </button>
+                {% endif %}
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-label">Tickets</div>
+                {% if can_access_carry_settings %}
+                <button type="button" class="nav-item" data-page="carry-settings" onclick="showPage('carry-settings', this)">
+                    <span class="nav-icon">⚙️</span><span class="nav-text">Configuration</span>
+                </button>
+                <button type="button" class="nav-item" data-page="trial-schedules" onclick="showPage('trial-schedules', this)">
+                    <span class="nav-icon">🗓️</span><span class="nav-text">Trial Schedules</span>
+                </button>
+                {% endif %}
+                {% if can_access_transcripts %}
+                <button type="button" class="nav-item" data-page="transcripts" onclick="showPage('transcripts', this)">
+                    <span class="nav-icon">📜</span><span class="nav-text">Transcripts</span>
+                </button>
+                {% endif %}
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-label">Server</div>
+                <button type="button" class="nav-item" data-page="blacklist" onclick="showPage('blacklist', this)">
+                    <span class="nav-icon">🚫</span><span class="nav-text">Blacklists</span>
+                </button>
+                {% if is_admin_user %}
+                <button type="button" class="nav-item" data-page="warnings" onclick="showPage('warnings', this)">
+                    <span class="nav-icon">⚠️</span><span class="nav-text">Warnings</span>
+                </button>
+                {% endif %}
+                {% if is_admin_user %}
+                <button type="button" class="nav-item" data-page="access" onclick="showPage('access', this)">
+                    <span class="nav-icon">🔐</span><span class="nav-text">Access Control</span>
+                </button>
+                {% endif %}
+            </div>
+
+            <div class="nav-group">
+                <div class="nav-group-label">Site Links</div>
+                <a href="{{ external_url('status_page') }}" target="_blank" class="sidebar-link">
+                    <span class="nav-icon">🟢</span><span>Status</span>
+                </a>
+                <a href="{{ external_url('privacy_policy') }}" target="_blank" class="sidebar-link">
+                    <span class="nav-icon">🔒</span><span>Privacy Policy</span>
+                </a>
+                <a href="{{ external_url('docs') }}" target="_blank" class="sidebar-link">
+                    <span class="nav-icon">📘</span><span>Docs</span>
+                </a>
+                <a href="{{ external_url('rules') }}" target="_blank" class="sidebar-link">
+                    <span class="nav-icon">📋</span><span>Rules</span>
+                </a>
+                <a href="{{ external_url('guidelines') }}" target="_blank" class="sidebar-link">
+                    <span class="nav-icon">📖</span><span>Carry Guidelines</span>
+                </a>
+                <a href="{{ external_url('carry_agreement') }}" target="_blank" class="sidebar-link">
+                    <span class="nav-icon">🔗</span><span>Carry Agreement</span>
+                </a>
+            </div>
+        </aside>
+
+        <main class="content">
+            <div class="content-inner">
 
         {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, message in messages %}
-              <div style="padding: 10px; margin-bottom: 15px; border-radius: 4px; background-color: {% if category == 'success' %}#23a55a{% else %}#da373c{% endif %}; color: white;">
-                {{ message }}
-              </div>
-            {% endfor %}
-          {% endif %}
+          {% for category, message in messages %}
+            <div class="flash flash-{{ 'success' if category == 'success' else 'danger' }}">{{ message }}</div>
+          {% endfor %}
         {% endwith %}
 
+        <section class="page active" id="page-overview">
+        <div class="page-head">
+            <h1>Overview</h1>
+            <p>Live snapshot of your carry ticket system.</p>
+        </div>
+
+        <div class="stat-grid">
+            <div class="stat-card accent-success">
+                <div class="stat-label">🎫 Active Now</div>
+                <div class="stat-value">{{ active_tickets|length }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">📈 Total Lifetime</div>
+                <div class="stat-value">{{ total_tickets }}</div>
+            </div>
+            <div class="stat-card accent-warn">
+                <div class="stat-label">⏳ Cooldowns</div>
+                <div class="stat-value">{{ cooldowns|length }}</div>
+            </div>
+        </div>
+
         <div class="card">
-            <h3>⚙️ System Settings</h3>
+            <h3><span class="card-icon">🎫</span> Live Active Tickets</h3>
+            <p class="card-subtitle">Currently open carry tickets across the server.</p>
+            {% for ticket in active_tickets %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User:</strong> {% if ticket.username %}{{ ticket.username }} <span style="color:var(--text-dim);">({{ ticket.user_id }})</span>{% else %}{{ ticket.user_id }}{% endif %}</div>
+                        <div style="color:var(--text-dim);font-size:0.9em;">Opened: <span class="local-time" data-ts="{{ ticket.created_at }}">{{ ticket.created_at }}</span> • <span class="age" data-ts="{{ ticket.created_at }}">...</span></div>
+                    </div>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No active carry tickets open right now.</p>
+            {% endfor %}
+        </div>
+
+        <div class="card">
+            <h3><span class="card-icon">⏳</span> Active Service Cooldowns</h3>
+            <p class="card-subtitle">Members currently on cooldown before their next request.</p>
+            {% for cd in cooldowns %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>User:</strong> {% if cd.username %}{{ cd.username }} <span style="color:var(--text-dim);">({{ cd.user_id }})</span>{% else %}{{ cd.user_id }}{% endif %}</div>
+                        <div style="color:var(--text-dim);font-size:0.9em;">Expires: <span class="local-time" data-ts="{{ cd.expires_ts }}">{{ cd.expires_at }}</span> • <span class="countdown" data-ts="{{ cd.expires_ts }}">...</span></div>
+                    </div>
+                    {% if can_remove_cooldown %}
+                    <button onclick="removeCooldown('{{ cd.user_id }}')" class="btn-danger">Remove Cooldown</button>
+                    {% endif %}
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No active user cooldowns.</p>
+            {% endfor %}
+        </div>
+        </section>
+
+        <section class="page" id="page-analytics">
+        <div class="page-head">
+            <h1>Analytics</h1>
+            <p>Ticket volume, response times and staff activity.</p>
+        </div>
+        {% if can_access_analytics %}
+        <div class="period-selector">
+            <a href="?analytics_period=7#analytics" class="{% if analytics_period == 7 %}active{% endif %}">7d</a>
+            <a href="?analytics_period=14#analytics" class="{% if analytics_period == 14 %}active{% endif %}">14d</a>
+            <a href="?analytics_period=30#analytics" class="{% if analytics_period == 30 %}active{% endif %}">30d</a>
+        </div>
+
+        <div class="stat-grid">
+            <div class="stat-card">
+                <div class="stat-label">📥 All-time Created</div>
+                <div class="stat-value">{{ analytics.all_time_created }}</div>
+                <div class="stat-delta">+{{ analytics.last_24h_created }} in the last 24h</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">✅ All-time Closed</div>
+                <div class="stat-value">{{ analytics.all_time_closed }}</div>
+                <div class="stat-delta">+{{ analytics.last_24h_closed }} in the last 24h</div>
+            </div>
+        </div>
+
+        <div class="analytics-chart-card">
+            <h4>Ticket Flow</h4>
+            <p class="card-subtitle" style="margin-top:0;">Created vs. closed, by day</p>
+            <div class="chart-legend">
+                <span><span class="dot" style="background:var(--accent);"></span>Created</span>
+                <span><span class="dot" style="background:var(--success);"></span>Closed</span>
+            </div>
+            <svg id="ticketFlowChart" viewBox="0 0 700 220" style="width:100%; height:220px;"></svg>
+            <script type="application/json" id="analyticsDailyData">{{ analytics.daily | default([]) | tojson }}</script>
+        </div>
+
+        <div class="analytics-chart-card">
+            <h4>Most Active Staff</h4>
+            <p class="card-subtitle" style="margin-top:0;">Closes in the selected period</p>
+            {% for row in analytics.staff_leaderboard[:5] %}
+            <div class="leaderboard-row">
+                <div class="leaderboard-rank {% if loop.index == 1 %}rank-1{% endif %}">{{ loop.index }}</div>
+                <div class="leaderboard-name">{{ row.name }}</div>
+                <div class="leaderboard-closes">{{ row.closed }} close{{ 's' if row.closed != 1 else '' }}</div>
+            </div>
+            {% else %}
+            <p style="color: var(--text-dim);">No tickets closed in this period yet.</p>
+            {% endfor %}
+        </div>
+
+        <p class="card-subtitle">Response-time and per-message activity metrics aren't tracked yet — that needs a message-level logging hook this bot doesn't have set up. Everything above is computed live from your actual ticket_logs data (created/closed events), not sample data.</p>
+        {% else %}
+        <div class="card">
+            <h3>🔒 Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to view Analytics. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
+        </section>
+
+        <section class="page" id="page-carry-settings">
+        <div class="page-head">
+            <h1>Tickets Configuration</h1>
+            <p>Configure how the carry ticket system behaves in your server.</p>
+        </div>
+        {% if can_access_carry_settings %}
+        <div class="card">
+            <h3><span class="card-icon">⚙️</span> System Settings</h3>
             <form action="/dashboard/toggle-tickets" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
                     <strong>Enable Ticket Creation:</strong>
-                    <p style="margin: 4px 0 0 0; color: #b5bac1; font-size: 0.9em;">
+                    <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
                         When toggled off, users cannot open new tickets from Discord.
                     </p>
                 </div>
                 
                 <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 10px;">
-                    <input type="checkbox" name="tickets_enabled" value="true" onchange="this.form.submit()" {% if tickets_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer;">
-                    <span style="font-weight: bold; color: {% if tickets_enabled %}#23a55a{% else %}#da373c{% endif %};">
+                    <input type="checkbox" name="tickets_enabled" value="true" onchange="this.form.submit()" {% if tickets_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);">
+                    <span style="font-weight: bold; color: {% if tickets_enabled %}var(--success){% else %}var(--danger){% endif %};">
                         {% if tickets_enabled %}ENABLED{% else %}DISABLED{% endif %}
                     </span>
                 </label>
             </form>
         </div>
 
-        <div class="card">
-            <h3>🚀 Advanced Carry Ticket Panel Builder</h3>
-            <form action="/dashboard/tickets" method="POST" id="embedForm">
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">📋</span> Ticket Dropdown Categories</h3>
+                <p class="card-subtitle">
+                    Customize the options shown in the "Choose ticket type..." dropdown. New panels you deploy use these immediately; panels already posted in Discord pick up changes after the bot restarts.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/ticket-categories/save" method="POST" id="categoriesForm">
+                <div id="categoriesContainer"></div>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button type="button" onclick="addNewCategoryRow()" class="btn-submit" style="width:auto;">+ Add Category</button>
+                    <button type="submit" class="btn-submit" style="width:auto;">💾 Save Categories</button>
+                </div>
+            </form>
+            </div>
+        </details>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">📨</span> "Ticket Created" Redirect Message</h3>
+                <p class="card-subtitle">
+                    Sent privately (only they can see it) to the member right after they submit the ticket form, pointing them to their new channel.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/ticket-messages/save-redirect" method="POST">
+                <label>Message:</label>
+                <textarea name="redirect_content" rows="2" maxlength="1000" placeholder="e.g. ✅ Ticket created! Please head over to {channel}.">{{ (redirect_message | default({})).content | default('') }}</textarea>
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code> <code>{tds_level}</code>
+                </p>
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Redirect Message</button>
+            </form>
+            </div>
+        </details>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">💬</span> Ticket-Channel Welcome Message</h3>
+                <p class="card-subtitle">
+                    Sent inside the new ticket channel itself, right after it's created — this is what the opener and staff first see.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/ticket-messages/save-welcome" method="POST">
+                <label>Format:</label>
+                <select name="welcome_use_embed">
+                    <option value="yes" {% if welcome_message.use_embed %}selected{% endif %}>Embed (styled box)</option>
+                    <option value="no" {% if not welcome_message.use_embed %}selected{% endif %}>Plain text (no embed)</option>
+                </select>
+
+                <label>Message Content <span style="font-weight:normal; color:var(--text-dim);">(sent above/outside the embed — usually the mention)</span>:</label>
+                <input type="text" name="welcome_content" maxlength="500" value="{{ welcome_message.content }}" placeholder="{user_mention}">
+
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
                     <div>
-                        <label>Target Channel:</label>
-                        <select name="channel_id" required>
-                            {% for channel in channels %}
-                                <option value="{{ channel.id }}">#{{ channel.name }}</option>
-                            {% endfor %}
+                        <label>Embed Title:</label>
+                        <input type="text" name="welcome_title" maxlength="256" value="{{ welcome_message.title }}" placeholder="🎫 {category} - {user_name}">
+                    </div>
+                    <div>
+                        <label>Embed Color:</label>
+                        <input type="text" name="welcome_color" maxlength="7" value="{{ welcome_message.color or '#3498db' }}" placeholder="#3498db">
+                    </div>
+                </div>
+
+                <label>Embed Description (optional):</label>
+                <textarea name="welcome_description" rows="2" maxlength="2000" placeholder="Optional description text...">{{ welcome_message.description }}</textarea>
+
+                <label>Embed Footer (optional):</label>
+                <input type="text" name="welcome_footer" maxlength="200" value="{{ welcome_message.footer }}" placeholder="e.g. Powered by Carry Bot">
+
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{user}</code> <code>{user_name}</code> <code>{channel}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code> <code>{tds_level}</code>
+                </p>
+
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0;">
+
+                <p class="card-subtitle" style="margin-bottom:8px;">Which of the opener's form answers should be shown as fields?</p>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+                    <div>
+                        <label>Show Timezone:</label>
+                        <select name="welcome_show_timezone">
+                            <option value="yes" {% if welcome_message.show_timezone %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_timezone %}selected{% endif %}>No</option>
                         </select>
                     </div>
                     <div>
-                        <label>Category for Opened Tickets:</label>
-                        <select name="category_id">
-                            <option value="">None</option>
-                            {% for cat in categories %}
-                                <option value="{{ cat.id }}">{{ cat.name }}</option>
-                            {% endfor %}
+                        <label>Show Display Name:</label>
+                        <select name="welcome_show_display_name">
+                            <option value="yes" {% if welcome_message.show_display_name %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_display_name %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show "Can Join?":</label>
+                        <select name="welcome_show_can_join">
+                            <option value="yes" {% if welcome_message.show_can_join %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_can_join %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show TDS Level:</label>
+                        <select name="welcome_show_tds_level">
+                            <option value="yes" {% if welcome_message.show_tds_level %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_tds_level %}selected{% endif %}>No</option>
                         </select>
                     </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Welcome Message</button>
+            </form>
+            </div>
+        </details>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">🚀</span> Advanced Carry Ticket Panel Builder</h3>
+                <p class="card-subtitle">
+                    Components V2 builder. Add embeds (containers), dividers, buttons, and dropdowns. Buttons and dividers can be placed inside embeds or outside them.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/tickets" method="POST" id="embedForm">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div>
+                        <label>Target Channel:</label>
+                        <select name="channel_id" required>
+                            {% for channel in channels %}
+                                <option value="{{ channel.id }}" {% if panel_draft.channel_id and channel.id|string == panel_draft.channel_id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div>
                         <label>Support Role:</label>
                         <select name="support_role_id">
                             <option value="">None</option>
                             {% for role in roles %}
-                                <option value="{{ role.id }}">@{{ role.name }}</option>
+                                <option value="{{ role.id }}" {% if panel_draft.support_role_id and role.id|string == panel_draft.support_role_id|string %}selected{% endif %}>@{{ role.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
-                    <div>
-                        <label>Embed Accent Color:</label>
-                        <input type="hidden" name="embed_color" id="embed_color_input" value="#58b9ff">
-                        <div style="margin-top: 5px;" id="color-picker-container"></div>
-                    </div>
                 </div>
 
-                <hr style="border: 0; border-top: 1px solid #4e5058; margin: 20px 0;">
+                <input type="hidden" name="category_id" value="{{ panel_draft.category_id or '' }}">
+                <input type="hidden" name="title" value="{{ panel_draft.title or 'Request Carry' }}">
+                <input type="hidden" name="description" value="{{ panel_draft.description or '' }}">
+                <input type="hidden" name="embed_color" value="{{ panel_draft.embed_color or '#58b9ff' }}">
+                <input type="hidden" name="image_url" value="">
+                <input type="hidden" name="thumbnail_url" value="">
+                <input type="hidden" name="footer_text" value="">
+                <input type="hidden" name="fields_json" value="[]">
+                <input type="hidden" name="components_json" id="components_json">
 
-                <label>Panel Title:</label>
-                <input type="text" name="title" value="Request Carry" placeholder="e.g. Carry Request Panel">
-
-                <label>Panel Description:</label>
-                <textarea name="description" rows="3" placeholder="Description content...">Click the button below to request a carry ticket!</textarea>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div>
-                        <label>Main Image URL (Optional):</label>
-                        <input type="url" name="image_url" placeholder="https://example.com/banner.png">
-                    </div>
-                    <div>
-                        <label>Thumbnail URL (Optional):</label>
-                        <input type="url" name="thumbnail_url" placeholder="https://example.com/logo.png">
-                    </div>
+                <div class="pb-toolbar">
+                    <button type="button" onclick="addPanelBlock('embed')">📦 New Embed</button>
+                    <button type="button" onclick="addPanelBlock('divider')">➖ Divider</button>
+                    <button type="button" onclick="addPanelBlock('button')">🔘 Button</button>
+                    <button type="button" onclick="addPanelBlock('dropdown')">▾ Dropdown</button>
                 </div>
 
-                <label>Footer Text (Optional):</label>
-                <input type="text" name="footer_text" placeholder="e.g. Powered by Carry Bot">
+                <div id="panelBlocks"></div>
 
-                <hr style="border: 0; border-top: 1px solid #4e5058; margin: 20px 0;">
+                <button type="submit" formaction="/dashboard/tickets/save-draft" class="btn-view" style="width:100%;margin-top:18px;">💾 Save Draft</button>
+                <button type="submit" class="btn-submit" style="width:100%;margin-top:10px;">🚀 Deploy Components V2 Panel</button>
+            </form>
+            </div>
+        </details>
+        {% else %}
+        <div class="card">
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to access Carry Manager Settings. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
+        </section>
 
-                <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <h4 style="margin: 0;">Embed Fields</h4>
-                        <button type="button" onclick="addField()" style="background: #5865f2; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">+ Add Field</button>
-                    </div>
-                    <div id="fieldsContainer"></div>
+        <section class="page" id="page-trial-schedules">
+        <div class="page-head">
+            <h1>Trial Schedules</h1>
+            <p>Plan and track trial sessions for carry staff.</p>
+        </div>
+        {% if can_access_carry_settings %}
+        <div class="card">
+            <h3><span class="card-icon">🗓️</span> Trial Schedules</h3>
+            <p class="card-subtitle">
+                Choose where the bot should keep the Trial Schedule posted. The schedule content is automatic — there are no message-editing controls here.
+            </p>
+            <form action="/dashboard/trial-schedule/save" method="POST">
+                <label>Automatic schedule:</label>
+                <select name="trial_enabled">
+                    <option value="yes" {% if trial_schedule.enabled %}selected{% endif %}>Enabled</option>
+                    <option value="no" {% if not trial_schedule.enabled %}selected{% endif %}>Disabled</option>
+                </select>
+
+                <label>Post / update channel:</label>
+                <select name="trial_channel_id">
+                    <option value="">Choose a channel...</option>
+                    {% for channel in channels %}
+                        <option value="{{ channel.id }}" {% if trial_schedule.channel_id and channel.id|string == trial_schedule.channel_id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <div style="margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--raised); color:var(--text-dim); font-size:0.9em; line-height:1.6;">
+                    <strong style="color:var(--text);">How it works</strong><br>
+                    • Eastern Time (America/New_York; EST/EDT automatically)<br>
+                    • The current modifier updates at each 3-hour trial boundary<br>
+                    • Discord's relative timestamp handles the live “ends in …” countdown without constant bot edits<br>
+                    • Saving while enabled immediately creates or refreshes the tracked schedule message
                 </div>
 
-                <button type="submit" class="btn-submit">🚀 Deploy Custom Panel to Discord</button>
+                {% if trial_schedule.message_id %}
+                <p class="card-subtitle" style="margin-top:12px;">Tracked Discord message ID: <code>{{ trial_schedule.message_id }}</code></p>
+                {% endif %}
+
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save &amp; Update Schedule</button>
             </form>
         </div>
-
+        {% else %}
         <div class="card">
-            <h3>🎫 Live Active Tickets (Total Lifetime: {{ total_tickets }})</h3>
-            {% for ticket in active_tickets %}
-                <div class="list-item">
-                    <div>
-                        <div><strong>Channel ID:</strong> {{ ticket.channel_id }} | <strong>User ID:</strong> {{ ticket.user_id }}</div>
-                        <div style="color:#b5bac1;font-size:0.9em;">Opened: <span class="local-time" data-ts="{{ ticket.created_at }}">{{ ticket.created_at }}</span> • <span class="age" data-ts="{{ ticket.created_at }}">...</span></div>
-                    </div>
-                </div>
-            {% else %}
-                <p style="color: #b5bac1;">No active carry tickets open right now.</p>
-            {% endfor %}
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to access Trial Schedules.</p>
         </div>
+        {% endif %}
+        </section>
 
-        <div class="card">
-            <h3>⏳ Active Service Cooldowns</h3>
-            {% for cd in cooldowns %}
-                <div class="list-item">
-                    <div>
-                        <div><strong>User ID:</strong> {{ cd.user_id }}</div>
-                        <div style="color:#b5bac1;font-size:0.9em;">Expires: <span class="local-time" data-ts="{{ cd.expires_ts }}">{{ cd.expires_at }}</span> • <span class="countdown" data-ts="{{ cd.expires_ts }}">...</span></div>
-                    </div>
-                    <button onclick="removeCooldown('{{ cd.user_id }}')" class="btn-danger">Remove Cooldown</button>
-                </div>
-            {% else %}
-                <p style="color: #b5bac1;">No active user cooldowns.</p>
-            {% endfor %}
+        <section class="page" id="page-blacklist">
+        <div class="page-head">
+            <h1>Blacklists</h1>
+            <p>Block users from opening tickets or being carried.</p>
         </div>
-
         <div class="card">
-            <h3>🚫 Blacklisted Users</h3>
+            <h3><span class="card-icon">🚫</span> Blacklisted Users</h3>
             {% for b_user in blacklisted_users %}
+                {% set entry = b_user if b_user is mapping else {'user_id': b_user, 'reason': None, 'expires_ts': None} %}
                 <div class="list-item">
-                    <span><strong>User ID:</strong> {{ b_user }}</span>
-                    <button onclick="unblacklistUser('{{ b_user }}')" class="btn-danger">Unblacklist</button>
+                    <div>
+                        <div><strong>User ID:</strong> {{ entry.user_id }}</div>
+                        <div style="color: var(--text-dim); font-size: 0.9em;">
+                            <strong>Type:</strong> {{ (entry.blacklist_type or "regular")|title }} •
+                            <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
+                            {% if entry.expires_ts %}
+                                • <span class="local-time" data-ts="{{ entry.expires_ts }}">expires {{ entry.expires_ts }}</span>
+                            {% else %}
+                                • Permanent
+                            {% endif %}
+                        </div>
+                    </div>
+                    <button onclick="unblacklistUser('{{ entry.user_id }}')" class="btn-danger">Unblacklist</button>
                 </div>
             {% else %}
-                <p style="color: #b5bac1;">No blacklisted users.</p>
+                <p style="color: var(--text-dim);">No individually blacklisted users.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Blacklisted via Role</h4>
+            <p class="card-subtitle">
+                Members blocked from creating tickets because they hold a Ticket Blacklist Role. Manage the roles themselves in Access Control.
+            </p>
+            {% for member in role_blacklisted_members %}
+                <div class="list-item">
+                    <span><strong>{{ member.name }}</strong> ({{ member.id }}) — @{{ member.role_name or 'Unknown role' }}</span>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No members currently blacklisted via a role.</p>
             {% endfor %}
         </div>
+        </section>
+         <!-- end of existing Blacklist page -->
 
+        {% if is_admin_user %}
+        <section class="page" id="page-warnings">
+                <div class="page-head">
+        <h1>Warning Presets</h1>
+        <p>Manage reusable reasons for Discord’s <code>/w1</code>, <code>/w2</code>, and <code>/w3</code> commands.</p>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">➕</span> Add Warning Preset</h3>
+
+        <p class="card-subtitle">
+            Staff see the label in Discord autocomplete. The full reason is stored on the warning case.
+        </p>
+
+        <form action="{{ url_for('add_warning_preset_route') }}" method="POST">
+            <label for="warning-preset-name">Preset label</label>
+            <input
+                id="warning-preset-name"
+                name="name"
+                type="text"
+                maxlength="100"
+                required
+                placeholder="Example: Advertising / Self Promotion"
+            >
+
+            <label for="warning-preset-reason">Full warning reason</label>
+            <textarea
+                id="warning-preset-reason"
+                name="reason"
+                rows="4"
+                maxlength="500"
+                required
+                placeholder="Example: Advertising or promoting external content is not allowed in this server."
+            ></textarea>
+
+            <button type="submit" class="btn-submit" style="width:auto;">
+                Add Preset
+            </button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">📋</span> Saved Presets</h3>
+
+        {% for preset in warning_presets %}
+        <div class="list-item" style="flex-direction:column; align-items:stretch; gap:10px;">
+            <div id="preset-view-{{ preset.id }}" style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                <div>
+                    <strong>{{ preset.name }}</strong>
+                    <div style="color:var(--text-dim); font-size:0.9em; margin-top:4px; white-space:pre-wrap;">
+                        {{ preset.reason }}
+                    </div>
+                </div>
+                <div style="display:flex; gap:6px; flex-shrink:0;">
+                    <button type="button" class="btn-view" onclick="document.getElementById('preset-view-{{ preset.id }}').style.display='none'; document.getElementById('preset-edit-{{ preset.id }}').style.display='block';">Edit</button>
+                    <form action="{{ url_for('delete_warning_preset_route', preset_id=preset.id) }}" method="POST" onsubmit="return confirm('Delete this warning preset? This does not affect warnings already issued with it.');" style="margin:0;">
+                        <button type="submit" class="btn-danger">Delete</button>
+                    </form>
+                </div>
+            </div>
+
+            <form id="preset-edit-{{ preset.id }}" action="{{ url_for('edit_warning_preset_route', preset_id=preset.id) }}" method="POST" style="display:none;">
+                <label for="warning-preset-name-{{ preset.id }}">Preset label</label>
+                <input
+                    id="warning-preset-name-{{ preset.id }}"
+                    name="name"
+                    type="text"
+                    maxlength="100"
+                    required
+                    value="{{ preset.name }}"
+                >
+
+                <label for="warning-preset-reason-{{ preset.id }}">Full warning reason</label>
+                <textarea
+                    id="warning-preset-reason-{{ preset.id }}"
+                    name="reason"
+                    rows="4"
+                    maxlength="500"
+                    required
+                >{{ preset.reason }}</textarea>
+
+                <div style="display:flex; gap:6px;">
+                    <button type="submit" class="btn-submit" style="width:auto;">Save Changes</button>
+                    <button type="button" class="btn-view" onclick="document.getElementById('preset-edit-{{ preset.id }}').style.display='none'; document.getElementById('preset-view-{{ preset.id }}').style.display='flex';">Cancel</button>
+                </div>
+            </form>
+        </div>
+        {% else %}
+        <p style="color:var(--text-dim);">
+            No warning presets yet. Add your first one above.
+        </p>
+        {% endfor %}
+    </div>
+        </section>
+        {% endif %}
+
+        <section class="page" id="page-transcripts">
+        <div class="page-head">
+            <h1>Transcripts</h1>
+            <p>Browse saved logs of closed tickets.</p>
+        </div>
+        {% if can_access_transcripts %}
         <div class="card">
-            <h3>📜 Saved Transcripts</h3>
-            <ul>
-                {% for transcript in transcripts %}
-                    <li><a href="/transcripts/{{ transcript }}" target="_blank" style="color: #00a8fc;">{{ transcript }}</a></li>
-                {% else %}
-                    <li>No transcripts saved yet.</li>
-                {% endfor %}
-            </ul>
+            <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
+            <div style="background: var(--danger); color: white; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; font-weight: 600;">
+                ⚠️ Transcripts are currently saving without message text. The Message Content privileged intent is not enabled yet (pending Discord's verification review), so saved transcripts will only show attachments/embeds — no message content — until it's approved and turned on.
+            </div>
+           {% for transcript in transcripts %}
+                <div class="list-item">
+                    <div>
+                        <div><strong>Ticket #{{ transcript.ticket_number or '—' }}</strong> • {{ transcript.username }}</div>
+                    </div>
+                    <a href="/transcripts/{{ transcript.filename }}" target="_blank" class="btn-view">View Transcript</a>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No transcripts saved yet.</p>
+            {% endfor %}
         </div>
+        {% else %}
+        <div class="card">
+            <h3>🔒 Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to view Transcripts. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
+        </section>
 
-    {% else %}
-        <div class="gatekeeper">
-            <h2>🔒 Restricted Control Panel</h2>
-            <p style="color: #b5bac1; margin-bottom: 25px;">You must authorize with Discord OAuth2 to view ticket controls and server options.</p>
-            <a href="/login" class="btn-login">🔑 Login with Discord</a>
+        <section class="page" id="page-access">
+        <div class="page-head">
+            <h1>Access Control</h1>
+            <p>Decide who can reach each part of this control panel.</p>
         </div>
-    {% endif %}
+        {% if is_admin_user %}
+        <div class="card">
+            <h3><span class="card-icon">🔐</span> Access Control</h3>
+            <p class="card-subtitle">
+                Add a user ID or role below to let them view this dashboard. While this list is empty, anyone who logs in with Discord can see it — once you add someone, only matching users/roles get in.
+            </p>
+
+            <h4 style="margin-top: 20px;">Allowed Users</h4>
+            <form action="/dashboard/access/add-user" method="POST" class="access-form">
+                <div>
+                    <label>Discord User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for u in allowed_users %}
+                <div class="list-item">
+                    <span><strong>{{ u.name or 'Unknown user' }}</strong> ({{ u.id }})</span>
+                    <form action="/dashboard/access/remove-user/{{ u.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No users added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Allowed Roles</h4>
+            <form action="/dashboard/access/add-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in allowed_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Carry Manager Settings Access</h4>
+            <p class="card-subtitle">
+                Only members with one of these roles (or admins) can view and use the Carry Manager Settings page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-carry-manager-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in carry_manager_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-carry-manager-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can use Carry Manager Settings.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Transcripts Access</h4>
+            <p class="card-subtitle">
+                Only members with one of these roles (or admins) can view the Transcripts page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-transcripts-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in transcripts_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-transcripts-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Transcripts.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Analytics Access</h4>
+            <p class="card-subtitle">
+                Only members with one of these roles (or admins) can view the Analytics page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-analytics-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in analytics_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-analytics-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Analytics.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Remove Cooldown Access</h4>
+            <p class="card-subtitle">
+                Only members with one of these roles (or admins) can see and use the "Remove Cooldown" button on the Overview page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-remove-cooldown-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in remove_cooldown_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-remove-cooldown-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can remove cooldowns.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Blacklist Role</h4>
+            <p class="card-subtitle">
+                Members holding any of these roles are blocked from creating new tickets. Add another role below to blacklist more than one.
+            </p>
+            <form action="/dashboard/access/add-blacklist-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in blacklist_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-blacklist-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No ticket blacklist roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Viewer Roles</h4>
+            <p class="card-subtitle">
+                Roles added here can see and chat in every ticket, with permission to send embeds and attachments. This is separate from the single Support Role set on the panel — add as many as you need.
+            </p>
+            <form action="/dashboard/access/add-viewer-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in ticket_viewer_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-viewer-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No ticket viewer roles added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Powerful Command Access</h4>
+            <p class="card-subtitle">
+                Controls who can use <code>/move</code>, <code>/ticketnumber</code>, <code>/addticketblacklist</code>, and <code>/removeticketblacklist</code> — on top of the normal Manage Channels requirement for the first two. <code>/addticketblacklist</code> and <code>/removeticketblacklist</code> stay admin-only until you add a role or user ID here; <code>/move</code>/<code>/ticketnumber</code> stay open to anyone with Manage Channels until configured.
+            </p>
+            <form action="/dashboard/access/add-powerful-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in powerful_command_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-powerful-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-powerful-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in powerful_command_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-powerful-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Moderation Command Access</h4>
+            <p class="card-subtitle">
+                Controls who can use <code>/w1</code>, <code>/w2</code>, <code>/w3</code>, and <code>/unwarn</code>. These stay open to <strong>everyone</strong> in the server until you add at least one role or user ID here — once configured, only matching roles/users (and admins) can issue or revoke warnings.
+            </p>
+            <form action="/dashboard/access/add-moderation-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in moderation_command_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-moderation-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone can currently use /w1, /w2, /w3, and /unwarn.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-moderation-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in moderation_command_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-moderation-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Basic Command Access</h4>
+            <p class="card-subtitle">
+                Controls who can use <code>/close</code>, <code>/requestclose</code>, <code>/autoclose</code>, <code>/add</code>, <code>/remove</code>, and <code>/rename</code> — on top of the normal Manage Channels requirement. These stay open to anyone with Manage Channels until you add a role or user ID here; once configured, only matching roles/users (or admins) can use them.
+            </p>
+            <form action="/dashboard/access/add-basic-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in basic_command_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-basic-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-basic-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in basic_command_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-basic-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
+            <p class="card-subtitle">Opened and closed tickets get posted here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if log_channel_id and log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            <h4 style="margin-top: 20px;">Blacklist Log Channel</h4>
+            <p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-blacklist-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="blacklist_log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if blacklist_log_channel_id and blacklist_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            <h4 style="margin-top: 20px;">Warning Log Channel</h4>
+            <p class="card-subtitle">Separate from the channels above — only /w1, /w2, /w3, and /unwarn post here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-warning-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="warning_log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if warning_log_channel_id and warning_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            <h4 style="margin-top: 20px;">Linked Roles (Discord Connections)</h4>
+            <p class="card-subtitle">
+                Lets members verify by agreeing to the Rules &amp; Regulations through Discord's own Connections screen — the bot shows up under "Apps" just like other Linked Roles integrations. Needs no privileged intents at all.
+            </p>
+            <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; font-size: 0.88em; color: var(--text-dim);">
+                <strong style="color: var(--text);">One-time setup in the Discord Developer Portal:</strong>
+                <ol style="margin: 8px 0 0 18px; padding: 0;">
+                    <li>Click "Register Metadata" below (do this first)</li>
+                    <li>Bot → General Information → set <strong>Linked Roles Verification URL</strong> to:<br><code>{{ url_for('linked_role_start', _external=True) }}</code></li>
+                    <li>OAuth2 → add this redirect URL:<br><code>{{ url_for('linked_role_callback', _external=True) }}</code></li>
+                    <li>In your Discord server: Server Settings → Roles → pick a role → Links tab → add a requirement for "Agreed to Rules"</li>
+                </ol>
+            </div>
+            <form action="/dashboard/linked-role/register-metadata" method="POST">
+                <button type="submit" class="btn-view">Register Metadata</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="card">
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">Access Control is restricted to admins only.</p>
+        </div>
+        {% endif %}
+        </section>
+
+            </div>
+        </main>
+    </div>
 </div>
+{% else %}
+<div class="gatekeeper">
+    <h2>🔒 Restricted Control Panel</h2>
+    <p style="color: var(--text-dim); margin-bottom: 25px;">You must authorize with Discord OAuth2 to view ticket controls and server options.</p>
+    <a href="/login" class="btn-login">🔑 Login with Discord</a>
+</div>
+{% endif %}
 
 <script>
+// --- SIDEBAR NAVIGATION ---
+function toggleSidebar() {
+    document.body.classList.toggle('sidebar-open');
+}
+
+function showPage(pageId, btn) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const page = document.getElementById('page-' + pageId);
+    if (page) page.classList.add('active');
+    if (btn) btn.classList.add('active');
+    document.body.classList.remove('sidebar-open');
+    window.scrollTo({ top: 0 });
+}
+
+// If we just reloaded via an Analytics period link (?analytics_period=..#analytics),
+// land back on the Analytics tab instead of resetting to Overview.
+if (window.location.hash === '#analytics' || window.location.search.includes('analytics_period')) {
+    const analyticsBtn = document.querySelector('.nav-item[data-page="analytics"]');
+    if (analyticsBtn) showPage('analytics', analyticsBtn);
+}
+
+// --- ANALYTICS: TICKET FLOW CHART (plain SVG, no charting library needed) ---
+(function renderTicketFlowChart() {
+    const svg = document.getElementById('ticketFlowChart');
+    if (!svg) return;
+
+    let daily;
+    try {
+        daily = JSON.parse(document.getElementById('analyticsDailyData').textContent);
+    } catch (e) {
+        return;
+    }
+    if (!daily || !daily.length) return;
+
+    const W = 700, H = 220, padL = 34, padR = 10, padT = 10, padB = 26;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+
+    const maxVal = Math.max(1, ...daily.map(d => Math.max(d.created, d.closed)));
+    const xStep = daily.length > 1 ? plotW / (daily.length - 1) : 0;
+
+    function pointsFor(key) {
+        return daily.map((d, i) => {
+            const x = padL + i * xStep;
+            const y = padT + plotH - (d[key] / maxVal) * plotH;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+    }
+
+    let svgContent = '';
+
+    // gridlines + y-axis labels (0, mid, max)
+    [0, 0.5, 1].forEach(frac => {
+        const y = padT + plotH - frac * plotH;
+        svgContent += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--border)" stroke-width="1" />`;
+        svgContent += `<text x="${padL - 6}" y="${y + 4}" font-size="10" fill="var(--text-dim)" text-anchor="end">${Math.round(frac * maxVal)}</text>`;
+    });
+
+    // x-axis date labels (skip some if too many to avoid crowding)
+    const labelEvery = Math.ceil(daily.length / 8);
+    daily.forEach((d, i) => {
+        if (i % labelEvery !== 0 && i !== daily.length - 1) return;
+        const x = padL + i * xStep;
+        svgContent += `<text x="${x}" y="${H - 6}" font-size="10" fill="var(--text-dim)" text-anchor="middle">${d.date}</text>`;
+    });
+
+    svgContent += `<polyline points="${pointsFor('created')}" fill="none" stroke="var(--accent)" stroke-width="2" />`;
+    svgContent += `<polyline points="${pointsFor('closed')}" fill="none" stroke="var(--success)" stroke-width="2" />`;
+
+    svg.innerHTML = svgContent;
+})();
+
 // --- GLOBAL FUNCTIONS ---
 let fieldCount = 0;
 
-function addField() {
+function addField(name, value, inline) {
     fieldCount++;
     const container = document.getElementById('fieldsContainer');
     if (!container) return;
 
-    const fieldDiv = document.createElement('div');
-    fieldDiv.className = 'embed-field-row';
-    fieldDiv.id = `field_${fieldCount}`;
-    fieldDiv.style.cssText = "background: #1e1f22; padding: 12px; border-radius: 6px; margin-bottom: 10px; border: 1px solid #4e5058;";
-    
-    fieldDiv.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-            <strong>Field #${fieldCount}</strong>
-            <button type="button" onclick="removeField('field_${fieldCount}')" style="background: #da373c; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">Remove</button>
+    const row = document.createElement('div');
+    row.className = 'block-row';
+    row.id = `field_${fieldCount}`;
+    row.draggable = true;
+
+    row.innerHTML = `
+        <span class="block-drag-handle" title="Drag to reorder">⠿</span>
+        <div class="block-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span class="block-label" style="margin-bottom:0;">Field</span>
+            </div>
+            <input type="text" class="field-name" placeholder="Field Name (Title)" required style="margin-bottom: 6px;">
+            <textarea class="field-value" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px;"></textarea>
+            <label style="display: inline-flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer; font-size:0.88em; color:var(--text-dim);">
+                <input type="checkbox" class="field-inline" style="width: auto;"> Display Inline
+            </label>
         </div>
-        <input type="text" class="field-name" placeholder="Field Name (Title)" required style="margin-bottom: 6px; width: 100%; padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;">
-        <textarea class="field-value" rows="2" placeholder="Field Value (Description)" required style="margin-bottom: 6px; width: 100%; padding: 8px; background: #2b2d31; border: 1px solid #4e5058; color: white; border-radius: 4px; box-sizing: border-box;"></textarea>
-        <label style="display: inline-flex; align-items: center; gap: 5px; font-weight: normal; cursor: pointer;">
-            <input type="checkbox" class="field-inline" style="width: auto;"> Display Inline
-        </label>
+        <button type="button" class="block-remove" onclick="removeField('field_${fieldCount}')" title="Remove">✕</button>
     `;
-    container.appendChild(fieldDiv);
+    container.appendChild(row);
+    attachDragHandlers(row);
+
+    if (name) row.querySelector('.field-name').value = name;
+    if (value) row.querySelector('.field-value').value = value;
+    if (inline) row.querySelector('.field-inline').checked = true;
+
+    refreshPreview();
 }
 
 function removeField(fieldId) {
     const elem = document.getElementById(fieldId);
     if (elem) elem.remove();
+    refreshPreview();
 }
+
+// --- DRAG-TO-REORDER for embed field blocks ---
+let dragSrcEl = null;
+function attachDragHandlers(row) {
+    row.addEventListener('dragstart', () => {
+        dragSrcEl = row;
+        row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        document.querySelectorAll('.block-row.drag-over').forEach(el => el.classList.remove('drag-over'));
+        refreshPreview();
+    });
+    row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (row !== dragSrcEl) row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        if (!dragSrcEl || dragSrcEl === row) return;
+        const container = document.getElementById('fieldsContainer');
+        const rows = Array.from(container.children);
+        const srcIdx = rows.indexOf(dragSrcEl);
+        const tgtIdx = rows.indexOf(row);
+        if (srcIdx < tgtIdx) {
+            row.after(dragSrcEl);
+        } else {
+            row.before(dragSrcEl);
+        }
+    });
+}
+
+// --- STYLE / PREVIEW TOGGLES ---
+function toggleStylePanel() {
+    const panel = document.getElementById('stylePanel');
+    const btn = document.getElementById('styleToggleBtn');
+    const showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : 'block';
+    btn.classList.toggle('active', !showing);
+}
+
+function togglePreviewPanel() {
+    const panel = document.getElementById('previewPanel');
+    const btn = document.getElementById('previewToggleBtn');
+    const showing = panel.style.display !== 'none';
+    panel.style.display = showing ? 'none' : 'block';
+    btn.classList.toggle('active', !showing);
+    if (!showing) refreshPreview();
+}
+
+function refreshPreview() {
+    const panel = document.getElementById('previewPanel');
+    if (!panel || panel.style.display === 'none') return;
+
+    const title = document.querySelector('[name="title"]')?.value || '';
+    const description = document.querySelector('[name="description"]')?.value || '';
+    const color = document.getElementById('embed_color_input')?.value || '#58b9ff';
+    const imageUrl = document.querySelector('[name="image_url"]')?.value || '';
+    const thumbUrl = document.querySelector('[name="thumbnail_url"]')?.value || '';
+    const footerText = document.querySelector('[name="footer_text"]')?.value || '';
+
+    panel.style.borderLeftColor = color;
+
+    let fieldsHtml = '';
+    document.querySelectorAll('#fieldsContainer .block-row').forEach(row => {
+        const n = row.querySelector('.field-name')?.value || '';
+        const v = row.querySelector('.field-value')?.value || '';
+        if (n || v) {
+            fieldsHtml += `<div><div class="pv-field-name">${n}</div><div class="pv-field-value">${v}</div></div>`;
+        }
+    });
+
+    panel.innerHTML = `
+        ${title ? `<div class="pv-title">${title}</div>` : ''}
+        ${description ? `<div class="pv-desc">${description}</div>` : ''}
+        ${thumbUrl ? `<img src="${thumbUrl}" style="max-width:70px; float:right; border-radius:6px;">` : ''}
+        ${fieldsHtml ? `<div class="pv-fields">${fieldsHtml}</div>` : ''}
+        ${imageUrl ? `<img src="${imageUrl}">` : ''}
+        ${footerText ? `<div class="pv-footer">${footerText}</div>` : ''}
+    `;
+    panel.style.borderLeftColor = color;
+}
+
+document.addEventListener('input', (e) => {
+    if (e.target.closest('#embedForm')) refreshPreview();
+});
+
+const panelDraftFields = {{ ((panel_draft | default({})).fields | default([])) | tojson }};
+panelDraftFields.forEach(f => addField(f.name, f.value, f.inline));
+
+// --- TICKET DROPDOWN CATEGORIES ---
+const ALL_ROLES = [{% for role in roles %}{id: "{{ role.id }}", name: {{ role.name | tojson }}}{% if not loop.last %}, {% endif %}{% endfor %}];
+
+let categoryCount = 0;
+
+function syncCategoryVariablesJson(form) {
+    if (!form) return;
+    form.querySelectorAll('.cat-variables').forEach(textarea => {
+        const obj = {};
+        (textarea.value || '').split('\n').forEach(line => {
+            const idx = line.indexOf('=');
+            if (idx === -1) return;
+            const key = line.slice(0, idx).trim().toLowerCase();
+            const value = line.slice(idx + 1).trim();
+            if (key) obj[key] = value;
+        });
+        const hidden = textarea.parentElement.querySelector('.cat-variables-json');
+        if (hidden) hidden.value = JSON.stringify(obj);
+    });
+}
+
+function saveCategoriesNow() {
+    const form = document.getElementById('categoriesForm');
+    if (!form) return;
+    syncCategoryVariablesJson(form);
+    fetch(form.action, { method: 'POST', body: new FormData(form) })
+        .catch(err => console.error('Auto-save failed:', err));
+}
+
+function addNewCategoryRow() {
+    addCategoryRow();
+    saveCategoriesNow();
+}
+
+function removeCategoryRow(fieldId) {
+    removeField(fieldId);
+    saveCategoriesNow();
+}
+
+function catRoleOptionsHtml() {
+    let html = '<option value="">Select a role...</option>';
+    ALL_ROLES.forEach(r => {
+        html += `<option value="${r.id}">@${r.name}</option>`;
+    });
+    return html;
+}
+
+function addCatBlacklistRole(btn) {
+    const row = btn.closest('.embed-field-row');
+    const select = row.querySelector('.cat-blacklist-select');
+    const roleId = select.value;
+    if (!roleId) return;
+    const role = ALL_ROLES.find(r => r.id === roleId);
+    addCatBlacklistChip(row, roleId, role ? role.name : roleId);
+    select.value = "";
+    saveCategoriesNow();
+}
+
+function addCatBlacklistChip(row, roleId, roleName) {
+    const hidden = row.querySelector('.cat-blacklist-hidden');
+    const list = row.querySelector('.cat-blacklist-list');
+    const current = hidden.value ? hidden.value.split(",") : [];
+    if (current.includes(roleId)) return;
+    current.push(roleId);
+    hidden.value = current.join(",");
+
+    const chip = document.createElement('div');
+    chip.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:var(--raised-2); padding:6px 10px; border-radius:4px; margin-top:6px;";
+    chip.innerHTML = `<span>@${roleName}</span>`;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.cssText = "background:var(--danger); color:white; border:none; padding:2px 8px; border-radius:4px; cursor:pointer;";
+    removeBtn.onclick = function() {
+        const updated = hidden.value.split(",").filter(id => id !== roleId);
+        hidden.value = updated.join(",");
+        chip.remove();
+        saveCategoriesNow();
+    };
+    chip.appendChild(removeBtn);
+    list.appendChild(chip);
+}
+
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables) {
+    categoryCount++;
+    const container = document.getElementById('categoriesContainer');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.className = 'embed-field-row';
+    row.id = `category_${categoryCount}`;
+    row.style.cssText = "background:var(--raised);padding:12px;border-radius:6px;margin-bottom:10px;border:1px solid var(--border);";
+
+    row.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong>Category #${categoryCount}</strong>
+            <button type="button" onclick="removeCategoryRow('category_${categoryCount}')" style="background:var(--danger);color:white;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">Remove</button>
+        </div>
+        <div style="display:grid;grid-template-columns:60px 1fr 1fr;gap:6px;">
+            <input type="text" name="cat_emoji" placeholder="❓" maxlength="4" style="padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;text-align:center;">
+            <input type="text" name="cat_label" placeholder="Label" required maxlength="100" style="padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+            <input type="text" name="cat_description" placeholder="Description" maxlength="100" style="padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;">
+            <input type="checkbox" class="cat-dropdown-enabled" name="cat_dropdown_enabled" value="true" ${dropdownEnabled !== false ? 'checked' : ''} style="width:auto;">
+            <strong>Enabled in dropdowns</strong>
+        </label>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Dropdown Variables</strong>
+            <p style="color:var(--text-dim);font-size:.85em;margin:4px 0;">One key/value per line. Example: <code>mode=fallen</code></p>
+            <textarea class="cat-variables" rows="3" placeholder="mode=fallen&#10;queue=priority" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;"></textarea>
+            <input type="hidden" name="cat_variables" class="cat-variables-json" value="">
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Blacklist Roles</strong>
+            <div style="display:flex;gap:8px;">
+                <select class="cat-blacklist-select" style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">${catRoleOptionsHtml()}</select>
+                <button type="button" onclick="addCatBlacklistRole(this)" style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">+ Add</button>
+            </div>
+            <div class="cat-blacklist-list"></div>
+            <input type="hidden" name="cat_blacklist_roles" class="cat-blacklist-hidden" value="">
+        </div>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Ticket Naming</strong>
+            <input type="text" name="cat_name_prefix" placeholder="Name prefix" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin:6px 0;">
+            <input type="text" name="cat_open_note" placeholder="Optional opening note" maxlength="200" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;margin-bottom:6px;">
+            <input type="text" name="cat_discord_category_id" placeholder="Optional Discord category ID" style="width:100%;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+        </div>`;
+    container.appendChild(row);
+
+    if (label) row.querySelector('[name="cat_label"]').value = label;
+    if (description) row.querySelector('[name="cat_description"]').value = description;
+    if (emoji) row.querySelector('[name="cat_emoji"]').value = emoji;
+    if (namePrefix) row.querySelector('[name="cat_name_prefix"]').value = namePrefix;
+    if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
+    if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
+
+    const varText = Object.entries(variables || {}).map(([k,v]) => `${k}=${v}`).join('\\n');
+    row.querySelector('.cat-variables').value = varText;
+    (blacklistRoles || []).forEach(roleId => {
+        const role = ALL_ROLES.find(r => r.id === roleId);
+        addCatBlacklistChip(row, roleId, role ? role.name : roleId);
+    });
+}
+
+const existingCategories = {{ ticket_categories | default([]) | tojson }};
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables));
+if (existingCategories.length === 0) addCategoryRow();
+
+document.getElementById('categoriesForm')?.addEventListener('submit', function() {
+    syncCategoryVariablesJson(this);
+});
+
+
 
 function unblacklistUser(userId) {
     if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
@@ -402,11 +2478,297 @@ setInterval(updateTimes, 1000);
 updateTimes();
 
 // --- INITIALIZATION ON LOAD ---
+
+// --- COMPONENTS V2 ADVANCED PANEL BUILDER ---
+let panelBlocks = [];
+const savedPanelComponents = {{ ((panel_draft | default({})).components | default([])) | tojson }};
+
+function esc(v) {
+    return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function addPanelBlock(type, parent=null, data={}) {
+    const block = Object.assign({type}, data);
+    if (type === 'embed' && !block.children) block.children = [];
+    if (parent) parent.children = parent.children || [], parent.children.push(block);
+    else panelBlocks.push(block);
+    renderPanelBlocks();
+}
+function removePanelBlock(path) {
+    const parts = path.split('.').map(Number);
+    let arr = panelBlocks;
+    for (let i=0;i<parts.length-1;i++) arr=arr[parts[i]].children || [];
+    arr.splice(parts[parts.length-1],1);
+    renderPanelBlocks();
+}
+function addChild(path,type) {
+    const parts=path.split('.').map(Number); let b=panelBlocks[parts[0]];
+    for(let i=1;i<parts.length;i++) b=b.children[parts[i]];
+    b.children=b.children||[]; b.children.push({type, children:type==='embed'?[]:undefined});
+    renderPanelBlocks();
+}
+function getBlock(path) {
+    const p=path.split('.').map(Number); let b=panelBlocks[p[0]];
+    for(let i=1;i<p.length;i++) b=b.children[p[i]];
+    return b;
+}
+function requiredRolesHtml(path, b) {
+    const roleIds = b.required_roles || [];
+    const rows = roleIds.map(rid => {
+        const role = ALL_ROLES.find(r => r.id === rid);
+        return `<div class="list-item" style="margin-bottom:6px;">
+            <span><strong>@${esc(role ? role.name : 'Unknown role')}</strong></span>
+            <button type="button" onclick="removeRequiredRole('${path}','${rid}')" class="btn-danger" style="padding:4px 10px;">Remove</button>
+        </div>`;
+    }).join('');
+    const options = ALL_ROLES
+        .filter(r => !roleIds.includes(r.id))
+        .map(r => `<option value="${r.id}">@${esc(r.name)}</option>`).join('');
+    const noun = b.type === 'button' ? 'button' : 'dropdown';
+    return `<div class="pb-field">
+        <label>Required Roles <span style="font-weight:normal;text-transform:none;">(optional — only members with at least one of these roles can use this ${noun}. Leave empty to allow anyone, except members with a Ticket Blacklist Role.)</span></label>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <select id="reqrole-select-${path}" style="flex:1;">
+                <option value="">Select a role...</option>
+                ${options}
+            </select>
+            <button type="button" onclick="addRequiredRole('${path}')" style="background:var(--accent);color:white;border:none;padding:0 14px;border-radius:4px;cursor:pointer;font-weight:bold;flex-shrink:0;">+ Add</button>
+        </div>
+        <div id="reqrolelist-${path}">${rows || `<p style="color:var(--text-dim);font-size:0.85em;margin:0;">No role requirement — anyone can use this ${noun}.</p>`}</div>
+    </div>`;
+}
+function addRequiredRole(path) {
+    const select = document.getElementById(`reqrole-select-${path}`);
+    const roleId = select.value;
+    if (!roleId) return;
+    const b = getBlock(path);
+    b.required_roles = b.required_roles || [];
+    if (!b.required_roles.includes(roleId)) b.required_roles.push(roleId);
+    renderPanelBlocks();
+}
+function removeRequiredRole(path, roleId) {
+    const b = getBlock(path);
+    b.required_roles = (b.required_roles || []).filter(r => r !== roleId);
+    renderPanelBlocks();
+}
+function variableListHtml(path, b) {
+    const vars = b.variables || [];
+    const rows = vars.map((v, vi) => `
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input value="${esc(v)}" placeholder="e.g. mode=fallen" oninput="updateVariableAt('${path}',${vi},this.value)" style="flex:1;">
+            <button type="button" onclick="removeVariableAt('${path}',${vi})" style="background:var(--danger);color:white;border:none;border-radius:6px;padding:0 12px;cursor:pointer;flex-shrink:0;">✕</button>
+        </div>
+    `).join('');
+    return `<div class="pb-field">
+        <label>Variables <span style="font-weight:normal;text-transform:none;">(optional — categories matching ANY of these show up here, e.g. mode=fallen. Leave empty to show every enabled category.)</span></label>
+        <div id="varlist-${path}">${rows}</div>
+        <button type="button" onclick="addVariableRow('${path}')" class="block-add-btn" style="padding:8px 12px;font-size:0.85em;width:auto;">+ Add Variable</button>
+    </div>`;
+}
+function addVariableRow(path) {
+    const b = getBlock(path);
+    b.variables = b.variables || [];
+    b.variables.push('');
+    renderPanelBlocks();
+}
+function updateVariableAt(path, idx, value) {
+    const b = getBlock(path);
+    b.variables[idx] = value;
+    syncComponents();
+}
+function removeVariableAt(path, idx) {
+    const b = getBlock(path);
+    b.variables.splice(idx, 1);
+    renderPanelBlocks();
+}
+function updateBlock(path,key,value) { const b=getBlock(path); b[key]=value; syncComponents(); }
+let _dragSourcePath = null;
+
+function handleBlockDragStart(e, path) {
+    _dragSourcePath = path;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', path);
+    e.stopPropagation();
+    e.currentTarget.classList.add('pb-dragging');
+}
+function handleBlockDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('pb-drag-over');
+}
+function handleBlockDragLeave(e) {
+    e.currentTarget.classList.remove('pb-drag-over');
+}
+function handleBlockDragEnd(e) {
+    e.currentTarget.classList.remove('pb-dragging');
+    document.querySelectorAll('.pb-drag-over').forEach(el => el.classList.remove('pb-drag-over'));
+}
+function handleBlockDrop(e, targetPath) {
+    e.preventDefault();
+    e.stopPropagation();
+    document.querySelectorAll('.pb-drag-over').forEach(el => el.classList.remove('pb-drag-over'));
+    const sourcePath = _dragSourcePath || e.dataTransfer.getData('text/plain');
+    _dragSourcePath = null;
+    if (!sourcePath || sourcePath === targetPath) return;
+    movePanelBlock(sourcePath, targetPath);
+}
+function movePanelBlock(sourcePath, targetPath) {
+    const sourceParts = sourcePath.split('.').map(Number);
+    const targetParts = targetPath.split('.').map(Number);
+
+    // Only allow reordering within the same container - dragging a
+    // top-level block only reorders other top-level blocks, and dragging
+    // something inside an embed only reorders its own siblings inside
+    // that same embed.
+    const sourceParentPath = sourceParts.slice(0, -1).join('.');
+    const targetParentPath = targetParts.slice(0, -1).join('.');
+    if (sourceParentPath !== targetParentPath) return;
+
+    const arr = sourceParentPath === '' ? panelBlocks : getBlock(sourceParentPath).children;
+    const sourceIdx = sourceParts[sourceParts.length - 1];
+    const targetIdx = targetParts[targetParts.length - 1];
+
+    const [moved] = arr.splice(sourceIdx, 1);
+    arr.splice(targetIdx, 0, moved);
+
+    renderPanelBlocks();
+}
+function blockControls(path,b,inEmbed=false) {
+    const icons = {embed:'📦', divider:'➖', button:'🔘', dropdown:'▾', text:'📝'};
+    const labels = {embed:'Embed', divider:'Divider', button:'Button', dropdown:'Dropdown', text:'Text'};
+    const header = `
+        <div class="pb-block-header">
+            <div class="pb-block-title">
+                <span class="pb-drag-handle" title="Drag to reorder">⠿</span>
+                <span class="pb-block-icon">${icons[b.type]}</span>
+                <span>${labels[b.type]}</span>
+                ${b.type === 'dropdown' ? `<span id="hidden-badge-${path}" style="color:var(--danger);font-size:0.78em;font-weight:600;margin-left:6px;display:${b.enabled===false?'inline':'none'};">HIDDEN</span>` : ''}
+            </div>
+            <button type="button" class="pb-remove-btn" onclick="removePanelBlock('${path}')">✕ Remove</button>
+        </div>`;
+    const dragAttrs = `draggable="true" data-path="${path}" ondragstart="handleBlockDragStart(event,'${path}')" ondragover="handleBlockDragOver(event)" ondragleave="handleBlockDragLeave(event)" ondrop="handleBlockDrop(event,'${path}')" ondragend="handleBlockDragEnd(event)"`;
+
+    if (b.type === 'divider') {
+        return `<div class="pb-block" data-type="divider" ${dragAttrs}>${header}
+            <div class="pb-divider-line">divider — separates content above and below</div>
+        </div>`;
+    }
+
+    if (b.type === 'text') {
+        return `<div class="pb-block" data-type="text" ${dragAttrs}>${header}
+            <div class="pb-block-body">
+                <div class="pb-field">
+                    <label>Text <span style="font-weight:normal;text-transform:none;">(start a line with ### for a title/heading, like Discord markdown)</span></label>
+                    <textarea rows="2" class="pb-autosize" placeholder="### Normal Gamemodes&#10;You can request a carry for any normal mode." oninput="updateBlock('${path}','content',this.value); autosizeTextarea(this);">${esc(b.content||'')}</textarea>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    if (b.type === 'button') {
+        return `<div class="pb-block" data-type="button" ${dragAttrs}>${header}
+            <div class="pb-block-body">
+                <div class="pb-field">
+                    <label>Button Label</label>
+                    <input placeholder="Open Ticket" value="${esc(b.label||'Open Ticket')}" oninput="updateBlock('${path}','label',this.value)">
+                </div>
+                ${requiredRolesHtml(path, b)}
+                ${variableListHtml(path, b)}
+            </div>
+        </div>`;
+    }
+
+    if (b.type === 'dropdown') {
+        return `<div class="pb-block" data-type="dropdown" ${dragAttrs}>${header}
+            <div class="pb-block-body">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:12px;">
+                    <input type="checkbox" ${b.enabled !== false ? 'checked' : ''} style="width:auto;" onchange="updateBlock('${path}','enabled',this.checked); const badge=document.getElementById('hidden-badge-${path}'); if(badge) badge.style.display=this.checked?'none':'inline';">
+                    <span>Dropdown Visibility <span style="font-weight:normal;text-transform:none;color:var(--text-dim);">— show this dropdown when the panel is deployed</span></span>
+                </label>
+                <div class="pb-field">
+                    <label>Placeholder Text</label>
+                    <input placeholder="Choose ticket type..." value="${esc(b.placeholder||'Choose ticket type...')}" oninput="updateBlock('${path}','placeholder',this.value)">
+                </div>
+                ${requiredRolesHtml(path, b)}
+                ${variableListHtml(path, b)}
+            </div>
+        </div>`;
+    }
+
+    // embed
+    let children = (b.children||[]).map((c,i)=>blockControls(path+'.'+i,c,true)).join('');
+    return `<div class="pb-block" data-type="embed" ${dragAttrs}>${header}
+        <div class="pb-block-body">
+            <div class="pb-field">
+                <label>Embed Title <span style="font-weight:normal;text-transform:none;">(Enter adds a new line)</span></label>
+                <textarea rows="1" class="pb-autosize" placeholder="e.g. Request Carry" oninput="updateBlock('${path}','title',this.value); autosizeTextarea(this);">${esc(b.title||'')}</textarea>
+            </div>
+            <div class="pb-field">
+                <label>Embed Description</label>
+                <textarea rows="3" placeholder="Click below to request a carry ticket!" oninput="updateBlock('${path}','description',this.value)">${esc(b.description||'')}</textarea>
+            </div>
+            <div class="pb-block-body pb-grid-2" style="padding:0;">
+                <div class="pb-field">
+                    <label>Accent Color</label>
+                    <div class="pb-color-row">
+                        <input type="color" value="${esc(b.color||'#58b9ff')}" oninput="updateBlock('${path}','color',this.value); this.nextElementSibling.value=this.value;">
+                        <input type="text" value="${esc(b.color||'#58b9ff')}" oninput="updateBlock('${path}','color',this.value); this.previousElementSibling.value=this.value;">
+                    </div>
+                </div>
+                <div class="pb-field">
+                    <label>Footer <span style="font-weight:normal;text-transform:none;">(optional)</span></label>
+                    <input placeholder="Powered by Carry Bot" value="${esc(b.footer||'')}" oninput="updateBlock('${path}','footer',this.value)">
+                </div>
+            </div>
+
+            <div class="pb-children-wrap">
+                <div class="pb-children-label">Inside this embed</div>
+                <div class="pb-children-add">
+                    <button type="button" onclick="addChild('${path}','text')">+ Text</button>
+                    <button type="button" onclick="addChild('${path}','button')">+ Button</button>
+                    <button type="button" onclick="addChild('${path}','dropdown')">+ Dropdown</button>
+                    <button type="button" onclick="addChild('${path}','divider')">+ Divider</button>
+                </div>
+                <div class="pb-children-list">${children || '<p style="color:var(--text-dim); font-size:0.85em; margin:0;">Nothing inside this embed yet.</p>'}</div>
+            </div>
+        </div>
+    </div>`;
+}
+function autosizeTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = (el.scrollHeight) + 'px';
+}
+function renderPanelBlocks() {
+    const root=document.getElementById('panelBlocks'); if(!root) return;
+    root.innerHTML=panelBlocks.map((b,i)=>blockControls(String(i),b)).join('');
+    root.querySelectorAll('.pb-autosize').forEach(autosizeTextarea);
+    syncComponents();
+}
+function syncComponents() {
+    const input=document.getElementById('components_json');
+    if(input) input.value=JSON.stringify(panelBlocks);
+}
+function migrateBlockVariables(b) {
+    if ((b.type === 'button' || b.type === 'dropdown') && !b.variables) {
+        b.variables = b.variable ? [b.value ? `${b.variable}=${b.value}` : b.variable] : [];
+        delete b.variable;
+        delete b.value;
+    }
+    (b.children || []).forEach(migrateBlockVariables);
+}
+if (Array.isArray(savedPanelComponents) && savedPanelComponents.length) {
+    panelBlocks=savedPanelComponents;
+} else {
+    panelBlocks=[{type:'embed',title:'Request Carry',description:'Click below to request a carry ticket!',color:'#58b9ff',footer:'',children:[]},{type:'dropdown',placeholder:'Choose ticket type...',variables:[]}];
+}
+panelBlocks.forEach(migrateBlockVariables);
+renderPanelBlocks();
+
 document.addEventListener('DOMContentLoaded', () => {
     const embedForm = document.getElementById('embedForm');
     if (embedForm) {
         embedForm.addEventListener('submit', function(e) {
-            const fieldRows = document.querySelectorAll('.embed-field-row');
+            const fieldRows = document.querySelectorAll('#fieldsContainer .block-row');
             const fieldsData = [];
 
             fieldRows.forEach(row => {
@@ -443,7 +2805,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const pickr = Pickr.create({
                 el: '#color-picker-container',
                 theme: 'nano',
-                default: '#58b9ff',
+                default: document.getElementById('embed_color_input')?.value || '#58b9ff',
                 components: {
                     preview: true,
                     opacity: false,
