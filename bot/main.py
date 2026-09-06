@@ -107,6 +107,7 @@ from utils.access import (
     create_unblock_terms_token,
     get_terms_unblock_token,
     consume_terms_unblock_token,
+    get_active_terms_unblock_tokens,
 )
 
 # Environment & OAuth Setup
@@ -703,7 +704,14 @@ def home():
     warning_presets = get_premade_warning_reasons()
     warning_builder = get_warning_builder()
     warning_records = get_all_warnings()
-    generated_unblock_link = session.pop("generated_unblock_link", None)
+    generated_unblock_link = session.get("generated_unblock_link")
+    active_unblock_links = [
+        {
+            **entry,
+            "url": external_url("terms_unblock", token=entry["token"]),
+        }
+        for entry in get_active_terms_unblock_tokens()
+    ]
     access_settings = get_access_settings()
 
     allowed_users = []
@@ -878,6 +886,7 @@ def home():
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         globally_blocked_users=get_globally_blocked_users(),
         generated_unblock_link=generated_unblock_link,
+        active_unblock_links=active_unblock_links,
     )
 
 

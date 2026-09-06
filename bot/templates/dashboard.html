@@ -1782,6 +1782,25 @@
             </div>
             {% endif %}
 
+                    <h4 style="margin-top: 24px;">Active Single-use Links</h4>
+                    <p class="card-subtitle">
+                        Unused links that have not expired yet. Anyone with a link can open it, but only the matching Discord account can accept the terms.
+                    </p>
+                    {% for unblock_link in active_unblock_links %}
+                    <div class="list-item" style="display:block;">
+                        <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+                            <strong>User ID: {{ unblock_link.user_id }}</strong>
+                            <span class="local-time" data-ts="{{ unblock_link.expires_at }}">Expires {{ unblock_link.expires_at }}</span>
+                        </div>
+                        <div style="display:flex; gap:8px; margin-top:10px;">
+                            <input id="active-unblock-link-{{ loop.index }}" type="text" readonly value="{{ unblock_link.url }}" style="flex:1;">
+                            <button type="button" class="btn-view" onclick="copyTextById('active-unblock-link-{{ loop.index }}', this)">Copy Link</button>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p style="color:var(--text-dim);">No active single-use links.</p>
+                    {% endfor %}
+
                     <h4 style="margin-top: 20px;">Allowed Users</h4>
             <form action="/dashboard/access/add-user" method="POST" class="access-form">
                 <div>
@@ -3021,16 +3040,25 @@ function closeUnblockLinkModal() {
 }
 
 async function copyUnblockLink() {
-    const input = document.getElementById('generated-unblock-link');
     const status = document.getElementById('unblock-link-copy-status');
-    if (!input || !status) return;
+    if (!status) return;
+    await copyTextById('generated-unblock-link');
+    status.textContent = 'Copied to clipboard.';
+}
+
+async function copyTextById(inputId, button) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
     try {
         await navigator.clipboard.writeText(input.value);
-        status.textContent = 'Copied to clipboard.';
     } catch (error) {
         input.select();
         document.execCommand('copy');
-        status.textContent = 'Copied to clipboard.';
+    }
+    if (button) {
+        const oldText = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = oldText; }, 1500);
     }
 }
 </script>
