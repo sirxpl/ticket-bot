@@ -1,5 +1,8 @@
 import os
 import json
+import hashlib
+import secrets
+import time
 
 from utils.db import get_db
 
@@ -27,6 +30,7 @@ _DEFAULTS = {
     "moderation_command_roles": [],
     "moderation_command_users": [],
     "globally_blocked_users": [],
+    "terms_unblock_tokens": [],
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -76,6 +80,7 @@ def get_access_settings():
         doc.setdefault("moderation_command_roles", [])
         doc.setdefault("moderation_command_users", [])
         doc.setdefault("globally_blocked_users", [])
+        doc.setdefault("terms_unblock_tokens", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -101,6 +106,7 @@ def get_access_settings():
         data.setdefault("moderation_command_roles", [])
         data.setdefault("moderation_command_users", [])
         data.setdefault("globally_blocked_users", [])
+        data.setdefault("terms_unblock_tokens", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -146,6 +152,53 @@ def remove_globally_blocked_user(user_id: str) -> bool:
     blocked.remove(str(user_id))
     _save(data)
     return True
+
+
+def create_unblock_terms_token(user_id: str, expires_seconds: int = 86400) -> str:
+    """Create a single-use token bound to one Discord user ID."""
+    user_id = str(user_id).strip()
+    if not user_id.isdigit():
+        raise ValueError("User ID must contain only numbers.")
+    token = secrets.token_urlsafe(32)
+    data = get_access_settings()
+    tokens = data.setdefault("terms_unblock_tokens", [])
+    tokens.append({
+        "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+        "user_id": user_id,
+        "expires_at": int(time.time()) + expires_seconds,
+        "used": False,
+    })
+    _save(data)
+    return token
+
+
+def get_terms_unblock_token(token: str) -> dict | None:
+    token_hash = hashlib.sha256(str(token).encode()).hexdigest()
+    for entry in get_access_settings().get("terms_unblock_tokens", []):
+        if (
+            entry.get("token_hash") == token_hash
+            and not entry.get("used")
+            and int(entry.get("expires_at", 0)) > int(time.time())
+        ):
+            return dict(entry)
+    return None
+
+
+def consume_terms_unblock_token(token: str, user_id: str) -> bool:
+    token_hash = hashlib.sha256(str(token).encode()).hexdigest()
+    data = get_access_settings()
+    for entry in data.setdefault("terms_unblock_tokens", []):
+        if (
+            entry.get("token_hash") == token_hash
+            and str(entry.get("user_id")) == str(user_id)
+            and not entry.get("used")
+            and int(entry.get("expires_at", 0)) > int(time.time())
+        ):
+            entry["used"] = True
+            entry["used_at"] = int(time.time())
+            _save(data)
+            return True
+    return False
 
 
 def add_allowed_user(user_id: str) -> bool:

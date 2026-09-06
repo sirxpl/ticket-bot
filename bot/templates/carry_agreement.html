@@ -41,7 +41,9 @@ main{flex:1;padding:40px 44px 120px;min-width:0;max-width:820px}.eyebrow{color:v
 {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
 {% if agreement %}<div class="success">✅ You have already accepted these rules on {{ agreement.accepted_at }}.</div>
 {% elif user %}
-<form method="POST" action="/carry-agreement/accept" id="agreementForm"><label class="check"><input id="agree" type="checkbox" required><span><strong>I have fully read and understand the Carry Service System Rules.</strong><br>I understand that agreeing means I am expected to follow these rules when using or operating the carry service.</span></label><button id="submit" type="submit" disabled>✅ I Have Read &amp; Understand</button></form>
+<form method="POST" action="{{ url_for('accept_terms_unblock', token=terms_token) if unblock_mode else '/carry-agreement/accept' }}" id="agreementForm">
+{% if unblock_mode %}<div class="flash">Your account is currently blocked. Accepting these terms will automatically remove the block.</div>{% endif %}
+<label class="check"><input id="agree" type="checkbox" required><span><strong>I have fully read and understand the Carry Service System Rules.</strong><br>I understand that agreeing means I am expected to follow these rules when using or operating the carry service.</span></label><button id="submit" type="submit" disabled>✅ I Have Read &amp; Understand</button></form>
 {% else %}<p><strong>You must log in with Discord before you can accept these rules.</strong></p><a href="/login"><button type="button">Login with Discord</button></a>{% endif %}
 </div></div></main></div>
 <script>const c=document.getElementById('agree'),b=document.getElementById('submit');if(c&&b)c.addEventListener('change',()=>b.disabled=!c.checked);</script>
