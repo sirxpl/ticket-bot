@@ -10,6 +10,7 @@ from utils.storage import (
     add_warning,
     get_all_warnings,
     get_active_warnings_for_user,
+    get_warnings_for_user,
     get_premade_warning_reasons,
     get_warning_builder,
     revoke_warning,
@@ -226,6 +227,14 @@ class WarningsCog(commands.Cog):
         except Exception:
             pass
 
+    async def _send_member_dm(self, member: discord.Member, embed: discord.Embed) -> bool:
+        """Notify a warned member without blocking the moderation action."""
+        try:
+            await member.send(embed=embed)
+            return True
+        except (discord.Forbidden, discord.HTTPException):
+            return False
+
     async def issue_warning(
         self,
         interaction: discord.Interaction,
@@ -330,6 +339,28 @@ class WarningsCog(commands.Cog):
         if role_status:
             embed.add_field(name="Role", value=role_status, inline=False)
 
+        dm_embed = discord.Embed(
+            title=f"{tier} Warning Issued",
+            description="You have received a moderation warning.",
+            color=color,
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
+        )
+        dm_embed.add_field(name="Reason", value=final_reason[:1024], inline=False)
+        dm_embed.add_field(name="Case", value=warning["case_id"])
+        dm_embed.add_field(
+            name="Timeout",
+            value=f"{defaults['timeout_hours']} hours",
+        )
+        if role_id:
+            dm_embed.add_field(
+                name="Warning role",
+                value=f"Assigned for {defaults['role_days']} days",
+            )
+        dm_embed.set_footer(text=f"{interaction.guild.name if interaction.guild else 'Server'} moderation")
+        dm_sent = await self._send_member_dm(user, dm_embed)
+        if not dm_sent:
+            embed.add_field(name="Member DM", value="Could not deliver the warning DM.")
+
         await interaction.response.send_message(embed=embed)
         await self._post_to_warning_log(interaction.guild, embed)
 
@@ -428,6 +459,37 @@ class WarningsCog(commands.Cog):
             )
             return
 
+        role_status = None
+        role_id = revoked_warning.get("role_id")
+        if role_id and interaction.guild:
+            # Keep a shared tier role while another active warning still uses it.
+            active_warnings = get_warnings_for_user(user.id, include_revoked=False)
+            role_still_needed = any(
+                str(item.get("case_id")) != str(revoked_warning.get("case_id"))
+                and str(item.get("role_id")) == str(role_id)
+                for item in active_warnings
+            )
+            try:
+                role = interaction.guild.get_role(int(role_id))
+            except (TypeError, ValueError):
+                role = None
+
+            if role_still_needed:
+                role_status = f"Kept {role.mention if role else 'the warning role'} because another active warning uses it."
+            elif role and role in user.roles:
+                try:
+                    await user.remove_roles(
+                        role,
+                        reason=f"Warning {revoked_warning.get('case_id')} revoked by {interaction.user}",
+                    )
+                    role_status = f"Removed {role.mention}"
+                except (discord.Forbidden, discord.HTTPException):
+                    role_status = "Could not remove the warning role; check bot permissions and role hierarchy."
+            elif role:
+                role_status = f"{role.mention} was already removed."
+            else:
+                role_status = "The warning role no longer exists."
+
         embed = discord.Embed(
             title="✅ Warning Revoked",
             description="One specific warning has been marked as revoked.",
@@ -465,7 +527,29 @@ class WarningsCog(commands.Cog):
             value=revoke_reason[:1024],
             inline=False,
         )
+        if role_status:
+            embed.add_field(name="Role", value=role_status, inline=False)
         embed.set_footer(text="Moderation warning audit record")
+
+        dm_embed = discord.Embed(
+            title="Warning Revoked",
+            description="One of your moderation warnings has been revoked.",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
+        )
+        dm_embed.add_field(
+            name="Original warning",
+            value=(
+                f"{revoked_warning.get('tier', 'Warning')} · "
+                f"{str(revoked_warning.get('reason', 'No reason provided.'))[:1024]}"
+            ),
+            inline=False,
+        )
+        dm_embed.add_field(name="Revocation reason", value=revoke_reason[:1024], inline=False)
+        dm_embed.add_field(name="Case", value=str(revoked_warning.get("case_id", "Unknown")))
+        dm_embed.set_footer(text=f"{interaction.guild.name if interaction.guild else 'Server'} moderation")
+        if not await self._send_member_dm(user, dm_embed):
+            embed.add_field(name="Member DM", value="Could not deliver the revocation DM.")
 
         await interaction.response.send_message(embed=embed)
         await self._post_to_warning_log(interaction.guild, embed)
