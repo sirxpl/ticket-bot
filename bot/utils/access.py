@@ -26,6 +26,7 @@ _DEFAULTS = {
     "remove_cooldown_roles": [],
     "moderation_command_roles": [],
     "moderation_command_users": [],
+    "globally_blocked_users": [],
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -74,6 +75,7 @@ def get_access_settings():
         doc.setdefault("remove_cooldown_roles", [])
         doc.setdefault("moderation_command_roles", [])
         doc.setdefault("moderation_command_users", [])
+        doc.setdefault("globally_blocked_users", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -98,6 +100,7 @@ def get_access_settings():
         data.setdefault("remove_cooldown_roles", [])
         data.setdefault("moderation_command_roles", [])
         data.setdefault("moderation_command_users", [])
+        data.setdefault("globally_blocked_users", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -112,6 +115,37 @@ def _save(data: dict):
         return
     with open(ACCESS_FILE, "w") as f:
         json.dump(data, f, indent=2)
+
+
+def get_globally_blocked_users() -> list[str]:
+    return [str(user_id) for user_id in get_access_settings().get("globally_blocked_users", [])]
+
+
+def is_globally_blocked(user_id) -> bool:
+    return str(user_id) in set(get_globally_blocked_users()) and not is_admin(user_id)
+
+
+def add_globally_blocked_user(user_id: str) -> bool:
+    user_id = str(user_id).strip()
+    if not user_id.isdigit():
+        return False
+    data = get_access_settings()
+    blocked = data.setdefault("globally_blocked_users", [])
+    if user_id in blocked:
+        return False
+    blocked.append(user_id)
+    _save(data)
+    return True
+
+
+def remove_globally_blocked_user(user_id: str) -> bool:
+    data = get_access_settings()
+    blocked = data.setdefault("globally_blocked_users", [])
+    if str(user_id) not in blocked:
+        return False
+    blocked.remove(str(user_id))
+    _save(data)
+    return True
 
 
 def add_allowed_user(user_id: str) -> bool:
