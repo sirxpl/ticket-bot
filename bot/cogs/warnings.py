@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils.access import has_moderation_command_access
+from utils.access import has_moderation_command_access, get_warning_log_channel_id
 from utils.storage import (
     add_warning,
     get_active_warnings_for_user,
@@ -166,6 +166,20 @@ class WarningsCog(commands.Cog):
 
         return choices
 
+    async def _post_to_warning_log(self, guild: discord.Guild, embed: discord.Embed) -> None:
+        """Best-effort post to the dedicated Warning Log Channel, separate
+        from ticket/blacklist logs. Never raises — a missing/misconfigured
+        channel should never block a warning from being issued."""
+        channel_id = get_warning_log_channel_id()
+        if not channel_id or not guild:
+            return
+        try:
+            channel = guild.get_channel(int(channel_id)) or await guild.fetch_channel(int(channel_id))
+            if channel:
+                await channel.send(embed=embed)
+        except Exception:
+            pass
+
     async def issue_warning(
         self,
         interaction: discord.Interaction,
@@ -220,6 +234,7 @@ class WarningsCog(commands.Cog):
         embed.set_footer(text="Moderation warning record")
 
         await interaction.response.send_message(embed=embed)
+        await self._post_to_warning_log(interaction.guild, embed)
 
     @app_commands.command(
         name="w1",
@@ -356,6 +371,7 @@ class WarningsCog(commands.Cog):
         embed.set_footer(text="Moderation warning audit record")
 
         await interaction.response.send_message(embed=embed)
+        await self._post_to_warning_log(interaction.guild, embed)
 
 
 async def setup(bot: commands.Bot) -> None:
