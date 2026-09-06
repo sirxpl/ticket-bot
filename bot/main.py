@@ -691,6 +691,7 @@ def home():
     warning_presets = get_premade_warning_reasons()
     warning_builder = get_warning_builder()
     warning_records = get_all_warnings()
+    generated_unblock_link = session.pop("generated_unblock_link", None)
     access_settings = get_access_settings()
 
     allowed_users = []
@@ -864,6 +865,7 @@ def home():
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         globally_blocked_users=get_globally_blocked_users(),
+        generated_unblock_link=generated_unblock_link,
     )
 
 
@@ -1265,7 +1267,8 @@ def access_generate_unblock_link():
     try:
         token = create_unblock_terms_token(user_id)
         link = external_url("terms_unblock", token=token)
-        flash(f"Terms unblock link for {user_id}: {link}", "success")
+        session["generated_unblock_link"] = link
+        flash(f"Terms unblock link generated for {user_id}.", "success")
     except ValueError as error:
         flash(str(error), "danger")
     return redirect(url_for("home"))
