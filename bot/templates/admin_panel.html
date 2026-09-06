@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin Panel</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 32px;
+            background: #1e1f22;
+            color: #f2f3f5;
+            font-family: "Segoe UI", sans-serif;
+        }
+        main {
+            max-width: 760px;
+            margin: 0 auto;
+            background: #2b2d31;
+            padding: 28px;
+            border-radius: 10px;
+        }
+        a { color: #8ea1ff; }
+        .muted { color: #b5bac1; }
+        code {
+            display: inline-block;
+            margin: 4px 6px 4px 0;
+            padding: 4px 7px;
+            background: #1e1f22;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <p><a href="/">← Dashboard</a> · <a href="/logout">Log out</a></p>
+        <h1>Admin Panel</h1>
+        <p class="muted">
+            You are signed in as {{ user.username }}. This panel is restricted to
+            users listed in the <code>ADMIN_USER_IDS</code> environment variable.
+        </p>
+        <h2>Configured admin IDs</h2>
+        {% for admin_id in admin_ids %}
+            <code>{{ admin_id }}</code>
+        {% else %}
+            <p class="muted">No admin IDs are configured.</p>
+        {% endfor %}
+        <h2>Coming next</h2>
+        <p class="muted">
+            Access-control settings, warning templates, audit-log settings, and
+            admin-panel access management will be added here incrementally.
+        </p>
+    </main>
+</body>
+</html>
