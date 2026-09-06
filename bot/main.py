@@ -73,6 +73,11 @@ from utils.access import (
     remove_powerful_command_role,
     add_powerful_command_user,
     remove_powerful_command_user,
+    add_moderation_command_role,
+    remove_moderation_command_role,
+    add_moderation_command_user,
+    remove_moderation_command_user,
+    has_moderation_command_access,
     add_basic_command_role,
     remove_basic_command_role,
     add_basic_command_user,
@@ -666,6 +671,12 @@ def home():
         powerful_command_roles.append({"id": rid, "name": role.name if role else None})
     powerful_command_users = access_settings.get("powerful_command_users", [])
 
+    moderation_command_roles = []
+    for rid in access_settings.get("moderation_command_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        moderation_command_roles.append({"id": rid, "name": role.name if role else None})
+    moderation_command_users = access_settings.get("moderation_command_users", [])
+
     basic_command_roles = []
     for rid in access_settings.get("basic_command_roles", []):
         role = guild.get_role(int(rid)) if guild else None
@@ -725,6 +736,8 @@ def home():
         ticket_viewer_roles=ticket_viewer_roles,
         powerful_command_roles=powerful_command_roles,
         powerful_command_users=powerful_command_users,
+        moderation_command_roles=moderation_command_roles,
+        moderation_command_users=moderation_command_users,
         basic_command_roles=basic_command_roles,
         basic_command_users=basic_command_users,
         carry_manager_roles=carry_manager_roles,
@@ -1200,6 +1213,46 @@ def access_add_powerful_command_user():
 def access_remove_powerful_command_user(user_id):
     remove_powerful_command_user(user_id)
     flash("🗑️ User removed from Powerful Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-moderation-command-role", methods=["POST"])
+@admin_required
+def access_add_moderation_command_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_moderation_command_role(role_id)
+        flash("✅ Role added to Moderation Command Access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-moderation-command-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_moderation_command_role(role_id):
+    remove_moderation_command_role(role_id)
+    flash("🗑️ Role removed from Moderation Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-moderation-command-user", methods=["POST"])
+@admin_required
+def access_add_moderation_command_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_moderation_command_user(user_id)
+        flash("✅ User added to Moderation Command Access.", "success")
+    else:
+        flash("❌ Please enter a valid user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-moderation-command-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_moderation_command_user(user_id):
+    remove_moderation_command_user(user_id)
+    flash("🗑️ User removed from Moderation Command Access.", "info")
     return redirect(url_for("home"))
 
 
