@@ -164,12 +164,29 @@ def create_unblock_terms_token(user_id: str, expires_seconds: int = 86400) -> st
     tokens = data.setdefault("terms_unblock_tokens", [])
     tokens.append({
         "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+        "token": token,
         "user_id": user_id,
         "expires_at": int(time.time()) + expires_seconds,
         "used": False,
     })
     _save(data)
     return token
+
+
+def get_active_terms_unblock_tokens() -> list[dict]:
+    now = int(time.time())
+    active = []
+    for entry in get_access_settings().get("terms_unblock_tokens", []):
+        if entry.get("used") or int(entry.get("expires_at", 0)) <= now:
+            continue
+        if not entry.get("token"):
+            continue
+        active.append({
+            "token": entry["token"],
+            "user_id": str(entry.get("user_id")),
+            "expires_at": int(entry["expires_at"]),
+        })
+    return active
 
 
 def get_terms_unblock_token(token: str) -> dict | None:

@@ -1,0 +1,95 @@
+TERMS AND CONDITIONS
+Carry Ticket Bot — Roblox Tower Defense Simulator (TDS) Carry Service
+Last Updated: [DATE]
+
+1. INTRODUCTION AND ACCEPTANCE OF TERMS
+
+These Terms and Conditions ("Terms") govern your access to and use of the Carry Ticket Bot (the "Bot"), its associated web dashboard, and every feature it provides within this Discord server (the "Server"), including but not limited to the ticket-based carry request system, the moderation warning system, the Roblox and Discord account verification tools, the coffee and utility commands, and any page hosted on the Bot's companion website. By interacting with the Bot in any way — opening a ticket, running a slash command, logging into the dashboard, or accepting a linked role — you agree to be bound by these Terms in full. If you do not agree with any part of these Terms, you must discontinue use of the Bot immediately. Continued use after any update to these Terms constitutes your acceptance of the revised Terms, and it is your responsibility to periodically review this document for changes.
+
+These Terms exist alongside, and do not replace, the Server's general Rules & Regulations, the Carry Service System Rules, the Carry Guidelines, and the Bot's Privacy Policy. Where a conflict arises between this document and any of the above, the more restrictive or more specific provision shall govern for the situation at hand. Acceptance of one document does not constitute acceptance of the others; each is a distinct agreement addressing a distinct part of your relationship with the Bot and the Server.
+
+2. DESCRIPTION OF THE SERVICE
+
+The Bot is a support and coordination tool built for a Roblox Tower Defense Simulator community. Its core function is to operate a structured, ticket-based system through which members of the Server ("Clients") may request assistance — most commonly in the form of a "carry," meaning direct in-game help from an experienced player or team ("Operators" or "Carry Team Members") — and through which that assistance can be scheduled, tracked, and reviewed. When a ticket is opened, the Bot creates a private channel between the requesting member and the relevant staff or carry team, collects basic information relevant to the request (such as the requester's in-game level, timezone, preferred display name, and availability to join a private server), and maintains a running log of that interaction for administrative and quality purposes.
+
+Beyond the core ticket system, the Bot provides a constellation of supporting features. It maintains a persistent numbering and naming scheme for tickets so that each request can be identified and referenced later. It supports automatic closure of tickets that have gone inactive for an extended period, subject to a warning before closure occurs. It allows authorized staff to close, reassign, rename, or move tickets, and to add or remove specific users from a ticket channel as circumstances require. It enforces cooldown periods between a Client's ticket requests so that the queue remains fair to all members, and it supports both user-level and role-level blacklisting for members who have been found to abuse or misuse the system, whether temporarily or on a longer-term basis specific to certain ticket categories.
+
+The Bot additionally operates a tiered moderation warning system, permitting authorized staff to issue first-, second-, and third-tier warnings to members for conduct violations, to review a member's warning history, and to revoke a warning that was issued in error or has since been resolved. It provides a Roblox and Discord identity verification and role-linking system, through which a member may connect their accounts to the Server for the purposes of confirming eligibility, applying Discord's Linked Roles feature, and recording agreement to the Server's guidelines. It hosts a web-based control dashboard, accessible only after Discord OAuth2 authentication, through which authorized staff may configure ticket categories, review analytics, manage blacklists and access permissions, and read saved ticket transcripts. Finally, the Bot includes a handful of lighter utility and novelty features, including a URL safety scanner integrated with a third-party security service, a coffee-ordering novelty command that can be sent to yourself or gifted to another member, and general messaging utilities available to staff.
+
+3. ELIGIBILITY
+
+You must satisfy the minimum age requirement set by Discord's Terms of Service to use Discord at all, and by extension to use the Bot. If the Bot's features require or reference a Roblox account, you must also satisfy Roblox's own eligibility requirements for that account. You represent that any information you provide to the Bot — including your claimed in-game level, timezone, display name, and availability — is accurate to the best of your knowledge at the time you provide it. Knowingly providing false information in a ticket, warning appeal, or verification flow is itself grounds for moderation action under Section 6 below.
+
+4. USER CONDUCT
+
+Use of the Bot is a privilege extended to members of the Server, not a guaranteed entitlement, and it may be limited, suspended, or revoked at the discretion of Server staff for any violation of these Terms, the Server's Rules & Regulations, the Carry Service System Rules, or the Carry Guidelines. Without limiting the generality of the foregoing, the following categories of conduct are considered violations of these Terms:
+
+Abuse of the ticket system, including opening duplicate, frivolous, or bad-faith tickets; opening a ticket for a game mode or objective you have already completed outside of a legitimate mission or trial exception; deliberately stalling, going idle, or wasting the time of an assigned Operator once a ticket has been accepted; or attempting to bypass a cooldown, blacklist, or category restriction through any technical or social means.
+
+Disrespect or harassment directed at Operators, Clients, or Server staff, including toxicity, elitism, mockery of another member's skill level, or repeated unsolicited pings or direct messages requesting expedited service outside the normal queue.
+
+Abuse of any elevated permission, including closing tickets without a documented reason, adding unauthorized third parties to a private ticket channel, disclosing confidential internal staff communications or strategy discussions outside of their intended context, or otherwise acting outside the scope of one's authorized role.
+
+Misuse of the Bot's utility features, including using the coffee or messaging commands to harass another member, submitting a URL to the scanning feature for a purpose other than genuine safety verification, or attempting to use any command to disrupt, spam, or degrade the Bot's availability to other members.
+
+Circumvention of moderation, including creating alternate accounts to evade a warning, blacklist, or ban; encouraging another member to do so on your behalf; or tampering with, forging, or attempting to falsify any record the Bot maintains, including ticket transcripts, warning history, or verification status.
+
+5. THE TICKET AND COOLDOWN SYSTEM
+
+Tickets are a limited, shared resource, and the cooldown periods enforced by the Bot exist to keep the request queue fair to the entire membership. Unless otherwise configured for a specific ticket category, a Client may open one standard ticket following an appropriate cooldown period after their previous ticket closes, and specialized queues — such as trial-specific requests — may carry a separate, typically shorter, cooldown of their own. Attempting to manipulate, evade, or repeatedly test the boundaries of a cooldown is treated as ticket-system abuse under Section 4.
+
+Once a ticket is opened, its contents — including all messages exchanged, files shared, and the outcome of the request — may be preserved as a transcript for administrative review, quality assurance, and dispute resolution, in accordance with the Bot's Privacy Policy. Clients and Operators alike should conduct themselves within a ticket as though the conversation may be reviewed by staff at a later time, because it may be.
+
+Server staff and appointed carry leads retain full discretion to close, reassign, rename, move, or otherwise manage any ticket at any time, with or without the consent of the parties involved, where doing so is necessary to enforce these Terms, resolve a dispute, or maintain the integrity of the system.
+
+6. WARNINGS, BLACKLISTING, AND ENFORCEMENT
+
+Violations of these Terms may result in one or more of the following consequences, applied at the discretion of Server staff and scaled to the severity and history of the conduct in question: an informal verbal notice; a formal first-, second-, or third-tier warning recorded against your account and visible to staff upon request; temporary or indefinite restriction from opening tickets, either account-wide or scoped to a specific ticket category, sometimes referred to as being "blacklisted"; removal from the Carry Team roster for Operators found to have abused their position; or, in cases of severe or repeated misconduct, removal from the Server entirely.
+
+A warning issued in error, or one that has since been resolved through appropriate corrective action, may be revoked by authorized staff, at which point it will no longer count against your standing, though a record that it was issued and later revoked may still be retained for administrative history.
+
+Where your account has been placed into a blocked or restricted state, the Bot may present you with an opportunity to review and formally accept the Carry Service System Rules — or such other governing document as staff designate — as a condition of having that restriction automatically lifted. Accepting such an agreement is treated as a binding acknowledgment that you have read, understood, and agree to abide by the rules in question going forward, and any subsequent violation following such an acceptance may be treated as an aggravating factor in future enforcement decisions.
+
+7. ACCOUNT VERIFICATION AND LINKED ROLES
+
+The Bot may offer a Discord Linked Role verification flow, through which you can connect your Discord account to confirm agreement with the Server's guidelines and unlock a corresponding role. Where Roblox account verification is offered or required, a separate authorization flow applies, and your use of that flow is additionally subject to Roblox's own platform terms and any applicable third-party verification service's terms. You are responsible for the accuracy of any identity information you submit through these flows, and knowingly submitting false or misleading verification information is a violation of these Terms.
+
+8. THE WEB DASHBOARD
+
+Certain features of the Bot are managed through a companion web dashboard, accessible only after authenticating with your Discord account through Discord's official OAuth2 login flow. Access to specific sections of the dashboard — including ticket configuration, blacklist management, transcript review, analytics, and access-control settings — is restricted according to role-based permissions configured by Server administrators, and having general dashboard access does not entitle you to every section within it. You agree not to attempt to access any section of the dashboard for which you have not been granted permission, and not to attempt to circumvent, probe, or interfere with the dashboard's authentication or authorization mechanisms.
+
+9. UTILITY AND NOVELTY FEATURES
+
+The Bot's lighter features — including its coffee-ordering command and its URL safety scanner — are provided for convenience and enjoyment and are offered on an as-is basis. The URL scanner relies on a third-party security service to assess submitted links, and while it is intended to help identify unsafe content, no automated scanning result should be treated as a guarantee that a given link is safe, nor should the absence of a scan be treated as an endorsement of a link's safety. You remain responsible for exercising your own judgment before interacting with any link, whether scanned or not.
+
+10. DATA COLLECTION AND PRIVACY
+
+Your use of the Bot necessarily involves the collection and storage of certain information, including your Discord identity, the contents and metadata of tickets you open or participate in, your warning history, your cooldown and blacklist status, and any information you voluntarily submit through a ticket form or verification flow. This information is collected, stored, and used strictly in accordance with the Bot's Privacy Policy, which is incorporated into these Terms by reference. By using the Bot, you consent to the collection and use of this information as described there. If you have questions about what is collected or how long it is retained, you should consult the Privacy Policy directly or reach out to Server staff.
+
+11. DISCLAIMER OF WARRANTIES
+
+The Bot, its dashboard, and all associated features are provided on an "as is" and "as available" basis, without warranty of any kind, whether express or implied. No guarantee is made that the Bot will be available at all times, that it will be free of errors or interruptions, that any given ticket will be answered within a particular timeframe, that any Operator's assistance will meet a particular standard, or that any data recorded by the Bot will be preserved indefinitely or free from loss. The carry service facilitated through the Bot is provided by volunteer or appointed community members, not by Roblox Corporation, Discord Inc., or any other platform operator, and none of those parties bear any responsibility for the conduct of Server members or the outcome of any carry request.
+
+12. LIMITATION OF LIABILITY
+
+To the fullest extent permitted by applicable law, the Server, its staff, its administrators, its Operators, and the developers and maintainers of the Bot shall not be liable for any indirect, incidental, special, consequential, or punitive damages, or any loss of data, goodwill, or expected outcome, arising out of or in connection with your use of, or inability to use, the Bot or any feature it provides. This includes, without limitation, any dissatisfaction with the outcome of a carry request, any dispute between a Client and an Operator, any loss of in-game progress or items during a carry, and any action taken by staff in enforcement of these Terms, including warnings, blacklisting, or removal from the Server.
+
+13. MODIFICATIONS TO THESE TERMS
+
+These Terms may be updated, revised, or replaced at any time to reflect changes in the Bot's features, the Server's policies, or applicable requirements. Where practical, notice of a material change will be given through an announcement in the Server or an update to this document's "Last Updated" date. Your continued use of the Bot following any such change constitutes your acceptance of the Terms as revised. It is your responsibility to check back periodically.
+
+14. TERMINATION
+
+Server staff reserve the right to suspend or terminate your access to the Bot, in whole or in part, at any time and for any reason, including but not limited to a violation of these Terms, at their sole discretion and without prior notice where circumstances warrant immediate action. You may also stop using the Bot at any time by leaving the Server or simply ceasing to interact with it; doing so does not retroactively erase any record already created of your prior use, which remains governed by the Privacy Policy.
+
+15. RELATIONSHIP TO OTHER GOVERNING DOCUMENTS
+
+These Terms operate alongside, and are subordinate in specificity to, the Server's Rules & Regulations, the Carry Service System Rules, and the Carry Guidelines. Nothing in this document shall be read to excuse conduct that violates any of those other documents, nor shall acceptance of this document alone be treated as satisfying a requirement to separately accept any of the others where such separate acceptance is required by staff.
+
+16. CONTACT AND SUPPORT
+
+Questions about these Terms, disputes regarding enforcement action taken under them, or requests related to your data under the Privacy Policy should be directed to Server staff through the appropriate support channel or ticket category designated for that purpose. This document does not create a right to a particular response time or outcome, but Server staff will make reasonable efforts to address legitimate concerns raised in good faith.
+
+BY OPENING A TICKET, RUNNING A COMMAND, LOGGING INTO THE DASHBOARD, OR OTHERWISE INTERACTING WITH THE BOT, YOU ACKNOWLEDGE THAT YOU HAVE READ, UNDERSTOOD, AND AGREE TO BE BOUND BY THESE TERMS AND CONDITIONS IN FULL.
+
+— Made by Claude AI —

@@ -4,6 +4,7 @@ import json
 import re
 import asyncio
 import time
+from pathlib import Path
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -107,6 +108,7 @@ from utils.access import (
     create_unblock_terms_token,
     get_terms_unblock_token,
     consume_terms_unblock_token,
+    get_active_terms_unblock_tokens,
 )
 
 # Environment & OAuth Setup
@@ -426,22 +428,25 @@ def terms_unblock(token):
     user = session.get("user")
     if not user:
         session["terms_unblock_token"] = token
-        return redirect(url_for("login"))
+        terms_path = Path(__file__).resolve().parent.parent / "docs" / "terms_and_conditions.txt"
+        return render_template(
+            "terms_unblock.html",
+            user=None,
+            terms_token=token,
+            terms_content=terms_path.read_text(encoding="utf-8"),
+        )
     if str(user.get("id")) != str(token_data["user_id"]):
         return (
-            "<h1>Different Discord account</h1>"
-            "<p>This link was generated for a different Discord account. "
-            "Switch accounts, then authenticate with the intended account.</p>"
-            f"<p><a href=\"{url_for('terms_unblock_switch_account', token=token)}\">"
-            "Switch Discord account</a></p>",
+            render_template("terms_account_mismatch.html", token=token),
             403,
         )
+    terms_path = Path(__file__).resolve().parent.parent / "docs" / "terms_and_conditions.txt"
+    terms_content = terms_path.read_text(encoding="utf-8")
     return render_template(
-        "carry_agreement.html",
+        "terms_unblock.html",
         user=user,
-        agreement=None,
         terms_token=token,
-        unblock_mode=True,
+        terms_content=terms_content,
     )
 
 
@@ -703,7 +708,14 @@ def home():
     warning_presets = get_premade_warning_reasons()
     warning_builder = get_warning_builder()
     warning_records = get_all_warnings()
-    generated_unblock_link = session.pop("generated_unblock_link", None)
+    generated_unblock_link = session.get("generated_unblock_link")
+    active_unblock_links = [
+        {
+            **entry,
+            "url": external_url("terms_unblock", token=entry["token"]),
+        }
+        for entry in get_active_terms_unblock_tokens()
+    ]
     access_settings = get_access_settings()
 
     allowed_users = []
@@ -878,6 +890,7 @@ def home():
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         globally_blocked_users=get_globally_blocked_users(),
         generated_unblock_link=generated_unblock_link,
+        active_unblock_links=active_unblock_links,
     )
 
 

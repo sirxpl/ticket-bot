@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Switch Discord Account — Carry Ticket Bot</title>
+<style>
+:root{--bg:#0b0c12;--surface:#14151f;--border:#25273a;--text:#eef0f7;--muted:#a8abc0;--accent:#ffc93c;--danger:#ed6472}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#202039 0,#0b0c12 52%);color:var(--text);font:16px/1.6 Inter,system-ui,sans-serif;padding:24px}
+.card{width:min(560px,100%);background:rgba(20,21,31,.96);border:1px solid var(--border);border-radius:16px;padding:34px;box-shadow:0 24px 80px #0008}
+.icon{font-size:38px;margin-bottom:10px}h1{font-size:30px;line-height:1.2;margin:0 0 12px}p{color:var(--muted);margin:10px 0}.notice{margin:22px 0;padding:15px 16px;border-left:3px solid var(--accent);background:#211f2b;border-radius:8px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}a{display:inline-flex;justify-content:center;align-items:center;padding:12px 17px;border-radius:8px;text-decoration:none;font-weight:700}.primary{background:var(--accent);color:#0b0c12}.secondary{border:1px solid var(--border);color:var(--text);background:#1c1e2c}
+.small{font-size:13px;color:#777b95;margin-top:20px}
+</style>
+</head>
+<body>
+<main class="card">
+<div class="icon">🔐</div>
+<h1>Switch Discord account</h1>
+<p>This terms link was generated for a different Discord account.</p>
+<div class="notice">Please log out of the current account and sign in with the Discord account that received this link. The link will remain available while you switch accounts.</div>
+<div class="actions">
+    <a class="primary" href="{{ url_for('terms_unblock_switch_account', token=token) }}">Switch to a different account</a>
+    <a class="secondary" href="{{ url_for('logout') }}">Log out</a>
+</div>
+<p class="small">For security, only the intended Discord account can accept these terms and remove its block.</p>
+</main>
+</body>
+</html>
