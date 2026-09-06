@@ -16,7 +16,8 @@ from flask import (
     session, 
     url_for, 
     jsonify, 
-    send_from_directory
+    send_from_directory,
+    abort
 )
 from requests_oauthlib import OAuth2Session
 
@@ -71,6 +72,28 @@ def login_required(f):
         if not session.get("user"):
             flash("🔒 Please log in with Discord to access the dashboard.", "warning")
             return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def configured_admin_ids():
+    """Return Discord user IDs configured for admin-panel access."""
+    raw_ids = os.getenv("ADMIN_USER_IDS", "")
+    return {
+        user_id.strip()
+        for user_id in raw_ids.split(",")
+        if user_id.strip()
+    }
+
+
+def admin_required(f):
+    """Require a logged-in user whose ID is explicitly configured as an admin."""
+    @wraps(f)
+    @login_required
+    def decorated_function(*args, **kwargs):
+        user = session.get("user") or {}
+        if str(user.get("id", "")) not in configured_admin_ids():
+            abort(403)
         return f(*args, **kwargs)
     return decorated_function
 
@@ -152,6 +175,16 @@ def logout():
     session.clear()
     flash("Logged out successfully.", "info")
     return redirect(url_for('home'))
+
+
+@app.route("/admin")
+@admin_required
+def admin_panel():
+    return render_template(
+        "admin_panel.html",
+        user=session.get("user"),
+        admin_ids=sorted(configured_admin_ids()),
+    )
 
 
 @app.route("/dashboard/toggle-tickets", methods=["POST"])
