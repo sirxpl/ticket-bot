@@ -329,3 +329,281 @@ def verify_transcript_token(token):
 def generate_transcript_url(filename,expires_seconds=3600):
     base=get_dashboard_base_url()
     return f"{base}/transcripts/{filename}?token={generate_transcript_token(filename,expires_seconds)}" if base else ""
+
+# --- Moderation warnings ---
+
+WARNINGS_FILE = os.path.join(DATA_DIR, "warnings.json")
+
+
+def _warning_now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _warning_default_data() -> dict:
+    return {
+        "case_counter": 0,
+        "warnings": [],
+        "premade_reasons": [],
+    }
+
+
+def _get_warnings_data() -> dict:
+    db = get_db()
+
+    if db is not None:
+        try:
+            document = db.moderation_warnings.find_one({"_id": "singleton"})
+
+            if not document:
+                document = {"_id": "singleton", **_warning_default_data()}
+                db.moderation_warnings.insert_one(dict(document))
+
+            document.setdefault("case_counter", 0)
+            document.setdefault("warnings", [])
+            document.setdefault("premade_reasons", [])
+            return document
+        except Exception:
+            logger.exception("moderation warnings Mongo read failed")
+
+    if not os.path.exists(WARNINGS_FILE):
+        data = _warning_default_data()
+        with open(WARNINGS_FILE, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+        return data
+
+    try:
+        with open(WARNINGS_FILE, encoding="utf-8") as file:
+            data = json.load(file)
+
+        data.setdefault("case_counter", 0)
+        data.setdefault("warnings", [])
+        data.setdefault("premade_reasons", [])
+        return data
+    except Exception:
+        logger.exception("moderation warnings JSON read failed")
+        return _warning_default_data()
+
+
+def _save_warnings_data(data: dict) -> bool:
+    db = get_db()
+
+    if db is not None:
+        try:
+            document = dict(data)
+            document["_id"] = "singleton"
+            db.moderation_warnings.replace_one(
+                {"_id": "singleton"},
+                document,
+                upsert=True,
+            )
+            return True
+        except Exception:
+            logger.exception("moderation warnings Mongo write failed")
+            return False
+
+    try:
+        with open(WARNINGS_FILE, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+        return True
+    except Exception:
+        logger.exception("moderation warnings JSON write failed")
+        return False
+
+
+def _next_warning_case_id(data: dict) -> str:
+    data["case_counter"] = int(data.get("case_counter", 0)) + 1
+    return f"W-{data['case_counter']:05d}"
+
+
+def add_warning(
+    user_id,
+    username,
+    tier,
+    reason,
+    issued_by_id,
+    issued_by_name,
+) -> dict:
+    """Create one immutable moderation-warning record.
+
+    `tier` is the visible W1/W2/W3 severity. `case_id` is a separate,
+    permanent internal identifier so two W1 warnings can still be revoked
+    independently and old audit references remain valid.
+    """
+    data = _get_warnings_data()
+
+    warning = {
+        "case_id": _next_warning_case_id(data),
+        "user_id": str(user_id),
+        "username": str(username or user_id),
+        "tier": str(tier).upper(),
+        "reason": str(reason).strip(),
+        "issued_by_id": str(issued_by_id),
+        "issued_by_name": str(issued_by_name or issued_by_id),
+        "issued_at": _warning_now(),
+        "status": "active",
+        "revoked": False,
+        "revoked_at": None,
+        "revoked_by_id": None,
+        "revoked_by_name": None,
+        "revoke_reason": None,
+    }
+
+    data.setdefault("warnings", []).append(warning)
+    _save_warnings_data(data)
+    return warning
+
+
+def get_all_warnings() -> list[dict]:
+    """Return all warnings, newest first, including revoked records."""
+    data = _get_warnings_data()
+    warnings = list(data.get("warnings", []))
+    warnings.sort(key=lambda item: item.get("issued_at", ""), reverse=True)
+    return warnings
+
+
+def get_warnings_for_user(user_id, include_revoked=True) -> list[dict]:
+    """Return a user's warning records, newest first."""
+    user_id = str(user_id)
+
+    warnings = [
+        warning
+        for warning in get_all_warnings()
+        if str(warning.get("user_id")) == user_id
+    ]
+
+    if not include_revoked:
+        warnings = [
+            warning
+            for warning in warnings
+            if warning.get("status") == "active" and not warning.get("revoked")
+        ]
+
+    return warnings
+
+
+def get_active_warnings_for_user(user_id) -> list[dict]:
+    """Return only warnings that may still be selected by `/unwarn`."""
+    return get_warnings_for_user(user_id, include_revoked=False)
+
+
+def revoke_warning(
+    case_id,
+    user_id,
+    revoked_by_id,
+    revoked_by_name,
+    revoke_reason,
+) -> dict | None:
+    """Mark one active warning revoked without deleting its history."""
+    wanted_case_id = str(case_id)
+    wanted_user_id = str(user_id)
+    data = _get_warnings_data()
+
+    for warning in data.get("warnings", []):
+        if str(warning.get("case_id")) != wanted_case_id:
+            continue
+
+        if str(warning.get("user_id")) != wanted_user_id:
+            return None
+
+        if warning.get("status") != "active" or warning.get("revoked"):
+            return None
+
+        warning.update(
+            {
+                "status": "revoked",
+                "revoked": True,
+                "revoked_at": _warning_now(),
+                "revoked_by_id": str(revoked_by_id),
+                "revoked_by_name": str(revoked_by_name or revoked_by_id),
+                "revoke_reason": str(revoke_reason).strip(),
+            }
+        )
+
+        _save_warnings_data(data)
+        return dict(warning)
+
+    return None
+
+
+def get_premade_warning_reasons() -> list[dict]:
+    """Return configured warning reason presets in dashboard order."""
+    data = _get_warnings_data()
+    return list(data.get("premade_reasons", []))
+
+
+def add_premade_warning_reason(name, reason) -> dict:
+    """Add a reusable warning-reason preset."""
+    preset_name = str(name or "").strip()
+    preset_reason = str(reason or "").strip()
+
+    if not preset_name or not preset_reason:
+        raise ValueError("Both a preset name and reason text are required.")
+
+    data = _get_warnings_data()
+    presets = data.setdefault("premade_reasons", [])
+
+    used_ids = {int(item.get("id", 0)) for item in presets}
+    new_id = 1
+    while new_id in used_ids:
+        new_id += 1
+
+    preset = {
+        "id": new_id,
+        "name": preset_name[:100],
+        "reason": preset_reason[:500],
+        "created_at": _warning_now(),
+    }
+
+    presets.append(preset)
+    _save_warnings_data(data)
+    return preset
+
+
+def update_premade_warning_reason(preset_id, name, reason) -> dict | None:
+    """Update one existing warning-reason preset."""
+    try:
+        preset_id = int(preset_id)
+    except (TypeError, ValueError):
+        return None
+
+    preset_name = str(name or "").strip()
+    preset_reason = str(reason or "").strip()
+
+    if not preset_name or not preset_reason:
+        return None
+
+    data = _get_warnings_data()
+
+    for preset in data.get("premade_reasons", []):
+        if int(preset.get("id", 0)) != preset_id:
+            continue
+
+        preset["name"] = preset_name[:100]
+        preset["reason"] = preset_reason[:500]
+        preset["updated_at"] = _warning_now()
+        _save_warnings_data(data)
+        return dict(preset)
+
+    return None
+
+
+def remove_premade_warning_reason(preset_id) -> bool:
+    """Delete a preset without changing reasons already saved on warnings."""
+    try:
+        preset_id = int(preset_id)
+    except (TypeError, ValueError):
+        return False
+
+    data = _get_warnings_data()
+    before = len(data.get("premade_reasons", []))
+
+    data["premade_reasons"] = [
+        preset
+        for preset in data.get("premade_reasons", [])
+        if int(preset.get("id", 0)) != preset_id
+    ]
+
+    if len(data["premade_reasons"]) == before:
+        return False
+
+    return _save_warnings_data(data)
