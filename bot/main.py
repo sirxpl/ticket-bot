@@ -429,8 +429,11 @@ def terms_unblock(token):
         return redirect(url_for("login"))
     if str(user.get("id")) != str(token_data["user_id"]):
         return (
-            "This link was generated for a different Discord account. "
-            "Log out and authenticate with the intended account.",
+            "<h1>Different Discord account</h1>"
+            "<p>This link was generated for a different Discord account. "
+            "Switch accounts, then authenticate with the intended account.</p>"
+            f"<p><a href=\"{url_for('terms_unblock_switch_account', token=token)}\">"
+            "Switch Discord account</a></p>",
             403,
         )
     return render_template(
@@ -440,6 +443,15 @@ def terms_unblock(token):
         terms_token=token,
         unblock_mode=True,
     )
+
+
+@app.route("/terms/unblock/<token>/switch-account")
+def terms_unblock_switch_account(token):
+    if not get_terms_unblock_token(token):
+        return "This terms link is invalid, expired, or already used.", 410
+    session.clear()
+    session["terms_unblock_token"] = token
+    return redirect(url_for("login"))
 
 
 @app.route("/terms/unblock/<token>/accept", methods=["POST"])
