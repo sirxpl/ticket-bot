@@ -429,8 +429,11 @@ def terms_unblock(token):
         return redirect(url_for("login"))
     if str(user.get("id")) != str(token_data["user_id"]):
         return (
-            "This link was generated for a different Discord account. "
-            "Log out and authenticate with the intended account.",
+            "<h1>Different Discord account</h1>"
+            "<p>This link was generated for a different Discord account. "
+            "Switch accounts, then authenticate with the intended account.</p>"
+            f"<p><a href=\"{url_for('terms_unblock_switch_account', token=token)}\">"
+            "Switch Discord account</a></p>",
             403,
         )
     return render_template(
@@ -440,6 +443,15 @@ def terms_unblock(token):
         terms_token=token,
         unblock_mode=True,
     )
+
+
+@app.route("/terms/unblock/<token>/switch-account")
+def terms_unblock_switch_account(token):
+    if not get_terms_unblock_token(token):
+        return "This terms link is invalid, expired, or already used.", 410
+    session.clear()
+    session["terms_unblock_token"] = token
+    return redirect(url_for("login"))
 
 
 @app.route("/terms/unblock/<token>/accept", methods=["POST"])
@@ -691,6 +703,7 @@ def home():
     warning_presets = get_premade_warning_reasons()
     warning_builder = get_warning_builder()
     warning_records = get_all_warnings()
+    generated_unblock_link = session.pop("generated_unblock_link", None)
     access_settings = get_access_settings()
 
     allowed_users = []
@@ -864,6 +877,7 @@ def home():
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         globally_blocked_users=get_globally_blocked_users(),
+        generated_unblock_link=generated_unblock_link,
     )
 
 
@@ -1265,7 +1279,8 @@ def access_generate_unblock_link():
     try:
         token = create_unblock_terms_token(user_id)
         link = external_url("terms_unblock", token=token)
-        flash(f"Terms unblock link for {user_id}: {link}", "success")
+        session["generated_unblock_link"] = link
+        flash(f"Terms unblock link generated for {user_id}.", "success")
     except ValueError as error:
         flash(str(error), "danger")
     return redirect(url_for("home"))
