@@ -13,6 +13,7 @@ _DEFAULTS = {
     "allowed_roles": [],
     "log_channel_id": None,
     "blacklist_log_channel_id": None,
+    "warning_log_channel_id": None,
     "blacklist_roles": [],
     "carry_manager_roles": [],
     "ticket_viewer_roles": [],
@@ -60,6 +61,7 @@ def get_access_settings():
         doc.setdefault("allowed_roles", [])
         doc.setdefault("log_channel_id", None)
         doc.setdefault("blacklist_log_channel_id", None)
+        doc.setdefault("warning_log_channel_id", None)
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
         doc.setdefault("ticket_viewer_roles", [])
@@ -83,6 +85,7 @@ def get_access_settings():
         data.setdefault("allowed_roles", [])
         data.setdefault("log_channel_id", None)
         data.setdefault("blacklist_log_channel_id", None)
+        data.setdefault("warning_log_channel_id", None)
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])
         data.setdefault("ticket_viewer_roles", [])
@@ -570,6 +573,19 @@ def set_blacklist_log_channel(channel_id):
 
 def get_blacklist_log_channel_id():
     return get_access_settings().get("blacklist_log_channel_id")
+
+
+def set_warning_log_channel(channel_id):
+    """Separate log channel just for /w1, /w2, /w3, and /unwarn —
+    independent of the general ticket activity log and blacklist log
+    channels above."""
+    data = get_access_settings()
+    data["warning_log_channel_id"] = str(channel_id) if channel_id else None
+    _save(data)
+
+
+def get_warning_log_channel_id():
+    return get_access_settings().get("warning_log_channel_id")
 
 
 def has_dashboard_access(user_id: str, member_role_ids=None) -> bool:
