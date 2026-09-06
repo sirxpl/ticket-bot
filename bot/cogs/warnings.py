@@ -14,6 +14,9 @@ from utils.storage import (
 )
 
 
+PRESET_PREFIX = "__preset__:"
+
+
 WARNING_TIERS = {
     "W1": {
         "color": discord.Color.yellow(),
@@ -55,6 +58,31 @@ class WarningsCog(commands.Cog):
         )
         return True
 
+    def _resolve_reason(self, submitted_reason: str) -> str | None:
+        """Resolve a selected preset ID to full stored text.
+
+        A normal manually typed reason passes through unchanged. A selected
+        autocomplete value starts with PRESET_PREFIX and is looked up here.
+        """
+        value = (submitted_reason or "").strip()
+
+        if not value.startswith(PRESET_PREFIX):
+            return value or None
+
+        preset_id_text = value.removeprefix(PRESET_PREFIX)
+
+        try:
+            preset_id = int(preset_id_text)
+        except ValueError:
+            return None
+
+        for preset in get_premade_warning_reasons():
+            if int(preset.get("id", 0)) == preset_id:
+                full_reason = str(preset.get("reason") or "").strip()
+                return full_reason or None
+
+        return None
+
     async def reason_autocomplete(
         self,
         interaction: discord.Interaction,
@@ -64,21 +92,25 @@ class WarningsCog(commands.Cog):
         choices: list[app_commands.Choice[str]] = []
 
         for preset in get_premade_warning_reasons():
+            preset_id = preset.get("id")
             label = (preset.get("name") or "Unnamed preset").strip()
             reason_text = (preset.get("reason") or "").strip()
 
-            if not reason_text:
+            if not preset_id or not reason_text:
                 continue
 
             searchable = f"{label} {reason_text}".lower()
             if query and query not in searchable:
                 continue
 
-            choice_name = label[:100]
+            preview = reason_text.replace("\n", " ").strip()
+            display = f"{label} — {preview}"
+            choice_name = display[:100]
+
             choices.append(
                 app_commands.Choice(
                     name=choice_name,
-                    value=reason_text[:100],
+                    value=f"{PRESET_PREFIX}{preset_id}",
                 )
             )
 
@@ -144,10 +176,10 @@ class WarningsCog(commands.Cog):
         if await self._deny_if_no_access(interaction):
             return
 
-        final_reason = (reason or "").strip()
+        final_reason = self._resolve_reason(reason)
         if not final_reason:
             await interaction.response.send_message(
-                "❌ A warning reason is required.",
+                "❌ A valid warning reason is required.",
                 ephemeral=True,
             )
             return
@@ -168,9 +200,19 @@ class WarningsCog(commands.Cog):
             color=config["color"],
             timestamp=datetime.datetime.now(datetime.timezone.utc),
         )
-        embed.add_field(name="User", value=f"{user.mention}\nID: `{user.id}`")
-        embed.add_field(name="Warning", value=f"{tier} · Case `{warning['case_id']}`")
-        embed.add_field(name="Reason", value=final_reason, inline=False)
+        embed.add_field(
+            name="User",
+            value=f"{user.mention}\nID: `{user.id}`",
+        )
+        embed.add_field(
+            name="Warning",
+            value=f"{tier} · Case `{warning['case_id']}`",
+        )
+        embed.add_field(
+            name="Reason",
+            value=final_reason[:1024],
+            inline=False,
+        )
         embed.add_field(
             name="Issued by",
             value=f"{interaction.user.mention}\nID: `{interaction.user.id}`",
@@ -280,7 +322,10 @@ class WarningsCog(commands.Cog):
             color=discord.Color.green(),
             timestamp=datetime.datetime.now(datetime.timezone.utc),
         )
-        embed.add_field(name="User", value=f"{user.mention}\nID: `{user.id}`")
+        embed.add_field(
+            name="User",
+            value=f"{user.mention}\nID: `{user.id}`",
+        )
         embed.add_field(
             name="Revoked warning",
             value=(
@@ -290,7 +335,9 @@ class WarningsCog(commands.Cog):
         )
         embed.add_field(
             name="Original reason",
-            value=revoked_warning.get("reason", "No reason provided."),
+            value=str(
+                revoked_warning.get("reason", "No reason provided.")
+            )[:1024],
             inline=False,
         )
         embed.add_field(
@@ -303,7 +350,7 @@ class WarningsCog(commands.Cog):
         )
         embed.add_field(
             name="Revocation reason",
-            value=revoke_reason,
+            value=revoke_reason[:1024],
             inline=False,
         )
         embed.set_footer(text="Moderation warning audit record")
