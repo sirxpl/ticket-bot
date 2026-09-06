@@ -1528,13 +1528,47 @@
         <h3><span class="card-icon">📋</span> Saved Presets</h3>
 
         {% for preset in warning_presets %}
-        <div class="list-item">
-            <div>
-                <strong>{{ preset.name }}</strong>
-                <div style="color:var(--text-dim); font-size:0.9em; margin-top:4px;">
-                    {{ preset.reason }}
+        <div class="list-item" style="flex-direction:column; align-items:stretch; gap:10px;">
+            <div id="preset-view-{{ preset.id }}" style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                <div>
+                    <strong>{{ preset.name }}</strong>
+                    <div style="color:var(--text-dim); font-size:0.9em; margin-top:4px; white-space:pre-wrap;">
+                        {{ preset.reason }}
+                    </div>
+                </div>
+                <div style="display:flex; gap:6px; flex-shrink:0;">
+                    <button type="button" class="btn-view" onclick="document.getElementById('preset-view-{{ preset.id }}').style.display='none'; document.getElementById('preset-edit-{{ preset.id }}').style.display='block';">Edit</button>
+                    <form action="{{ url_for('delete_warning_preset_route', preset_id=preset.id) }}" method="POST" onsubmit="return confirm('Delete this warning preset? This does not affect warnings already issued with it.');" style="margin:0;">
+                        <button type="submit" class="btn-danger">Delete</button>
+                    </form>
                 </div>
             </div>
+
+            <form id="preset-edit-{{ preset.id }}" action="{{ url_for('edit_warning_preset_route', preset_id=preset.id) }}" method="POST" style="display:none;">
+                <label for="warning-preset-name-{{ preset.id }}">Preset label</label>
+                <input
+                    id="warning-preset-name-{{ preset.id }}"
+                    name="name"
+                    type="text"
+                    maxlength="100"
+                    required
+                    value="{{ preset.name }}"
+                >
+
+                <label for="warning-preset-reason-{{ preset.id }}">Full warning reason</label>
+                <textarea
+                    id="warning-preset-reason-{{ preset.id }}"
+                    name="reason"
+                    rows="4"
+                    maxlength="500"
+                    required
+                >{{ preset.reason }}</textarea>
+
+                <div style="display:flex; gap:6px;">
+                    <button type="submit" class="btn-submit" style="width:auto;">Save Changes</button>
+                    <button type="button" class="btn-view" onclick="document.getElementById('preset-edit-{{ preset.id }}').style.display='none'; document.getElementById('preset-view-{{ preset.id }}').style.display='flex';">Cancel</button>
+                </div>
+            </form>
         </div>
         {% else %}
         <p style="color:var(--text-dim);">
@@ -1951,6 +1985,21 @@
                         <option value="">None (disabled)</option>
                         {% for channel in channels %}
                             <option value="{{ channel.id }}" {% if blacklist_log_channel_id and blacklist_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            <h4 style="margin-top: 20px;">Warning Log Channel</h4>
+            <p class="card-subtitle">Separate from the channels above — only /w1, /w2, /w3, and /unwarn post here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-warning-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="warning_log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if warning_log_channel_id and warning_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
