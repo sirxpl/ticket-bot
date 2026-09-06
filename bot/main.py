@@ -4,6 +4,7 @@ import json
 import re
 import asyncio
 import time
+from pathlib import Path
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -437,12 +438,13 @@ def terms_unblock(token):
             "Switch Discord account</a></p>",
             403,
         )
+    terms_path = Path(__file__).resolve().parent.parent / "docs" / "terms_and_conditions.txt"
+    terms_content = terms_path.read_text(encoding="utf-8")
     return render_template(
-        "carry_agreement.html",
+        "terms_unblock.html",
         user=user,
-        agreement=None,
         terms_token=token,
-        unblock_mode=True,
+        terms_content=terms_content,
     )
 
 

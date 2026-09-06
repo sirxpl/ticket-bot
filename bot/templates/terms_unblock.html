@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Terms and Conditions — Carry Ticket Bot</title>
+<style>
+:root{--bg:#0b0c12;--surface:#14151f;--border:#25273a;--text:#eef0f7;--muted:#a8abc0;--accent:#ffc93c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.7 Inter,system-ui,sans-serif}
+main{max-width:900px;margin:0 auto;padding:40px 22px 90px}h1{font-size:34px;line-height:1.2}h2{margin-top:34px;color:var(--accent);font-size:21px}
+.terms{white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;color:var(--muted);max-height:62vh;overflow:auto}
+.agreement{margin-top:24px;padding:22px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+label{display:flex;gap:12px;align-items:flex-start}input{width:19px;height:19px;margin-top:5px}button{margin-top:18px;padding:12px 18px;border:0;border-radius:8px;background:var(--accent);font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}
+.notice{padding:12px 14px;border-left:3px solid var(--accent);background:#1e1d29;margin-bottom:18px}
+</style>
+</head>
+<body>
+<main>
+<h1>Terms and Conditions</h1>
+<div class="notice">Your Discord account is currently blocked. Read these Terms and Conditions carefully. Accepting them will automatically remove the block from your account.</div>
+<div class="terms">{{ terms_content }}</div>
+<div class="agreement">
+<form method="POST" action="{{ url_for('accept_terms_unblock', token=terms_token) }}" id="terms-form">
+<label><input id="terms-check" type="checkbox" required><span>I have read, understood, and agree to be bound by these Terms and Conditions.</span></label>
+<button id="terms-submit" type="submit" disabled>Accept Terms and Unblock Account</button>
+</form>
+</div>
+</main>
+<script>
+const check=document.getElementById('terms-check');
+const submit=document.getElementById('terms-submit');
+check.addEventListener('change',()=>{submit.disabled=!check.checked;});
+</script>
+</body>
+</html>
