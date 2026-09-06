@@ -51,6 +51,9 @@ from utils.storage import (
     get_trial_schedule_settings,
     save_trial_schedule_settings,
     get_premade_warning_reasons,
+    add_premade_warning_reason,
+    update_premade_warning_reason,
+    remove_premade_warning_reason,
 )
 
 # Import access-control helpers
@@ -830,6 +833,49 @@ def logout():
     flash("Logged out successfully.", "info")
     return redirect(url_for('home'))
 
+@app.route("/dashboard/warnings/add-preset", methods=["POST"])
+@admin_required
+def add_warning_preset_route():
+    name = request.form.get("name", "").strip()
+    reason = request.form.get("reason", "").strip()
+
+    try:
+        add_premade_warning_reason(name, reason)
+        flash("Warning preset added.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Failed to add warning preset")
+        flash("Could not add the warning preset.", "danger")
+
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/warnings/edit-preset/<int:preset_id>", methods=["POST"])
+@admin_required
+def edit_warning_preset_route(preset_id):
+    name = request.form.get("name", "").strip()
+    reason = request.form.get("reason", "").strip()
+
+    preset = update_premade_warning_reason(preset_id, name, reason)
+
+    if preset:
+        flash("Warning preset updated.", "success")
+    else:
+        flash("Could not update that warning preset.", "danger")
+
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/warnings/delete-preset/<int:preset_id>", methods=["POST"])
+@admin_required
+def delete_warning_preset_route(preset_id):
+    if remove_premade_warning_reason(preset_id):
+        flash("Warning preset deleted.", "success")
+    else:
+        flash("Could not find that warning preset.", "danger")
+
+    return redirect(url_for("home"))
 
 @app.route("/dashboard/toggle-tickets", methods=["POST"])
 @carry_manager_required
