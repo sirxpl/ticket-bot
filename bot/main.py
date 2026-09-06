@@ -90,6 +90,7 @@ from utils.access import (
     remove_analytics_role,
     set_log_channel,
     set_blacklist_log_channel,
+    set_warning_log_channel,
     has_dashboard_access,
     has_carry_manager_access,
     has_transcripts_access,
@@ -758,7 +759,8 @@ def home():
         trial_schedule=get_trial_schedule_settings(),
         warning_presets=warning_presets,
         log_channel_id=access_settings.get("log_channel_id"),
-        blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id")
+        blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
+        warning_log_channel_id=access_settings.get("warning_log_channel_id")
     )
 
 
@@ -1490,6 +1492,15 @@ def access_set_blacklist_log_channel():
     channel_id = request.form.get("blacklist_log_channel_id", "").strip()
     set_blacklist_log_channel(channel_id or None)
     flash("✅ Blacklist log channel updated.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/set-warning-log-channel", methods=["POST"])
+@admin_required
+def access_set_warning_log_channel():
+    channel_id = request.form.get("warning_log_channel_id", "").strip()
+    set_warning_log_channel(channel_id or None)
+    flash("✅ Warning log channel updated.", "success")
     return redirect(url_for("home"))
 
 
