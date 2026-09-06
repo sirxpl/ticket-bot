@@ -50,6 +50,7 @@ from utils.storage import (
     get_ticket_analytics,
     get_trial_schedule_settings,
     save_trial_schedule_settings,
+    get_premade_warning_reasons,
 )
 
 # Import access-control helpers
@@ -596,6 +597,7 @@ def home():
     tickets_info = get_tickets_data()
     blacklist_info = get_blacklist_data()
     settings = get_settings()
+    warning_presets = get_premade_warning_reasons()
     access_settings = get_access_settings()
 
     allowed_users = []
@@ -738,6 +740,7 @@ def home():
         redirect_message=get_redirect_message(),
         welcome_message=get_welcome_message(),
         trial_schedule=get_trial_schedule_settings(),
+        warning_presets=warning_presets,
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id")
     )
