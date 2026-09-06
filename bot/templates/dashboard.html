@@ -1730,6 +1730,28 @@
                 Add a user ID or role below to let them view this dashboard. While this list is empty, anyone who logs in with Discord can see it — once you add someone, only matching users/roles get in.
             </p>
 
+            <h4 style="margin-top: 24px;">Global Blocked Users</h4>
+            <p class="card-subtitle">
+                These Discord user IDs cannot use slash commands or this dashboard. Use this for privacy-policy or platform-policy violations.
+            </p>
+            <form action="/dashboard/access/add-global-block" method="POST" class="access-form">
+                <div>
+                    <label>Discord User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
+                </div>
+                <button type="submit" class="btn-danger">Block User</button>
+            </form>
+            {% for blocked_id in globally_blocked_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ blocked_id }}</span>
+                    <form action="/dashboard/access/remove-global-block/{{ blocked_id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-view">Unblock</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color:var(--text-dim);">No globally blocked users.</p>
+            {% endfor %}
+
             <h4 style="margin-top: 20px;">Allowed Users</h4>
             <form action="/dashboard/access/add-user" method="POST" class="access-form">
                 <div>

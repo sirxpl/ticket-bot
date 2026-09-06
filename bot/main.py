@@ -100,6 +100,10 @@ from utils.access import (
     has_remove_cooldown_access,
     has_analytics_access,
     is_admin,
+    is_globally_blocked,
+    get_globally_blocked_users,
+    add_globally_blocked_user,
+    remove_globally_blocked_user,
 )
 
 # Environment & OAuth Setup
@@ -173,7 +177,22 @@ intents = discord.Intents.default()
 # both the moment the intents review is approved.
 intents.message_content = False
 intents.members = False
-bot = commands.Bot(command_prefix="!", intents=intents)
+class GlobalCommandTree(discord.app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if is_globally_blocked(interaction.user.id):
+            await interaction.response.send_message(
+                "⛔ Your account is blocked from using this bot.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    tree_cls=GlobalCommandTree,
+)
 
 # Tracks when the bot last became ready, used by the public /status page and
 # /api/status JSON endpoint below. None means it hasn't connected yet since
@@ -291,6 +310,10 @@ def access_required(f):
         if not user_data:
             flash("🔒 Please log in with Discord to access the dashboard.", "warning")
             return redirect(url_for("login"))
+        if is_globally_blocked(user_data["id"]):
+            flash("⛔ Your account is blocked from using this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
         role_ids = get_member_role_ids(user_data["id"])
         if not has_dashboard_access(user_data["id"], role_ids):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
@@ -309,6 +332,10 @@ def carry_manager_required(f):
         if not user_data:
             flash("🔒 Please log in with Discord to access the dashboard.", "warning")
             return redirect(url_for("login"))
+        if is_globally_blocked(user_data["id"]):
+            flash("⛔ Your account is blocked from using this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
         role_ids = get_member_role_ids(user_data["id"])
         if not has_dashboard_access(user_data["id"], role_ids):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
@@ -351,6 +378,10 @@ def admin_required(f):
         if not user_data:
             flash("🔒 Please log in with Discord to access the dashboard.", "warning")
             return redirect(url_for("login"))
+        if is_globally_blocked(user_data["id"]):
+            flash("⛔ Your account is blocked from using this dashboard.", "danger")
+            session.pop("user", None)
+            return redirect(url_for("home"))
         role_ids = get_member_role_ids(user_data["id"])
         if not has_dashboard_access(user_data["id"], role_ids):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
@@ -595,6 +626,11 @@ def home():
     if not user_data:
         return render_template("dashboard.html", user=None, panel_draft={}, redirect_message={"content": ""}, welcome_message={})
 
+    if is_globally_blocked(user_data["id"]):
+        flash("⛔ Your account is blocked from using this dashboard.", "danger")
+        session.pop("user", None)
+        return redirect(url_for("home"))
+
     role_ids = get_member_role_ids(user_data["id"])
     if not has_dashboard_access(user_data["id"], role_ids):
         flash("⛔ You don't have permission to view this dashboard. Ask an admin to add your user ID or role in Access Control.", "danger")
@@ -783,7 +819,8 @@ def home():
         warning_records=warning_records,
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
-        warning_log_channel_id=access_settings.get("warning_log_channel_id")
+        warning_log_channel_id=access_settings.get("warning_log_channel_id"),
+        globally_blocked_users=get_globally_blocked_users(),
     )
 
 
@@ -1151,6 +1188,27 @@ def access_add_user():
         flash("✅ User added to the dashboard allow-list.", "success")
     else:
         flash("❌ Please enter a valid numeric Discord user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-global-block", methods=["POST"])
+@admin_required
+def access_add_global_block():
+    user_id = request.form.get("user_id", "").strip()
+    if add_globally_blocked_user(user_id):
+        flash("✅ User globally blocked from slash commands and dashboard access.", "success")
+    else:
+        flash("❌ Enter a valid, non-duplicate numeric Discord user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-global-block/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_global_block(user_id):
+    if remove_globally_blocked_user(user_id):
+        flash("✅ Global block removed.", "success")
+    else:
+        flash("❌ That user is not globally blocked.", "danger")
     return redirect(url_for("home"))
 
 
