@@ -10,6 +10,7 @@ from utils.storage import (
     add_warning,
     get_all_warnings,
     get_active_warnings_for_user,
+    get_warnings_for_user,
     get_premade_warning_reasons,
     get_warning_builder,
     revoke_warning,
@@ -428,6 +429,37 @@ class WarningsCog(commands.Cog):
             )
             return
 
+        role_status = None
+        role_id = revoked_warning.get("role_id")
+        if role_id and interaction.guild:
+            # Keep a shared tier role while another active warning still uses it.
+            active_warnings = get_warnings_for_user(user.id, include_revoked=False)
+            role_still_needed = any(
+                str(item.get("case_id")) != str(revoked_warning.get("case_id"))
+                and str(item.get("role_id")) == str(role_id)
+                for item in active_warnings
+            )
+            try:
+                role = interaction.guild.get_role(int(role_id))
+            except (TypeError, ValueError):
+                role = None
+
+            if role_still_needed:
+                role_status = f"Kept {role.mention if role else 'the warning role'} because another active warning uses it."
+            elif role and role in user.roles:
+                try:
+                    await user.remove_roles(
+                        role,
+                        reason=f"Warning {revoked_warning.get('case_id')} revoked by {interaction.user}",
+                    )
+                    role_status = f"Removed {role.mention}"
+                except (discord.Forbidden, discord.HTTPException):
+                    role_status = "Could not remove the warning role; check bot permissions and role hierarchy."
+            elif role:
+                role_status = f"{role.mention} was already removed."
+            else:
+                role_status = "The warning role no longer exists."
+
         embed = discord.Embed(
             title="✅ Warning Revoked",
             description="One specific warning has been marked as revoked.",
@@ -465,6 +497,8 @@ class WarningsCog(commands.Cog):
             value=revoke_reason[:1024],
             inline=False,
         )
+        if role_status:
+            embed.add_field(name="Role", value=role_status, inline=False)
         embed.set_footer(text="Moderation warning audit record")
 
         await interaction.response.send_message(embed=embed)
