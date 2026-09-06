@@ -1000,14 +1000,6 @@
 
             <div class="nav-group">
                 <div class="nav-group-label">Tickets</div>
-                {% if can_access_carry_settings %}
-                <button type="button" class="nav-item" data-page="carry-settings" onclick="showPage('carry-settings', this)">
-                    <span class="nav-icon">⚙️</span><span class="nav-text">Configuration</span>
-                </button>
-                <button type="button" class="nav-item" data-page="trial-schedules" onclick="showPage('trial-schedules', this)">
-                    <span class="nav-icon">🗓️</span><span class="nav-text">Trial Schedules</span>
-                </button>
-                {% endif %}
                 {% if can_access_transcripts %}
                 <button type="button" class="nav-item" data-page="transcripts" onclick="showPage('transcripts', this)">
                     <span class="nav-icon">📜</span><span class="nav-text">Transcripts</span>
@@ -1016,21 +1008,36 @@
             </div>
 
             <div class="nav-group">
-                <div class="nav-group-label">Server</div>
+                <div class="nav-group-label">Staffing</div>
                 <button type="button" class="nav-item" data-page="blacklist" onclick="showPage('blacklist', this)">
                     <span class="nav-icon">🚫</span><span class="nav-text">Blacklists</span>
                 </button>
                 {% if is_admin_user %}
-                <button type="button" class="nav-item" data-page="warnings" onclick="showPage('warnings', this)">
+                <button type="button" class="nav-item" data-page="warning-records" onclick="showPage('warning-records', this)">
                     <span class="nav-icon">⚠️</span><span class="nav-text">Warnings</span>
                 </button>
                 {% endif %}
-                {% if is_admin_user %}
+            </div>
+
+            {% if is_admin_user %}
+            <div class="nav-group">
+                <div class="nav-group-label">ADMIN PANEL</div>
+                {% if can_access_carry_settings %}
+                <button type="button" class="nav-item" data-page="carry-settings" onclick="showPage('carry-settings', this)">
+                    <span class="nav-icon">⚙️</span><span class="nav-text">Carry Manager Settings</span>
+                </button>
+                <button type="button" class="nav-item" data-page="trial-schedules" onclick="showPage('trial-schedules', this)">
+                    <span class="nav-icon">🗓️</span><span class="nav-text">Trial Schedules</span>
+                </button>
+                {% endif %}
+                <button type="button" class="nav-item" data-page="warnings" onclick="showPage('warnings', this)">
+                    <span class="nav-icon">⚠️</span><span class="nav-text">Warning Builder</span>
+                </button>
                 <button type="button" class="nav-item" data-page="access" onclick="showPage('access', this)">
                     <span class="nav-icon">🔐</span><span class="nav-text">Access Control</span>
                 </button>
-                {% endif %}
             </div>
+            {% endif %}
 
             <div class="nav-group">
                 <div class="nav-group-label">Site Links</div>
@@ -1180,7 +1187,7 @@
 
         <section class="page" id="page-carry-settings">
         <div class="page-head">
-            <h1>Tickets Configuration</h1>
+            <h1>Carry Manager Settings</h1>
             <p>Configure how the carry ticket system behaves in your server.</p>
         </div>
         {% if can_access_carry_settings %}
@@ -1447,11 +1454,14 @@
         </div>
         <div class="card">
             <h3><span class="card-icon">🚫</span> Blacklisted Users</h3>
+            <input type="search" class="table-search" data-filter-target="blacklist-users"
+                   placeholder="Search by user ID or username..." aria-label="Search blacklisted users">
+            <div id="blacklist-users">
             {% for b_user in blacklisted_users %}
                 {% set entry = b_user if b_user is mapping else {'user_id': b_user, 'reason': None, 'expires_ts': None} %}
-                <div class="list-item">
+                <div class="list-item searchable-row" data-search="{{ entry.user_id }} {{ entry.username or '' }}">
                     <div>
-                        <div><strong>User ID:</strong> {{ entry.user_id }}</div>
+                        <div><strong>{{ entry.username or 'Unknown user' }}</strong> <span style="color:var(--text-dim);">({{ entry.user_id }})</span></div>
                         <div style="color: var(--text-dim); font-size: 0.9em;">
                             <strong>Type:</strong> {{ (entry.blacklist_type or "regular")|title }} •
                             <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
@@ -1467,6 +1477,8 @@
             {% else %}
                 <p style="color: var(--text-dim);">No individually blacklisted users.</p>
             {% endfor %}
+            <p class="search-empty" style="display:none; color:var(--text-dim);">No blacklisted users match that search.</p>
+            </div>
 
             <h4 style="margin-top: 20px;">Blacklisted via Role</h4>
             <p class="card-subtitle">
@@ -1484,10 +1496,102 @@
          <!-- end of existing Blacklist page -->
 
         {% if is_admin_user %}
+        <section class="page" id="page-warning-records">
+        <div class="page-head">
+            <h1>Warnings</h1>
+            <p>Review warning cases issued to members by your moderation team.</p>
+        </div>
+        <div class="card">
+            <h3><span class="card-icon">⚠️</span> Warning Records</h3>
+            <input type="search" class="table-search" data-filter-target="warning-record-list"
+                   placeholder="Search by user, user ID, moderator, reason, or case ID..." aria-label="Search warning records">
+            <div id="warning-record-list">
+            {% for warning in warning_records %}
+                <div class="list-item searchable-row" data-search="{{ warning.username or '' }} {{ warning.user_id or '' }} {{ warning.issued_by_name or '' }} {{ warning.issued_by_id or '' }} {{ warning.reason or '' }} {{ warning.tier or '' }} {{ warning.case_id or '' }}">
+                    <div style="min-width:0;">
+                        <div>
+                            <strong>{{ warning.username or 'Unknown user' }}</strong>
+                            <span style="color:var(--text-dim);">({{ warning.user_id }})</span>
+                            <span class="badge" style="margin-left:6px;">{{ warning.tier or 'Warning' }}</span>
+                            {% if warning.status == 'revoked' or warning.revoked %}
+                                <span class="badge" style="margin-left:4px; background:var(--danger); color:white;">Revoked</span>
+                            {% else %}
+                                <span class="badge" style="margin-left:4px; background:var(--success); color:white;">Active</span>
+                            {% endif %}
+                        </div>
+                        <div style="color:var(--text-dim); font-size:0.9em; margin-top:5px; white-space:pre-wrap;">
+                            <strong>Reason:</strong> {{ warning.reason or 'No reason provided.' }}<br>
+                            <strong>Moderator:</strong> {{ warning.issued_by_name or 'Unknown moderator' }} ({{ warning.issued_by_id or '—' }})<br>
+                            <strong>Issued:</strong> <span class="local-time" data-ts="{{ warning.issued_at }}">{{ warning.issued_at or '—' }}</span>
+                            • <strong>Timeout expires:</strong>
+                            {% if warning.expires_at %}
+                                <span class="local-time" data-ts="{{ warning.expires_at }}">{{ warning.expires_at }}</span>
+                            {% else %}
+                                Not recorded
+                            {% endif %}
+                            • <strong>Role expires:</strong>
+                            {% if warning.role_expires_at %}
+                                <span class="local-time" data-ts="{{ warning.role_expires_at }}">{{ warning.role_expires_at }}</span>
+                            {% else %}
+                                No role expiry
+                            {% endif %}
+                            • <strong>Case:</strong> {{ warning.case_id or '—' }}
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <p style="color:var(--text-dim);">No warning records yet.</p>
+            {% endfor %}
+            <p class="search-empty" style="display:none; color:var(--text-dim);">No warning records match that search.</p>
+            </div>
+        </div>
+        </section>
+        {% endif %}
+
+        {% if is_admin_user %}
         <section class="page" id="page-warnings">
                 <div class="page-head">
-        <h1>Warning Presets</h1>
-        <p>Manage reusable reasons for Discord’s <code>/w1</code>, <code>/w2</code>, and <code>/w3</code> commands.</p>
+        <h1>Warning Builder</h1>
+        <p>Customize warning embeds, warning roles, and reusable reasons for Discord’s <code>/w1</code>, <code>/w2</code>, and <code>/w3</code> commands.</p>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">🧱</span> Warning Builder</h3>
+        <p class="card-subtitle">
+            Customize the warning embed and assign one Discord role to each warning tier.
+            Role assignment requires the bot's role to be above the selected role.
+        </p>
+        {% for tier in ["W1", "W2", "W3"] %}
+        {% set builder = warning_builder[tier] %}
+        <form action="{{ url_for('save_warning_builder_route', tier=tier) }}" method="POST" style="padding:16px 0; border-top:1px solid var(--border);">
+            <h4>{{ tier }}</h4>
+            <label for="warning-title-{{ tier }}">Embed title</label>
+            <input id="warning-title-{{ tier }}" name="title" maxlength="256" required value="{{ builder.title }}">
+
+            <label for="warning-description-{{ tier }}">Embed description</label>
+            <textarea id="warning-description-{{ tier }}" name="description" rows="3" maxlength="4096" required>{{ builder.description }}</textarea>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div>
+                    <label for="warning-color-{{ tier }}">Embed color</label>
+                    <input id="warning-color-{{ tier }}" name="color" type="text" maxlength="7" pattern="^#[0-9A-Fa-f]{6}$" placeholder="#5865F2" value="{{ builder.color }}" required>
+                </div>
+                <div>
+                    <label for="warning-role-{{ tier }}">Role to assign</label>
+                    <select id="warning-role-{{ tier }}" name="role_id">
+                        <option value="">No role</option>
+                        {% for role in roles|reverse %}
+                        <option value="{{ role.id }}" {% if builder.role_id and role.id|string == builder.role_id|string %}selected{% endif %}>@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <label for="warning-footer-{{ tier }}">Embed footer</label>
+            <input id="warning-footer-{{ tier }}" name="footer" maxlength="2048" value="{{ builder.footer }}">
+            <button type="submit" class="btn-submit" style="width:auto; margin-top:10px;">Save {{ tier }}</button>
+        </form>
+        {% endfor %}
     </div>
 
     <div class="card">
@@ -1587,11 +1691,14 @@
         {% if can_access_transcripts %}
         <div class="card">
             <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
+            <input type="search" class="table-search" data-filter-target="transcript-list"
+                   placeholder="Search by user ID, username, or ticket number..." aria-label="Search transcripts">
             <div style="background: var(--danger); color: white; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; font-weight: 600;">
                 ⚠️ Transcripts are currently saving without message text. The Message Content privileged intent is not enabled yet (pending Discord's verification review), so saved transcripts will only show attachments/embeds — no message content — until it's approved and turned on.
             </div>
+           <div id="transcript-list">
            {% for transcript in transcripts %}
-                <div class="list-item">
+                <div class="list-item searchable-row" data-search="{{ transcript.user_id or '' }} {{ transcript.username or '' }} {{ transcript.ticket_number or '' }}">
                     <div>
                         <div><strong>Ticket #{{ transcript.ticket_number or '—' }}</strong> • {{ transcript.username }}</div>
                     </div>
@@ -1600,6 +1707,8 @@
             {% else %}
                 <p style="color: var(--text-dim);">No transcripts saved yet.</p>
             {% endfor %}
+            <p class="search-empty" style="display:none; color:var(--text-dim);">No transcripts match that search.</p>
+            </div>
         </div>
         {% else %}
         <div class="card">
@@ -2118,6 +2227,27 @@ if (window.location.hash === '#analytics' || window.location.search.includes('an
 
 // --- GLOBAL FUNCTIONS ---
 let fieldCount = 0;
+
+document.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-filter-target]');
+    if (!input) return;
+
+    const container = document.getElementById(input.dataset.filterTarget);
+    if (!container) return;
+    const query = input.value.trim().toLowerCase();
+    const rows = container.querySelectorAll('.searchable-row');
+    let visible = 0;
+
+    rows.forEach((row) => {
+        const matches = !query || (row.dataset.search || '').toLowerCase().includes(query);
+        row.style.display = matches ? '' : 'flex';
+        if (!matches) row.style.display = 'none';
+        if (matches) visible++;
+    });
+
+    const empty = container.querySelector('.search-empty');
+    if (empty) empty.style.display = rows.length && visible === 0 ? 'block' : 'none';
+});
 
 function addField(name, value, inline) {
     fieldCount++;

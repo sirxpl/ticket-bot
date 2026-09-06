@@ -54,6 +54,9 @@ from utils.storage import (
     add_premade_warning_reason,
     update_premade_warning_reason,
     remove_premade_warning_reason,
+    get_warning_builder,
+    save_warning_builder,
+    get_all_warnings,
 )
 
 # Import access-control helpers
@@ -607,6 +610,8 @@ def home():
     blacklist_info = get_blacklist_data()
     settings = get_settings()
     warning_presets = get_premade_warning_reasons()
+    warning_builder = get_warning_builder()
+    warning_records = get_all_warnings()
     access_settings = get_access_settings()
 
     allowed_users = []
@@ -713,9 +718,25 @@ def home():
         cd["username"] = resolve_username(guild, cd.get("user_id"))
         cooldowns.append(cd)
 
-    transcripts = [
-        get_transcript_info(fn) for fn in list_transcript_filenames()
-    ]
+    transcripts = []
+    for filename in list_transcript_filenames():
+        transcript = get_transcript_info(filename)
+        if transcript:
+            transcripts.append(transcript)
+
+    blacklisted_users = []
+    for entry in blacklist_info.get("blacklisted_users", []):
+        if isinstance(entry, dict):
+            entry = dict(entry)
+            entry["username"] = resolve_username(guild, entry.get("user_id"))
+        else:
+            entry = {
+                "user_id": str(entry),
+                "username": resolve_username(guild, entry),
+                "reason": None,
+                "expires_ts": None,
+            }
+        blacklisted_users.append(entry)
 
     return render_template(
         "dashboard.html",
@@ -729,7 +750,7 @@ def home():
         active_tickets=active_tickets,
         transcripts=transcripts,
         cooldowns=cooldowns,
-        blacklisted_users=blacklist_info.get("blacklisted_users", []),
+        blacklisted_users=blacklisted_users,
         role_blacklisted_members=role_blacklisted_members,
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
@@ -758,6 +779,8 @@ def home():
         welcome_message=get_welcome_message(),
         trial_schedule=get_trial_schedule_settings(),
         warning_presets=warning_presets,
+        warning_builder=warning_builder,
+        warning_records=warning_records,
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id")
@@ -863,6 +886,27 @@ def add_warning_preset_route():
         app.logger.exception("Failed to add warning preset")
         flash("Could not add the warning preset.", "danger")
 
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/warnings/save-builder/<tier>", methods=["POST"])
+@admin_required
+def save_warning_builder_route(tier):
+    tier = str(tier).upper()
+    try:
+        save_warning_builder(tier, {
+            "title": request.form.get("title", ""),
+            "description": request.form.get("description", ""),
+            "color": request.form.get("color", ""),
+            "footer": request.form.get("footer", ""),
+            "role_id": request.form.get("role_id", ""),
+        })
+        flash(f"{tier} warning embed and role settings saved.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Failed to save warning builder settings")
+        flash("Could not save warning builder settings.", "danger")
     return redirect(url_for("home"))
 
 

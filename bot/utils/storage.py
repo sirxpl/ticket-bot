@@ -422,6 +422,9 @@ def add_warning(
     reason,
     issued_by_id,
     issued_by_name,
+    expires_at=None,
+    role_expires_at=None,
+    role_id=None,
 ) -> dict:
     """Create one immutable moderation-warning record.
 
@@ -440,6 +443,9 @@ def add_warning(
         "issued_by_id": str(issued_by_id),
         "issued_by_name": str(issued_by_name or issued_by_id),
         "issued_at": _warning_now(),
+        "expires_at": expires_at,
+        "role_expires_at": role_expires_at,
+        "role_id": str(role_id) if role_id else None,
         "status": "active",
         "revoked": False,
         "revoked_at": None,
@@ -607,3 +613,70 @@ def remove_premade_warning_reason(preset_id) -> bool:
         return False
 
     return _save_warnings_data(data)
+
+
+def _default_warning_builder() -> dict:
+    return {
+        "W1": {
+            "title": "W1 Issued",
+            "description": "A first-tier warning has been issued.",
+            "color": "#FEE75C",
+            "footer": "Moderation warning record",
+            "role_id": None,
+        },
+        "W2": {
+            "title": "W2 Issued",
+            "description": "A second-tier warning has been issued.",
+            "color": "#E67E22",
+            "footer": "Moderation warning record",
+            "role_id": None,
+        },
+        "W3": {
+            "title": "W3 Issued",
+            "description": "A final-tier warning has been issued.",
+            "color": "#ED4245",
+            "footer": "Moderation warning record",
+            "role_id": None,
+        },
+    }
+
+
+def get_warning_builder() -> dict:
+    """Return per-tier warning embed and role settings."""
+    data = _get_warnings_data()
+    defaults = _default_warning_builder()
+    saved = data.get("warning_builder", {})
+    result = {}
+    for tier, default in defaults.items():
+        config = dict(default)
+        config.update(saved.get(tier, {}))
+        result[tier] = config
+    return result
+
+
+def save_warning_builder(tier: str, config: dict) -> dict:
+    """Save one W1/W2/W3 warning embed configuration."""
+    tier = str(tier).upper()
+    if tier not in _default_warning_builder():
+        raise ValueError("Unknown warning tier.")
+
+    data = _get_warnings_data()
+    current = get_warning_builder()
+    color = str(config.get("color", "")).strip()
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+        raise ValueError("Embed color must be a 6-digit hex value such as #5865F2.")
+    role_id = str(config.get("role_id")).strip() if config.get("role_id") else None
+    if role_id and not role_id.isdigit():
+        raise ValueError("Warning role ID must contain only numbers.")
+    updated = dict(current[tier])
+    updated.update({
+        "title": str(config.get("title", "")).strip()[:256],
+        "description": str(config.get("description", "")).strip()[:4096],
+        "color": color,
+        "footer": str(config.get("footer", "")).strip()[:2048],
+        "role_id": role_id,
+    })
+    current[tier] = updated
+    data["warning_builder"] = current
+    _save_warnings_data(data)
+    return updated

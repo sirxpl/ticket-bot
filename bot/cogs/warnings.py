@@ -3,13 +3,15 @@ from typing import Literal
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from utils.access import has_moderation_command_access, get_warning_log_channel_id
 from utils.storage import (
     add_warning,
+    get_all_warnings,
     get_active_warnings_for_user,
     get_premade_warning_reasons,
+    get_warning_builder,
     revoke_warning,
 )
 
@@ -22,16 +24,22 @@ WARNING_TIERS = {
         "color": discord.Color.yellow(),
         "title": "W1 Issued",
         "description": "A first-tier warning has been issued.",
+        "timeout_hours": 6,
+        "role_days": 14,
     },
     "W2": {
         "color": discord.Color.orange(),
         "title": "W2 Issued",
         "description": "A second-tier warning has been issued.",
+        "timeout_hours": 12,
+        "role_days": 21,
     },
     "W3": {
         "color": discord.Color.red(),
         "title": "W3 Issued",
         "description": "A final-tier warning has been issued.",
+        "timeout_hours": 24,
+        "role_days": 28,
     },
 }
 
@@ -39,6 +47,44 @@ WARNING_TIERS = {
 class WarningsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.expire_warning_roles.start()
+
+    def cog_unload(self):
+        self.expire_warning_roles.cancel()
+
+    @tasks.loop(minutes=1)
+    async def expire_warning_roles(self):
+        now = discord.utils.utcnow()
+        for warning in get_all_warnings():
+            role_expires_at = warning.get("role_expires_at")
+            if warning.get("status") != "active" or not role_expires_at:
+                continue
+            try:
+                expires_at = datetime.datetime.fromisoformat(
+                    str(role_expires_at).replace("Z", "+00:00")
+                )
+            except ValueError:
+                continue
+            if expires_at > now:
+                continue
+            for guild in self.bot.guilds:
+                try:
+                    member = guild.get_member(int(warning["user_id"]))
+                except (KeyError, TypeError, ValueError):
+                    member = None
+                if not member:
+                    continue
+                role_id = warning.get("role_id") or get_warning_builder().get(warning["tier"], {}).get("role_id")
+                role = guild.get_role(int(role_id)) if str(role_id or "").isdigit() else None
+                if role and role in member.roles:
+                    try:
+                        await member.remove_roles(role, reason=f"{warning['tier']} warning role expired")
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+
+    @expire_warning_roles.before_loop
+    async def before_expire_warning_roles(self):
+        await self.bot.wait_until_ready()
 
     def _has_access(self, interaction: discord.Interaction) -> bool:
         member = interaction.user
@@ -198,6 +244,8 @@ class WarningsCog(commands.Cog):
             )
             return
 
+        defaults = WARNING_TIERS[tier]
+        configured = get_warning_builder().get(tier, {})
         warning = add_warning(
             user_id=user.id,
             username=str(user),
@@ -205,13 +253,27 @@ class WarningsCog(commands.Cog):
             reason=final_reason,
             issued_by_id=interaction.user.id,
             issued_by_name=str(interaction.user),
+            expires_at=(
+                discord.utils.utcnow()
+                + datetime.timedelta(hours=defaults["timeout_hours"])
+            ).isoformat(),
+            role_expires_at=(
+                discord.utils.utcnow()
+                + datetime.timedelta(days=defaults["role_days"])
+            ).isoformat(),
+            role_id=configured.get("role_id"),
         )
 
-        config = WARNING_TIERS[tier]
+        try:
+            color_value = str(configured.get("color") or "").lstrip("#")
+            color = discord.Color(int(color_value, 16))
+        except (TypeError, ValueError):
+            color = defaults["color"]
+
         embed = discord.Embed(
-            title=f"⚠️ {config['title']}",
-            description=config["description"],
-            color=config["color"],
+            title=configured.get("title") or defaults["title"],
+            description=configured.get("description") or defaults["description"],
+            color=color,
             timestamp=datetime.datetime.now(datetime.timezone.utc),
         )
         embed.add_field(
@@ -231,7 +293,42 @@ class WarningsCog(commands.Cog):
             name="Issued by",
             value=f"{interaction.user.mention}\nID: `{interaction.user.id}`",
         )
-        embed.set_footer(text="Moderation warning record")
+        embed.set_footer(text=configured.get("footer") or "Moderation warning record")
+
+        role_status = None
+        timeout_status = None
+        try:
+            await user.timeout(
+                datetime.timedelta(hours=WARNING_TIERS[tier]["timeout_hours"]),
+                reason=f"{tier} warning issued by {interaction.user}",
+            )
+            timeout_status = (
+                f"Timeout applied for {WARNING_TIERS[tier]['timeout_hours']} hours"
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            timeout_status = "Could not apply the timeout; check bot permissions."
+        if timeout_status:
+            embed.add_field(name="Timeout", value=timeout_status, inline=False)
+
+        role_id = configured.get("role_id")
+        if role_id and interaction.guild:
+            try:
+                role = interaction.guild.get_role(int(role_id))
+            except (TypeError, ValueError):
+                role = None
+            if role:
+                try:
+                    await user.add_roles(role, reason=f"{tier} warning issued by {interaction.user}")
+                    role_status = (
+                        f"Assigned {role.mention} for "
+                        f"{WARNING_TIERS[tier]['role_days']} days"
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    role_status = "Could not assign the configured role; check bot permissions and role hierarchy."
+            else:
+                role_status = "Configured warning role was not found."
+        if role_status:
+            embed.add_field(name="Role", value=role_status, inline=False)
 
         await interaction.response.send_message(embed=embed)
         await self._post_to_warning_log(interaction.guild, embed)
