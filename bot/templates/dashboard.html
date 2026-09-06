@@ -1485,6 +1485,63 @@
 
         {% if is_admin_user %}
         <section class="page" id="page-warnings">
+                <div class="page-head">
+        <h1>Warning Presets</h1>
+        <p>Manage reusable reasons for Discord’s <code>/w1</code>, <code>/w2</code>, and <code>/w3</code> commands.</p>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">➕</span> Add Warning Preset</h3>
+
+        <p class="card-subtitle">
+            Staff see the label in Discord autocomplete. The full reason is stored on the warning case.
+        </p>
+
+        <form action="{{ url_for('add_warning_preset_route') }}" method="POST">
+            <label for="warning-preset-name">Preset label</label>
+            <input
+                id="warning-preset-name"
+                name="name"
+                type="text"
+                maxlength="100"
+                required
+                placeholder="Example: Advertising / Self Promotion"
+            >
+
+            <label for="warning-preset-reason">Full warning reason</label>
+            <textarea
+                id="warning-preset-reason"
+                name="reason"
+                rows="4"
+                maxlength="500"
+                required
+                placeholder="Example: Advertising or promoting external content is not allowed in this server."
+            ></textarea>
+
+            <button type="submit" class="btn-submit" style="width:auto;">
+                Add Preset
+            </button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">📋</span> Saved Presets</h3>
+
+        {% for preset in warning_presets %}
+        <div class="list-item">
+            <div>
+                <strong>{{ preset.name }}</strong>
+                <div style="color:var(--text-dim); font-size:0.9em; margin-top:4px;">
+                    {{ preset.reason }}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <p style="color:var(--text-dim);">
+            No warning presets yet. Add your first one above.
+        </p>
+        {% endfor %}
+    </div>
         </section>
         {% endif %}
 
