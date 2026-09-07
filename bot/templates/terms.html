@@ -109,8 +109,9 @@
         <div class="shell nav">
             <a class="brand" href="{{ url_for('home') }}">Carry <span>Ticket Bot</span></a>
             <div class="nav-actions">
+                <a class="nav-link" href="{{ url_for('home') }}">Dashboard</a>
                 {% if user %}
-                    <a class="nav-link" href="{{ url_for('home') }}">Dashboard</a>
+                    <a class="nav-link" href="{{ url_for('logout') }}">Log out</a>
                 {% else %}
                     <a class="nav-link" href="{{ url_for('login') }}">Log in</a>
                 {% endif %}
