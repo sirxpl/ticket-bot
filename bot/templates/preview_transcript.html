@@ -9,6 +9,13 @@
         * { box-sizing: border-box; }
         body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font: 15px/1.55 Inter, system-ui, sans-serif; }
         .wrap { width: min(900px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 70px; }
+        header { border-bottom: 1px solid var(--border); background: #0d1019; }
+        .nav { width: min(1100px, calc(100% - 32px)); min-height: 68px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+        .brand { color: var(--text); font-weight: 800; text-decoration: none; }
+        .brand span { color: #aaa6ff; }
+        .nav-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 18px; }
+        .nav-links a { color: var(--muted); font-size: 13px; font-weight: 700; text-decoration: none; }
+        .nav-links a:hover { color: var(--text); }
         .eyebrow { color: #9d98ff; font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
         h1 { margin: 8px 0 6px; font-size: clamp(28px, 5vw, 42px); letter-spacing: -.035em; }
         .subtitle { margin: 0 0 28px; color: var(--muted); }
@@ -25,6 +32,17 @@
     </style>
 </head>
 <body>
+    <header>
+        <nav class="nav" aria-label="Public site navigation">
+            <a class="brand" href="/">🎫 Carry <span>Ticket Bot</span></a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="{{ url_for('terms_page') }}">Terms and Conditions</a>
+                <a href="{{ external_url('privacy_policy') }}" target="_blank" rel="noopener">Privacy</a>
+                <a href="{{ external_url('status_page') }}" target="_blank" rel="noopener">Status</a>
+            </div>
+        </nav>
+    </header>
     <main class="wrap">
         <div class="eyebrow">Carry Ticket Bot · Preview</div>
         <h1>Ticket #1041 transcript</h1>
