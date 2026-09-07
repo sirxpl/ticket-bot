@@ -718,7 +718,15 @@ def home():
             ],
             can_remove_cooldown=False,
             can_access_analytics=False,
-            can_access_transcripts=False,
+            can_access_transcripts=True,
+            transcripts=[
+                {
+                    "filename": "preview-transcript.html",
+                    "ticket_number": "1041",
+                    "user_id": "123456789012345678",
+                    "username": "ExampleUser",
+                },
+            ],
             is_admin_user=False,
             panel_draft={},
             redirect_message={"content": ""},
@@ -1120,6 +1128,11 @@ def get_transcript(filename):
         flash("🔒 Please log in with Discord to access the transcript.", "warning")
         return redirect(url_for('login'))
     return _serve()
+
+
+@app.route("/preview/transcript")
+def preview_transcript():
+    return render_template("preview_transcript.html")
 
 
 @app.route("/tickets/logs")
