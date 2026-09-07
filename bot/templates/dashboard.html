@@ -462,6 +462,34 @@
             text-align: center;
             padding: 90px 20px;
         }
+        .preview-footer {
+            margin-top: 42px;
+            padding: 30px 24px 34px;
+            border-top: 1px solid var(--border);
+            color: var(--text-dim);
+            text-align: center;
+        }
+        .preview-footer-nav {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 26px;
+            margin-bottom: 24px;
+        }
+        .preview-footer-nav a {
+            color: var(--text-dim);
+            font-size: 0.88em;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .preview-footer-nav a:hover { color: var(--text); }
+        .preview-footer p { margin: 5px auto; font-size: 0.82em; }
+        .preview-footer .preview-disclaimer {
+            max-width: 620px;
+            margin-top: 26px;
+            color: #747b94;
+            line-height: 1.55;
+        }
         .list-item {
             display: flex;
             justify-content: space-between;
@@ -932,7 +960,7 @@
 </head>
 <body>
 
-{% if user %}
+{% if user or preview_mode %}
 <div class="app">
     <nav class="topbar">
         <div class="topbar-left">
@@ -940,6 +968,10 @@
             <a href="/" class="brand"><span class="brand-mark">🎫</span> Carry Bot</a>
         </div>
         <div class="topbar-right">
+            {% if preview_mode %}
+            <span class="status-pill" style="color: var(--accent); border-color: var(--accent);">Preview mode</span>
+            <a href="/login" class="btn-login">Login with Discord</a>
+            {% else %}
             <a href="/status" class="status-pill" title="View status page">
                 <span id="dashBotDot" style="width:9px; height:9px; border-radius:50%; background:var(--text-dim); display:inline-block;"></span>
                 <span id="dashBotStatus">Checking...</span>
@@ -949,8 +981,15 @@
                 <span>Welcome, <strong>{{ user.username }}</strong></span>
                 <a href="/logout" class="btn-logout">Logout</a>
             </div>
+            {% endif %}
         </div>
     </nav>
+    {% if preview_mode %}
+    <div class="flash flash-warning" style="margin: 14px 20px 0;">
+        You are viewing a public preview with sample data. Sign in with Discord to access your authorized dashboard.
+    </div>
+    {% endif %}
+    {% if not preview_mode %}
         <script>
         (function(){
             const dot = document.getElementById('dashBotDot');
@@ -977,6 +1016,7 @@
             setInterval(refresh, 15000);
         })();
         </script>
+    {% endif %}
 
     <div class="shell">
         <div class="sidebar-backdrop" onclick="toggleSidebar()"></div>
@@ -1010,6 +1050,7 @@
                 {% endif %}
             </div>
 
+            {% if user %}
             <div class="nav-group">
                 <div class="nav-group-label">Staffing</div>
                 <button type="button" class="nav-item" data-page="blacklist" onclick="showPage('blacklist', this)">
@@ -1040,6 +1081,7 @@
                     <span class="nav-icon">🔐</span><span class="nav-text">Access Control</span>
                 </button>
             </div>
+            {% endif %}
             {% endif %}
 
             <div class="nav-group">
@@ -1126,6 +1168,7 @@
         </div>
         </section>
 
+        {% if user %}
         <section class="page" id="page-analytics">
         <div class="page-head">
             <h1>Analytics</h1>
@@ -1756,6 +1799,7 @@
             <p class="card-subtitle">
                 Creates a single-use link valid for 24 hours. The recipient must authenticate with the matching Discord account before accepting the terms.
             </p>
+            <p class="card-subtitle"><a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Open the public Terms and Conditions page</a></p>
             <form action="/dashboard/access/generate-unblock-link" method="POST" class="access-form">
                 <div>
                     <label>Blocked Discord User ID:</label>
@@ -2207,10 +2251,25 @@
         </div>
         {% endif %}
         </section>
+        {% endif %}
 
             </div>
         </main>
     </div>
+    {% if preview_mode %}
+    <footer class="preview-footer">
+        <nav class="preview-footer-nav" aria-label="Preview footer navigation">
+            <a href="{{ url_for('home') }}">Support</a>
+            <a href="{{ url_for('terms_page') }}">Terms of Service</a>
+            <a href="{{ external_url('privacy_policy') }}" target="_blank" rel="noopener">Privacy Policy</a>
+        </nav>
+        <p>&copy; 2026 Carry Ticket Bot. All rights reserved.</p>
+        <p class="preview-disclaimer">
+            This dashboard preview uses sample data and is for demonstration purposes only.
+            Features and interface details may change in the live product.
+        </p>
+    </footer>
+    {% endif %}
 </div>
 {% else %}
 <div class="gatekeeper">

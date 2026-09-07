@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Terms and Conditions | Carry Ticket Bot</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --background: #090b12;
+            --surface: #121621;
+            --surface-strong: #181d2b;
+            --border: #293145;
+            --text: #f5f7fb;
+            --muted: #aab3c7;
+            --accent: #8b7cff;
+            --accent-hover: #a095ff;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-width: 320px;
+            background:
+                radial-gradient(circle at 85% -10%, #29255c 0, transparent 38rem),
+                var(--background);
+            color: var(--text);
+            font: 16px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+        }
+        a { color: inherit; }
+        .shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+        header {
+            border-bottom: 1px solid rgba(41, 49, 69, .8);
+            background: rgba(9, 11, 18, .72);
+            backdrop-filter: blur(14px);
+        }
+        .nav {
+            min-height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+        .brand { font-weight: 800; letter-spacing: -.02em; text-decoration: none; }
+        .brand span { color: var(--accent); }
+        .nav-actions { display: flex; align-items: center; gap: 12px; }
+        .nav-link, .button {
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 9px 14px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .button { border-color: transparent; background: var(--accent); color: #fff; }
+        .button:hover { background: var(--accent-hover); }
+        .nav-link:hover { background: var(--surface); }
+        main { padding: 68px 0 96px; }
+        .hero { max-width: 760px; margin-bottom: 34px; }
+        .eyebrow {
+            margin: 0 0 12px;
+            color: var(--accent-hover);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+        }
+        h1 { margin: 0; font-size: clamp(34px, 6vw, 58px); line-height: 1.08; letter-spacing: -.045em; }
+        .intro { margin: 20px 0 0; color: var(--muted); font-size: 18px; }
+        .document {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 260px;
+            gap: 24px;
+            align-items: start;
+        }
+        .terms {
+            min-width: 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            padding: clamp(22px, 4vw, 40px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: var(--surface);
+            color: #d7ddeb;
+            box-shadow: 0 22px 70px rgba(0, 0, 0, .22);
+        }
+        aside {
+            position: sticky;
+            top: 24px;
+            padding: 22px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: rgba(18, 22, 33, .84);
+        }
+        aside h2 { margin: 0 0 12px; font-size: 16px; }
+        aside p { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
+        footer { border-top: 1px solid var(--border); padding: 24px 0 34px; color: var(--muted); font-size: 13px; }
+        @media (max-width: 760px) {
+            .shell { width: min(100% - 28px, 680px); }
+            .nav { min-height: 64px; }
+            .document { grid-template-columns: 1fr; }
+            aside { position: static; order: -1; }
+            main { padding-top: 42px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="shell nav">
+            <a class="brand" href="{{ url_for('home') }}">Carry <span>Ticket Bot</span></a>
+            <div class="nav-actions">
+                {% if user %}
+                    <a class="nav-link" href="{{ url_for('home') }}">Dashboard</a>
+                {% else %}
+                    <a class="nav-link" href="{{ url_for('login') }}">Log in</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main class="shell">
+        <section class="hero">
+            <p class="eyebrow">Community policies</p>
+            <h1>Terms and Conditions</h1>
+            <p class="intro">Please read these terms before using the Carry Ticket Bot, dashboard, ticket system, or related services.</p>
+        </section>
+
+        <section class="document" aria-label="Terms and Conditions document">
+            <article class="terms">{{ terms_content }}</article>
+            <aside>
+                <h2>Need access help?</h2>
+                <p>If you received a single-use terms link, use that link to verify your Discord account and accept the terms.</p>
+                <a class="button" href="{{ url_for('home') }}">Return to dashboard</a>
+            </aside>
+        </section>
+    </main>
+
+    <footer>
+        <div class="shell">Carry Ticket Bot &middot; Terms and Conditions</div>
+    </footer>
+</body>
+</html>
