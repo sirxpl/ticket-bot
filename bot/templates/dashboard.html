@@ -145,6 +145,7 @@
         .sidebar {
             width: var(--sidebar-w);
             min-width: var(--sidebar-w);
+            min-height: calc(100vh - var(--navbar-h));
             background: var(--panel);
             border-right: 2px solid var(--border);
             padding: 16px 14px 40px;
@@ -154,6 +155,7 @@
             position: sticky;
             top: var(--navbar-h);
             align-self: flex-start;
+            height: calc(100vh - var(--navbar-h));
             max-height: calc(100vh - var(--navbar-h));
             overflow-y: auto;
         }
