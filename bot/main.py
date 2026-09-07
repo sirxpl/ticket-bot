@@ -419,6 +419,16 @@ def carry_agreement():
         )
 
 
+@app.route("/terms")
+def terms_page():
+    terms_path = Path(__file__).resolve().parent.parent / "docs" / "terms_and_conditions.txt"
+    return render_template(
+        "terms.html",
+        user=session.get("user"),
+        terms_content=terms_path.read_text(encoding="utf-8"),
+    )
+
+
 @app.route("/terms/unblock/<token>")
 def terms_unblock(token):
     token_data = get_terms_unblock_token(token)
@@ -684,7 +694,36 @@ def status_page():
 def home():
     user_data = session.get("user", None)
     if not user_data:
-        return render_template("dashboard.html", user=None, panel_draft={}, redirect_message={"content": ""}, welcome_message={})
+        return render_template(
+            "dashboard.html",
+            user=None,
+            preview_mode=True,
+            guild_name="Carry Ticket Bot Demo",
+            active_tickets=[
+                {
+                    "channel_id": "demo-ticket-1042",
+                    "user_id": "123456789012345678",
+                    "username": "ExampleUser",
+                    "created_at": "2026-09-07T13:42:00+00:00",
+                },
+            ],
+            total_tickets=1284,
+            cooldowns=[
+                {
+                    "user_id": "987654321098765432",
+                    "username": "SampleMember",
+                    "expires_at": "2026-09-07 14:30 UTC",
+                    "expires_ts": "2026-09-07T14:30:00+00:00",
+                },
+            ],
+            can_remove_cooldown=False,
+            can_access_analytics=False,
+            can_access_transcripts=False,
+            is_admin_user=False,
+            panel_draft={},
+            redirect_message={"content": ""},
+            welcome_message={},
+        )
 
     if is_globally_blocked(user_data["id"]):
         flash("⛔ Your account is blocked from using this dashboard.", "danger")
