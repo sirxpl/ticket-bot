@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sample Transcript | Carry Ticket Bot</title>
+    <style>
+        :root { color-scheme: dark; --bg:#0b0d14; --panel:#141824; --raised:#1b2030; --border:#2b3245; --text:#eef0fb; --muted:#9aa3ba; --accent:#7771ff; }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font: 15px/1.55 Inter, system-ui, sans-serif; }
+        .wrap { width: min(900px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 70px; }
+        .eyebrow { color: #9d98ff; font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+        h1 { margin: 8px 0 6px; font-size: clamp(28px, 5vw, 42px); letter-spacing: -.035em; }
+        .subtitle { margin: 0 0 28px; color: var(--muted); }
+        .notice { padding: 13px 16px; border: 1px solid #ffc93c; border-radius: 10px; background: rgba(255,201,60,.1); color: #ffc93c; }
+        .card { margin-top: 20px; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
+        .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; padding-bottom: 18px; border-bottom: 1px solid var(--border); color: var(--muted); }
+        .message { display: flex; gap: 13px; padding: 20px 0 0; }
+        .avatar { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 50%; background: var(--accent); font-weight: 800; }
+        .author { font-weight: 800; }
+        time { margin-left: 8px; color: var(--muted); font-size: 12px; font-weight: 400; }
+        .body { margin-top: 4px; color: #d6dbea; }
+        .back { display: inline-block; margin-top: 24px; color: var(--text); text-decoration: none; }
+        .back:hover { color: #aaa6ff; }
+    </style>
+</head>
+<body>
+    <main class="wrap">
+        <div class="eyebrow">Carry Ticket Bot · Preview</div>
+        <h1>Ticket #1041 transcript</h1>
+        <p class="subtitle">ExampleUser · Sample carry request</p>
+        <div class="notice">This is a fictional transcript shown only to demonstrate how saved ticket conversations look.</div>
+        <section class="card" aria-label="Sample transcript messages">
+            <div class="meta"><span><strong>Status:</strong> Closed</span><span><strong>Category:</strong> Standard Carry</span><span><strong>Messages:</strong> 1</span></div>
+            <div class="message">
+                <div class="avatar">E</div>
+                <div>
+                    <div class="author">ExampleUser <time>September 7, 2026 at 9:42 AM</time></div>
+                    <div class="body">Hi! I would like to request help with a Standard Carry. My timezone is EST and I can join a private server.</div>
+                </div>
+            </div>
+        </section>
+        <a class="back" href="/">← Back to dashboard preview</a>
+    </main>
+</body>
+</html>

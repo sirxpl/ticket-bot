@@ -1763,16 +1763,23 @@
             <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
             <input type="search" class="table-search" data-filter-target="transcript-list"
                    placeholder="Search by user ID, username, or ticket number..." aria-label="Search transcripts">
+            {% if not preview_mode %}
             <div style="background: var(--danger); color: white; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 0.9em; font-weight: 600;">
                 ⚠️ Transcripts are currently saving without message text. The Message Content privileged intent is not enabled yet (pending Discord's verification review), so saved transcripts will only show attachments/embeds — no message content — until it's approved and turned on.
             </div>
+            {% else %}
+            <div class="flash flash-warning">
+                <span>Sample transcript preview — this ticket and message are fictional.</span>
+                <button type="button" class="flash-close" aria-label="Dismiss notification" onclick="dismissNotice(this)">×</button>
+            </div>
+            {% endif %}
            <div id="transcript-list">
            {% for transcript in transcripts %}
                 <div class="list-item searchable-row" data-search="{{ transcript.user_id or '' }} {{ transcript.username or '' }} {{ transcript.ticket_number or '' }}">
                     <div>
                         <div><strong>Ticket #{{ transcript.ticket_number or '—' }}</strong> • {{ transcript.username }}</div>
                     </div>
-                    <a href="/transcripts/{{ transcript.filename }}" target="_blank" class="btn-view">View Transcript</a>
+                    <a href="{% if preview_mode %}{{ url_for('preview_transcript') }}{% else %}/transcripts/{{ transcript.filename }}{% endif %}" target="_blank" class="btn-view">View Transcript</a>
                 </div>
             {% else %}
                 <p style="color: var(--text-dim);">No transcripts saved yet.</p>
