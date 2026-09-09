@@ -2818,14 +2818,24 @@ function formatDuration(secs){
 
 function updateTimes(){
     const now = Date.now();
+    function parseDashboardTimestamp(value){
+        if (value === null || value === undefined || value === '') return null;
+        const text = String(value).trim();
+        if (!text || text === '0' || text === '0.0') return null;
+        if (/^-?\d+(?:\.\d+)?$/.test(text)){
+            const numeric = Number(text);
+            if (!Number.isFinite(numeric) || numeric <= 0) return null;
+            return numeric > 1e12 ? numeric : numeric * 1000;
+        }
+        const parsed = Date.parse(text);
+        return Number.isNaN(parsed) ? null : parsed;
+    }
     document.querySelectorAll('.local-time').forEach(el=>{
-        const ts = parseFloat(el.dataset.ts);
-        if(!Number.isFinite(ts) || ts <= 0){
+        const ms = parseDashboardTimestamp(el.dataset.ts);
+        if(ms === null){
             el.textContent = 'Not recorded';
             return;
         }
-        // ts might be seconds or float epoch; normalize to ms
-        const ms = ts>1e12? ts : ts*1000;
         const d = new Date(ms);
         if(Number.isNaN(d.getTime())){
             el.textContent = 'Not recorded';
@@ -2834,17 +2844,15 @@ function updateTimes(){
         try{ el.textContent = d.toLocaleString(); }catch(e){}
     });
     document.querySelectorAll('.countdown').forEach(el=>{
-        const ts = parseFloat(el.dataset.ts);
-        if(isNaN(ts)) return;
-        const expires = (ts>1e12? ts : ts*1000);
+        const expires = parseDashboardTimestamp(el.dataset.ts);
+        if(expires === null){ el.textContent = 'Not recorded'; return; }
         let diff = Math.floor((expires - now)/1000);
         if(diff<0){ el.textContent = 'expired'; return; }
         el.textContent = formatDuration(diff);
     });
     document.querySelectorAll('.age').forEach(el=>{
-        const ts = parseFloat(el.dataset.ts);
-        if(isNaN(ts)) return;
-        const started = (ts>1e12? ts : ts*1000);
+        const started = parseDashboardTimestamp(el.dataset.ts);
+        if(started === null){ el.textContent = 'Not recorded'; return; }
         let diff = Math.floor((now - started)/1000);
         el.textContent = formatDuration(diff);
     });
