@@ -109,6 +109,7 @@ from utils.access import (
     get_terms_unblock_token,
     consume_terms_unblock_token,
     get_active_terms_unblock_tokens,
+    revoke_terms_unblock_token,
 )
 
 # Environment & OAuth Setup
@@ -1348,6 +1349,21 @@ def access_generate_unblock_link():
         flash(f"Terms unblock link generated for {user_id}.", "success")
     except ValueError as error:
         flash(str(error), "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/revoke-unblock-link", methods=["POST"])
+@admin_required
+def access_revoke_unblock_link():
+    token = request.form.get("token", "").strip()
+    if revoke_terms_unblock_token(token):
+        if session.get("generated_unblock_link") == external_url(
+            "terms_unblock", token=token
+        ):
+            session.pop("generated_unblock_link", None)
+        flash("✅ Terms unblock link revoked.", "success")
+    else:
+        flash("❌ That link is already used, expired, or revoked.", "danger")
     return redirect(url_for("home"))
 
 

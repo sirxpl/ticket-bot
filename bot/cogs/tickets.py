@@ -1083,6 +1083,9 @@ class TicketView(discord.ui.View):
 class TicketsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Keep close operations idempotent while transcript generation and
+        # channel deletion are still in progress.
+        self._closing_ticket_ids = set()
 
     def get_ticket_view(self):
         return TicketView(self.bot)
@@ -2147,6 +2150,11 @@ class TicketsCog(commands.Cog):
         reason: str = "No reason provided.",
     ):
         """Generate transcript, log close, DM creator, then delete the channel after 5 seconds."""
+        ticket_id = str(getattr(channel, "id", ""))
+        if ticket_id in self._closing_ticket_ids:
+            logger.info("Ignoring duplicate close request for channel=%s", ticket_id)
+            return False
+        self._closing_ticket_ids.add(ticket_id)
         try:
             try:
                 logger.info(
@@ -2392,8 +2400,10 @@ class TicketsCog(commands.Cog):
                         await channel.edit(name=f"closed-{channel.name}")
                     except Exception:
                         pass
+            return True
         except Exception as global_err:
             logger.exception(f"Error in do_close: {global_err}")
+            return False
 
 
 async def setup(bot):

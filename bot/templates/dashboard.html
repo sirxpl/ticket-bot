@@ -405,9 +405,11 @@
         .warning-badge-tier { color: #f6c453; border-color: rgba(246,196,83,.45); background: rgba(246,196,83,.1); }
         .warning-badge-active { color: var(--success); border-color: rgba(62,217,160,.45); background: var(--success-soft); }
         .warning-badge-revoked { color: #ff8190; border-color: rgba(241,85,108,.5); background: var(--danger-soft); }
-        .link-modal-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.72); }
-        .link-modal { width:min(620px, 100%); padding:24px; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:0 18px 60px rgba(0,0,0,.45); }
-        .link-modal input { width:100%; margin-top:10px; font-family:var(--mono); }
+        .link-modal-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(5,8,15,.86); backdrop-filter:blur(5px); }
+        .link-modal { box-sizing:border-box; width:min(680px, 100%); padding:28px; border:1px solid var(--border); border-radius:16px; background:#111722; box-shadow:0 18px 60px rgba(0,0,0,.6); }
+        .link-modal h3 { margin:0; font-size:1.35rem; }
+        .link-modal input { box-sizing:border-box; display:block; width:100%; min-width:0; margin-top:14px; padding:12px 14px; font-family:var(--mono); font-size:.82rem; }
+        .link-modal-actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:14px; }
 
         /* --- CARDS --- */
         .card {
@@ -1921,7 +1923,7 @@
                     <h3 id="unblock-link-title">✅ Single-use link generated</h3>
                     <p class="card-subtitle">Copy this link and send it to the intended Discord user. It expires in 24 hours and can only be used once.</p>
                     <input id="generated-unblock-link" type="text" readonly value="{{ generated_unblock_link }}">
-                    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+            <div class="link-modal-actions">
                         <button type="button" class="btn-view" onclick="copyUnblockLink()">Copy Link</button>
                         <button type="button" class="btn-danger" onclick="closeUnblockLinkModal()">Close</button>
                     </div>
@@ -1940,9 +1942,13 @@
                             <strong>User ID: {{ unblock_link.user_id }}</strong>
                             <span class="local-time" data-ts="{{ unblock_link.expires_at }}">Expires {{ unblock_link.expires_at }}</span>
                         </div>
-                        <div style="display:flex; gap:8px; margin-top:10px;">
+                        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
                             <input id="active-unblock-link-{{ loop.index }}" type="text" readonly value="{{ unblock_link.url }}" style="flex:1;">
                             <button type="button" class="btn-view" onclick="copyTextById('active-unblock-link-{{ loop.index }}', this)">Copy Link</button>
+                            <form action="{{ url_for('access_revoke_unblock_link') }}" method="POST" style="margin:0;">
+                                <input type="hidden" name="token" value="{{ unblock_link.token }}">
+                                <button type="submit" class="btn-danger">Revoke</button>
+                            </form>
                         </div>
                     </div>
                     {% else %}
