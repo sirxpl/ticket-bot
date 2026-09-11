@@ -756,7 +756,10 @@ def home():
     warning_presets = get_premade_warning_reasons()
     warning_builder = get_warning_builder()
     warning_records = get_all_warnings()
-    generated_unblock_link = session.get("generated_unblock_link")
+    # Treat the generated-link dialog as a one-time handoff. The link itself
+    # remains available in the active-links list, but a refresh must not
+    # reopen the modal or expose the full URL again.
+    generated_unblock_link = session.pop("generated_unblock_link", None)
     active_unblock_links = [
         {
             **entry,

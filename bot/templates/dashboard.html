@@ -1920,12 +1920,12 @@
             {% if generated_unblock_link %}
             <div class="link-modal-backdrop" id="unblock-link-modal" role="dialog" aria-modal="true" aria-labelledby="unblock-link-title">
                 <div class="link-modal">
-                    <h3 id="unblock-link-title">✅ Single-use link generated</h3>
-                    <p class="card-subtitle">Copy this link and send it to the intended Discord user. It expires in 24 hours and can only be used once.</p>
+            <h3 id="unblock-link-title">✨ Secure access link ready</h3>
+            <p class="card-subtitle">Your one-time Terms link is ready to share with the intended Discord user. It expires in 24 hours, works only for the matching account, and disappears after one use.</p>
                     <input id="generated-unblock-link" type="text" readonly value="{{ generated_unblock_link }}">
             <div class="link-modal-actions">
-                        <button type="button" class="btn-view" onclick="copyUnblockLink()">Copy Link</button>
-                        <button type="button" class="btn-danger" onclick="closeUnblockLinkModal()">Close</button>
+                <button type="button" class="btn-view" onclick="copyUnblockLink()">Copy secure link</button>
+                <button type="button" class="btn-danger" onclick="closeUnblockLinkModal()">Done</button>
                     </div>
                     <div id="unblock-link-copy-status" style="color:var(--success); margin-top:8px; text-align:right;" aria-live="polite"></div>
                 </div>
