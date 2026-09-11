@@ -167,7 +167,9 @@ def create_unblock_terms_token(user_id: str, expires_seconds: int = 86400) -> st
         "token": token,
         "user_id": user_id,
         "expires_at": int(time.time()) + expires_seconds,
+        "created_at": int(time.time()),
         "used": False,
+        "revoked": False,
     })
     _save(data)
     return token
@@ -177,13 +179,14 @@ def get_active_terms_unblock_tokens() -> list[dict]:
     now = int(time.time())
     active = []
     for entry in get_access_settings().get("terms_unblock_tokens", []):
-        if entry.get("used") or int(entry.get("expires_at", 0)) <= now:
+        if entry.get("used") or entry.get("revoked") or int(entry.get("expires_at", 0)) <= now:
             continue
         if not entry.get("token"):
             continue
         active.append({
             "token": entry["token"],
             "user_id": str(entry.get("user_id")),
+            "created_at": int(entry.get("created_at", 0)),
             "expires_at": int(entry["expires_at"]),
         })
     return active
@@ -195,6 +198,7 @@ def get_terms_unblock_token(token: str) -> dict | None:
         if (
             entry.get("token_hash") == token_hash
             and not entry.get("used")
+            and not entry.get("revoked")
             and int(entry.get("expires_at", 0)) > int(time.time())
         ):
             return dict(entry)
@@ -209,10 +213,28 @@ def consume_terms_unblock_token(token: str, user_id: str) -> bool:
             entry.get("token_hash") == token_hash
             and str(entry.get("user_id")) == str(user_id)
             and not entry.get("used")
+            and not entry.get("revoked")
             and int(entry.get("expires_at", 0)) > int(time.time())
         ):
             entry["used"] = True
             entry["used_at"] = int(time.time())
+            _save(data)
+            return True
+    return False
+
+
+def revoke_terms_unblock_token(token: str) -> bool:
+    """Invalidate an unused terms link without deleting its audit record."""
+    token_hash = hashlib.sha256(str(token).encode()).hexdigest()
+    data = get_access_settings()
+    for entry in data.setdefault("terms_unblock_tokens", []):
+        if (
+            entry.get("token_hash") == token_hash
+            and not entry.get("used")
+            and not entry.get("revoked")
+        ):
+            entry["revoked"] = True
+            entry["revoked_at"] = int(time.time())
             _save(data)
             return True
     return False
