@@ -39,6 +39,59 @@ class VirusTotalLinkView(View):
         )
 
 
+def build_virustotal_v2_view(
+    url: str,
+    malicious: int,
+    suspicious: int,
+    harmless: int,
+    undetected: int,
+    report_url: str,
+    color: discord.Color,
+):
+    """Build a public Components V2 scan result, when supported."""
+    layout_cls = getattr(discord.ui, "LayoutView", None)
+    container_cls = getattr(discord.ui, "Container", None)
+    text_display_cls = getattr(discord.ui, "TextDisplay", None)
+    separator_cls = getattr(discord.ui, "Separator", None)
+    action_row_cls = getattr(discord.ui, "ActionRow", None)
+    if not all(
+        (layout_cls, container_cls, text_display_cls, action_row_cls)
+    ):
+        return None
+
+    display_url = url if len(url) <= 900 else f"{url[:897]}..."
+
+    class VirusTotalResultView(layout_cls):
+        def __init__(self):
+            super().__init__()
+            container = container_cls(accent_color=color)
+            container.add_item(text_display_cls("## 🛡️ VirusTotal scan complete"))
+            if separator_cls:
+                container.add_item(separator_cls())
+            container.add_item(
+                text_display_cls(
+                    f"**URL**\n`{display_url}`\n\n"
+                    f"🚨 **Malicious:** `{malicious}`  •  "
+                    f"⚠️ **Suspicious:** `{suspicious}`\n"
+                    f"✅ **Clean:** `{harmless}`  •  "
+                    f"❔ **Undetected:** `{undetected}`"
+                )
+            )
+            row = action_row_cls()
+            row.add_item(
+                Button(
+                    label="Open Full VirusTotal Report",
+                    url=report_url,
+                    style=discord.ButtonStyle.link,
+                    emoji="🔗",
+                )
+            )
+            container.add_item(row)
+            self.add_item(container)
+
+    return VirusTotalResultView()
+
+
 # ============================================================
 # Coffee System
 # ============================================================
@@ -1128,6 +1181,21 @@ class UtilityCog(commands.Cog):
                         vt_web_link = (
                             f"https://www.virustotal.com/gui/url/{url_id}"
                         )
+
+                        v2_view = None
+                        if components_v2_supported():
+                            v2_view = build_virustotal_v2_view(
+                                url,
+                                malicious,
+                                suspicious,
+                                harmless,
+                                undetected,
+                                vt_web_link,
+                                color,
+                            )
+                        if v2_view is not None:
+                            await interaction.followup.send(view=v2_view)
+                            return
 
                         await interaction.followup.send(
                             embed=embed,
