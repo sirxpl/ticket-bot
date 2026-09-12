@@ -1144,7 +1144,15 @@ def get_transcript(filename):
         flash("🔒 Authorize with Discord to verify your account before viewing this transcript.", "warning")
         return redirect(url_for("login"))
 
-    if not is_admin(current_user.get("id")) and str(current_user.get("id")) != creator_id:
+    current_user_id = str(current_user.get("id") or "")
+    transcript_staff_access = has_transcripts_access(
+        current_user_id,
+        get_member_role_ids(current_user_id),
+    )
+    if (
+        not transcript_staff_access
+        and current_user_id != creator_id
+    ):
         return "This transcript belongs to a different Discord account.", 403
 
     def _serve():
