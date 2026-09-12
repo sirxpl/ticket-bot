@@ -37,6 +37,16 @@ from utils.storage import (
     update_active_ticket,
 )
 
+try:
+    TRANSCRIPT_MESSAGE_LIMIT = max(
+        1, int(os.getenv("TICKET_TRANSCRIPT_MESSAGE_LIMIT", "10000"))
+    )
+except ValueError:
+    TRANSCRIPT_MESSAGE_LIMIT = 10000
+    logging.getLogger(__name__).warning(
+        "Invalid TICKET_TRANSCRIPT_MESSAGE_LIMIT; using 10000."
+    )
+
 # logger for Render stdout/stderr so platform logs capture ticket close/delete events
 logger = logging.getLogger("tickets")
 
@@ -140,7 +150,8 @@ async def send_blacklist_log(bot, action, **fields):
 
 
 def build_discord_like_transcript(
-    messages, channel_name, ticket_meta, generated_at_iso, filename
+    messages, channel_name, ticket_meta, generated_at_iso, filename,
+    omitted_messages=False,
 ):
     """Render a dark-themed Discord-like HTML transcript, including embeds,
     buttons, and image/file attachments styled to match Discord's real UI."""
@@ -288,6 +299,14 @@ def build_discord_like_transcript(
 
     # messages
     parts.append("<div>")
+    if omitted_messages:
+        parts.append(
+            '<div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f0b232;'
+            'border-radius:8px;background:rgba(240,178,50,.12);color:#ffd778">'
+            f"This transcript includes the latest {len(messages):,} messages. "
+            "Older messages were omitted to protect API usage."
+            "</div>"
+        )
     for m in messages:
         parts.append('<div class="msg">')
         parts.append(
@@ -2149,7 +2168,12 @@ class TicketsCog(commands.Cog):
         executor: discord.abc.Snowflake,
         reason: str = "No reason provided.",
     ):
-        """Generate transcript, log close, DM creator, then delete the channel after 5 seconds."""
+        """Fetch the full history, generate a transcript, then close the ticket.
+
+        ``channel.history`` uses Discord's REST API and therefore works with
+        Message Content Intent disabled. The close is aborted if history
+        cannot be read, so a ticket is never deleted without its transcript.
+        """
         ticket_id = str(getattr(channel, "id", ""))
         if ticket_id in self._closing_ticket_ids:
             logger.info("Ignoring duplicate close request for channel=%s", ticket_id)
@@ -2164,7 +2188,12 @@ class TicketsCog(commands.Cog):
                 pass
 
             messages = []
-            async for m in channel.history(limit=1000, oldest_first=True):
+            # Capture the newest messages within a configurable bound. REST
+            # retrieval includes content without the gateway Message Content
+            # intent and discord.py handles pagination/rate-limit waits.
+            async for m in channel.history(
+                limit=TRANSCRIPT_MESSAGE_LIMIT + 1, oldest_first=False
+            ):
                 ts = m.created_at.isoformat()
                 author_name = str(m.author)
                 author_id = getattr(m.author, "id", None)
@@ -2238,6 +2267,16 @@ class TicketsCog(commands.Cog):
                     "components": components_data,
                     "is_bot": getattr(m.author, "bot", False),
                 })
+            history_limited = len(messages) > TRANSCRIPT_MESSAGE_LIMIT
+            if history_limited:
+                messages = messages[:TRANSCRIPT_MESSAGE_LIMIT]
+            messages.reverse()
+            logger.info(
+                "Captured %s messages for ticket transcript channel=%s (limit=%s)",
+                len(messages),
+                ticket_id,
+                TRANSCRIPT_MESSAGE_LIMIT,
+            )
 
             filename = f"ticket-{channel.id}.html"
             generated_at = datetime.datetime.utcnow().isoformat() + "Z"
@@ -2256,7 +2295,12 @@ class TicketsCog(commands.Cog):
                 ticket_meta = {}
 
             html_out = build_discord_like_transcript(
-                messages, channel.name, ticket_meta, generated_at, filename
+                messages,
+                channel.name,
+                ticket_meta,
+                generated_at,
+                filename,
+                omitted_messages=history_limited,
             )
             from utils.storage import save_transcript_html
             save_transcript_html(filename, html_out)
@@ -2320,20 +2364,60 @@ class TicketsCog(commands.Cog):
                 try:
                     user = await self.bot.fetch_user(int(creator_id))
 
-                    class LinkView(discord.ui.View):
+                    layout_cls = getattr(discord.ui, "LayoutView", None)
+                    container_cls = getattr(discord.ui, "Container", None)
+                    text_display_cls = getattr(discord.ui, "TextDisplay", None)
+                    separator_cls = getattr(discord.ui, "Separator", None)
+                    action_row_cls = getattr(discord.ui, "ActionRow", None)
 
-                        def __init__(self, url):
-                            super().__init__(timeout=None)
-                            self.add_item(
-                                discord.ui.Button(
-                                    label="View Transcript", url=url
+                    if layout_cls and container_cls and text_display_cls and action_row_cls:
+                        class TranscriptAccessView(layout_cls):
+                            def __init__(self):
+                                super().__init__()
+                                container = container_cls(
+                                    accent_color=discord.Color.blurple()
                                 )
-                            )
+                                container.add_item(
+                                    text_display_cls("## 🔐 Transcript ready")
+                                )
+                                if separator_cls:
+                                    container.add_item(separator_cls())
+                                container.add_item(
+                                    text_display_cls(
+                                        f"Your ticket **{channel.name}** has been closed.\n"
+                                        "Authorize with Discord to verify that this transcript belongs to you. "
+                                        "The secure link expires in **1 hour**."
+                                    )
+                                )
+                                row = action_row_cls()
+                                row.add_item(
+                                    discord.ui.Button(
+                                        label="Authorize & view transcript",
+                                        url=signed_url,
+                                        style=discord.ButtonStyle.link,
+                                    )
+                                )
+                                container.add_item(row)
+                                self.add_item(container)
 
-                    await user.send(
-                        content=f"Your ticket '{channel.name}' has been closed. The transcript is available for 1 hour.",
-                        view=LinkView(signed_url),
-                    )
+                        await user.send(view=TranscriptAccessView())
+                    else:
+                        view = discord.ui.View(timeout=None)
+                        view.add_item(
+                            discord.ui.Button(
+                                label="Authorize & view transcript",
+                                url=signed_url,
+                                style=discord.ButtonStyle.link,
+                            )
+                        )
+                        await user.send(
+                            content=(
+                                f"Your ticket '{channel.name}' has been closed. "
+                                "Authorize with Discord to view your transcript. "
+                                "The secure link expires in 1 hour."
+                            ),
+                            view=view,
+                        )
                 except Exception as e:
                     logger.exception(f"Failed DM user: {e}")
 

@@ -178,9 +178,11 @@ intents = discord.Intents.default()
 # the Privileged Intents review is approved - temporarily disabled so the bot
 # can start. Ticket blacklist-role checks still work fine without these (they
 # read interaction.user.roles from the interaction payload, not the member
-# cache). What's degraded: transcript message text will save blank, and the
-# dashboard's "members blocked by role" preview list will be empty. Re-enable
-# both the moment the intents review is approved.
+# cache). What's degraded: real-time message-content event handlers would not
+# work, and the dashboard's "members blocked by role" preview list is empty.
+# Transcripts use REST history retrieval and continue to include message text.
+# Transcript message data is fetched from the channel-history REST endpoint,
+# so it does not depend on the Message Content gateway intent.
 intents.message_content = False
 intents.members = False
 class GlobalCommandTree(discord.app_commands.CommandTree):
@@ -1023,6 +1025,9 @@ def callback():
     terms_token = session.pop("terms_unblock_token", None)
     if terms_token:
         return redirect(url_for("terms_unblock", token=terms_token))
+    transcript_return_to = session.pop("transcript_return_to", None)
+    if transcript_return_to:
+        return redirect(transcript_return_to)
     return redirect(url_for('home'))
 
 
@@ -1110,8 +1115,45 @@ def toggle_tickets():
 
 @app.route("/transcripts/<path:filename>")
 def get_transcript(filename):
-    # Allow access with a valid short-lived token (for DMed links); otherwise require login
     from flask import request, abort, Response
+
+    transcript_info = get_transcript_info(filename)
+    if not transcript_info:
+        abort(404)
+
+    token = request.args.get("token")
+    if token:
+        from utils.storage import verify_transcript_token
+        signed_info = verify_transcript_token(token)
+        if not signed_info or signed_info.get("filename") != filename:
+            abort(403)
+
+    created_logs = get_logs_for_ticket(filename.removeprefix("ticket-").removesuffix(".html"))
+    created = next(
+        (entry for entry in created_logs if entry.get("action") == "created"),
+        None,
+    )
+    creator = (created or {}).get("creator") or {}
+    creator_id = str(creator.get("id") or "")
+    current_user = session.get("user") or {}
+
+    if not current_user:
+        # Keep the signed URL in the session so OAuth returns to this exact
+        # transcript instead of dropping the user on the dashboard.
+        session["transcript_return_to"] = request.full_path
+        flash("🔒 Authorize with Discord to verify your account before viewing this transcript.", "warning")
+        return redirect(url_for("login"))
+
+    current_user_id = str(current_user.get("id") or "")
+    transcript_staff_access = has_transcripts_access(
+        current_user_id,
+        get_member_role_ids(current_user_id),
+    )
+    if (
+        not transcript_staff_access
+        and current_user_id != creator_id
+    ):
+        return "This transcript belongs to a different Discord account.", 403
 
     def _serve():
         html = get_transcript_html(filename)
@@ -1119,18 +1161,6 @@ def get_transcript(filename):
             abort(404)
         return Response(html, mimetype="text/html")
 
-    token = request.args.get('token')
-    if token:
-        from utils.storage import verify_transcript_token
-        info = verify_transcript_token(token)
-        if not info or info.get('filename') != filename:
-            abort(403)
-        return _serve()
-
-    # no token, require logged-in session
-    if not session.get('user'):
-        flash("🔒 Please log in with Discord to access the transcript.", "warning")
-        return redirect(url_for('login'))
     return _serve()
 
 
