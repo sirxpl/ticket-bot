@@ -332,7 +332,6 @@ class TrialSchedule(commands.Cog):
 
         await interaction.response.send_message(
             embed=embed,
-            ephemeral=True,
         )
 
 
