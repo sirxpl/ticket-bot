@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from utils.storage import get_trial_schedule_settings, save_trial_schedule_settings
+from utils.access import has_carry_manager_access
 
 logger = logging.getLogger("trial_schedule")
 
@@ -390,6 +391,50 @@ class TrialSchedule(commands.Cog):
 
         await interaction.response.send_message(
             **message_kwargs,
+        )
+
+    @app_commands.command(
+        name="trial_schedule_settings",
+        description="Choose the Trial Schedule display style.",
+    )
+    @app_commands.describe(
+        style="Choose whether the schedule uses an embed or Components V2.",
+    )
+    @app_commands.choices(
+        style=[
+            app_commands.Choice(name="Embed", value="embed"),
+            app_commands.Choice(name="Components V2", value="components_v2"),
+        ]
+    )
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
+    @app_commands.allowed_installs(guilds=True, users=True)
+    async def trial_schedule_settings(
+        self,
+        interaction: discord.Interaction,
+        style: app_commands.Choice[str],
+    ):
+        role_ids = [str(role.id) for role in getattr(interaction.user, "roles", [])]
+        if not has_carry_manager_access(interaction.user.id, role_ids):
+            await interaction.response.send_message(
+                "❌ You don't have permission to change Trial Schedule settings.",
+                ephemeral=True,
+            )
+            return
+
+        save_trial_schedule_settings({"display_mode": style.value})
+        message = await self.publish_or_update(force=True)
+        if message is None:
+            await interaction.response.send_message(
+                f"✅ Trial Schedule style saved as **{style.name}**, but the tracked "
+                "schedule message could not be updated. Check the configured channel.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(
+            f"✅ Trial Schedule style changed to **{style.name}** and the public "
+            "schedule was updated.",
+            ephemeral=True,
         )
 
 
