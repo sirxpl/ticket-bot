@@ -7,7 +7,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from utils.storage import get_trial_schedule_settings, save_trial_schedule_settings
+from utils.storage import (
+    get_trial_schedule_settings,
+    save_trial_schedule_settings,
+    get_trial_schedule_user_mode,
+    save_trial_schedule_user_mode,
+)
 
 logger = logging.getLogger("trial_schedule")
 
@@ -383,13 +388,43 @@ class TrialSchedule(commands.Cog):
         # Anyone can use this command from any channel. Show the schedule
         # directly in the command response instead of sending a separate DM.
         embed, _ = build_trial_schedule_embed()
-        cfg = get_trial_schedule_settings()
+        mode = get_trial_schedule_user_mode(interaction.user.id)
         message_kwargs = trial_schedule_message(
-            embed, cfg.get("display_mode", "embed")
+            embed, mode
         )
 
         await interaction.response.send_message(
             **message_kwargs,
+        )
+
+    @app_commands.command(
+        name="trial_schedule_settings",
+        description="Choose the Trial Schedule display style.",
+    )
+    @app_commands.describe(
+        style="Choose whether the schedule uses an embed or Components V2.",
+    )
+    @app_commands.choices(
+        style=[
+            app_commands.Choice(name="Embed", value="embed"),
+            app_commands.Choice(name="Components V2", value="components_v2"),
+        ]
+    )
+    @app_commands.allowed_contexts(
+        guilds=True,
+        dms=True,
+        private_channels=True,
+    )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    async def trial_schedule_settings(
+        self,
+        interaction: discord.Interaction,
+        style: app_commands.Choice[str],
+    ):
+        save_trial_schedule_user_mode(interaction.user.id, style.value)
+        await interaction.response.send_message(
+            f"✅ Your `/trial_schedule` responses will now use **{style.name}**.",
+            ephemeral=True,
         )
 
 
