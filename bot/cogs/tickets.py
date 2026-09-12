@@ -2364,20 +2364,60 @@ class TicketsCog(commands.Cog):
                 try:
                     user = await self.bot.fetch_user(int(creator_id))
 
-                    class LinkView(discord.ui.View):
+                    layout_cls = getattr(discord.ui, "LayoutView", None)
+                    container_cls = getattr(discord.ui, "Container", None)
+                    text_display_cls = getattr(discord.ui, "TextDisplay", None)
+                    separator_cls = getattr(discord.ui, "Separator", None)
+                    action_row_cls = getattr(discord.ui, "ActionRow", None)
 
-                        def __init__(self, url):
-                            super().__init__(timeout=None)
-                            self.add_item(
-                                discord.ui.Button(
-                                    label="View Transcript", url=url
+                    if layout_cls and container_cls and text_display_cls and action_row_cls:
+                        class TranscriptAccessView(layout_cls):
+                            def __init__(self):
+                                super().__init__()
+                                container = container_cls(
+                                    accent_color=discord.Color.blurple()
                                 )
-                            )
+                                container.add_item(
+                                    text_display_cls("## 🔐 Transcript ready")
+                                )
+                                if separator_cls:
+                                    container.add_item(separator_cls())
+                                container.add_item(
+                                    text_display_cls(
+                                        f"Your ticket **{channel.name}** has been closed.\n"
+                                        "Authorize with Discord to verify that this transcript belongs to you. "
+                                        "The secure link expires in **1 hour**."
+                                    )
+                                )
+                                row = action_row_cls()
+                                row.add_item(
+                                    discord.ui.Button(
+                                        label="Authorize & view transcript",
+                                        url=signed_url,
+                                        style=discord.ButtonStyle.link,
+                                    )
+                                )
+                                container.add_item(row)
+                                self.add_item(container)
 
-                    await user.send(
-                        content=f"Your ticket '{channel.name}' has been closed. The transcript is available for 1 hour.",
-                        view=LinkView(signed_url),
-                    )
+                        await user.send(view=TranscriptAccessView())
+                    else:
+                        view = discord.ui.View(timeout=None)
+                        view.add_item(
+                            discord.ui.Button(
+                                label="Authorize & view transcript",
+                                url=signed_url,
+                                style=discord.ButtonStyle.link,
+                            )
+                        )
+                        await user.send(
+                            content=(
+                                f"Your ticket '{channel.name}' has been closed. "
+                                "Authorize with Discord to view your transcript. "
+                                "The secure link expires in 1 hour."
+                            ),
+                            view=view,
+                        )
                 except Exception as e:
                     logger.exception(f"Failed DM user: {e}")
 
