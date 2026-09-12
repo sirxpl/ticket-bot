@@ -86,6 +86,15 @@ def build_virustotal_v2_view(
                     emoji="🔗",
                 )
             )
+            if malicious == 0 and suspicious == 0:
+                row.add_item(
+                    Button(
+                        label="Open Website",
+                        url=url,
+                        style=discord.ButtonStyle.link,
+                        emoji="🌐",
+                    )
+                )
             container.add_item(row)
             self.add_item(container)
 
@@ -1197,10 +1206,17 @@ class UtilityCog(commands.Cog):
                             await interaction.followup.send(view=v2_view)
                             return
 
-                        await interaction.followup.send(
-                            embed=embed,
-                            view=VirusTotalLinkView(vt_web_link),
-                        )
+                        fallback_view = VirusTotalLinkView(vt_web_link)
+                        if malicious == 0 and suspicious == 0:
+                            fallback_view.add_item(
+                                Button(
+                                    label="Open Website",
+                                    url=url,
+                                    style=discord.ButtonStyle.link,
+                                    emoji="🌐",
+                                )
+                            )
+                        await interaction.followup.send(embed=embed, view=fallback_view)
                         return
 
                     if response.status == 404:
