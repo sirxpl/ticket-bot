@@ -983,6 +983,15 @@ class UtilityCog(commands.Cog):
             "VirusTotal for security threats"
         ),
     )
+    @app_commands.allowed_contexts(
+        guilds=True,
+        dms=True,
+        private_channels=True,
+    )
+    @app_commands.allowed_installs(
+        guilds=True,
+        users=True,
+    )
     @app_commands.describe(
         url="The web link or domain you want to check",
     )

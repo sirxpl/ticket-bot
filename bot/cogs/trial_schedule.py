@@ -322,6 +322,15 @@ class TrialSchedule(commands.Cog):
         name="trial_schedule",
         description="View the current Trial Schedule",
     )
+    @app_commands.allowed_contexts(
+        guilds=True,
+        dms=True,
+        private_channels=True,
+    )
+    @app_commands.allowed_installs(
+        guilds=True,
+        users=True,
+    )
     async def trial_schedule(
         self,
         interaction: discord.Interaction,
