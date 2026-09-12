@@ -326,28 +326,12 @@ class TrialSchedule(commands.Cog):
         self,
         interaction: discord.Interaction,
     ):
-        # Anyone can use this command from any channel.
-        # The actual schedule is sent privately to the user's DMs so the
-        # command result never gets posted into the channel where it was used.
+        # Anyone can use this command from any channel. Show the schedule
+        # directly in the command response instead of sending a separate DM.
         embed, _ = build_trial_schedule_embed()
 
-        try:
-            await interaction.user.send(embed=embed)
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ I couldn't DM you the Trial Schedule. Please enable DMs from this server and try again.",
-                ephemeral=True,
-            )
-            return
-        except discord.HTTPException:
-            await interaction.response.send_message(
-                "❌ Discord rejected the Trial Schedule DM. Please try again later.",
-                ephemeral=True,
-            )
-            return
-
         await interaction.response.send_message(
-            "✅ Trial Schedule sent to your DMs.",
+            embed=embed,
             ephemeral=True,
         )
 
