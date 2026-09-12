@@ -42,6 +42,19 @@ TRIALS = [
 ]
 
 
+class TrialScheduleView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(
+            discord.ui.Button(
+                label="Modifier strategies",
+                url=DOC_URL,
+                style=discord.ButtonStyle.link,
+                emoji="📖",
+            )
+        )
+
+
 def _slot_number(now: dt.datetime) -> int:
     now = now.astimezone(EASTERN)
 
@@ -74,9 +87,7 @@ def build_trial_schedule_embed(
     # Before the schedule begins, start at Limitation.
     first_slot = max(slot_number, 0)
 
-    lines = [
-        f"Strategies for modifiers [here]({DOC_URL}).",
-    ]
+    lines = []
 
     current_start = _slot_start(first_slot)
     current_end = current_start + SLOT
@@ -156,10 +167,6 @@ def build_trial_schedule_embed(
             49,
             54,
         ),
-    )
-
-    embed.set_footer(
-        text="Eastern Time (EST/EDT) • Each trial lasts 3 hours"
     )
 
     return embed, slot_number
@@ -265,13 +272,15 @@ class TrialSchedule(commands.Cog):
                         != slot_no
                     ):
                         await message.edit(
-                            embed=embed
+                            embed=embed,
+                            view=TrialScheduleView(),
                         )
 
                 else:
                     # Create the public schedule message.
                     message = await channel.send(
-                        embed=embed
+                        embed=embed,
+                        view=TrialScheduleView(),
                     )
 
                     save_trial_schedule_settings(
@@ -341,6 +350,7 @@ class TrialSchedule(commands.Cog):
 
         await interaction.response.send_message(
             embed=embed,
+            view=TrialScheduleView(),
         )
 
 
