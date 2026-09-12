@@ -1036,7 +1036,6 @@ class UtilityCog(commands.Cog):
 
         await interaction.response.defer(
             thinking=True,
-            ephemeral=True,
         )
 
         try:
@@ -1130,34 +1129,10 @@ class UtilityCog(commands.Cog):
                             f"https://www.virustotal.com/gui/url/{url_id}"
                         )
 
-                        # Send the complete scan result to the user's DMs.
-                        # The command can be used from any channel, but the
-                        # potentially sensitive scan result and URL stay out
-                        # of the channel where /scan_url was invoked.
-                        try:
-                            await interaction.user.send(
-                                embed=embed,
-                                view=VirusTotalLinkView(vt_web_link),
-                            )
-                        except discord.Forbidden:
-                            await interaction.followup.send(
-                                "❌ I couldn't DM you the VirusTotal results. "
-                                "Please enable DMs from this server and try again.",
-                                ephemeral=True,
-                            )
-                            return
-                        except discord.HTTPException:
-                            await interaction.followup.send(
-                                "❌ Discord rejected the VirusTotal DM. Please try again later.",
-                                ephemeral=True,
-                            )
-                            return
-
                         await interaction.followup.send(
-                            "✅ VirusTotal scan results sent to your DMs.",
-                            ephemeral=True,
+                            embed=embed,
+                            view=VirusTotalLinkView(vt_web_link),
                         )
-
                         return
 
                     if response.status == 404:
@@ -1179,84 +1154,23 @@ class UtilityCog(commands.Cog):
                             f"⚠️ VirusTotal returned HTTP {response.status}."
                         )
 
-                    try:
-                        await interaction.user.send(dm_message)
-                    except discord.Forbidden:
-                        await interaction.followup.send(
-                            "❌ I couldn't DM you the VirusTotal result. "
-                            "Please enable DMs from this server and try again.",
-                            ephemeral=True,
-                        )
-                        return
-                    except discord.HTTPException:
-                        await interaction.followup.send(
-                            "❌ Discord rejected the VirusTotal DM. Please try again later.",
-                            ephemeral=True,
-                        )
-                        return
-
-                    await interaction.followup.send(
-                        "ℹ️ VirusTotal scan result sent to your DMs.",
-                        ephemeral=True,
-                    )
+                    await interaction.followup.send(dm_message)
 
         except asyncio.TimeoutError:
-            dm_message = "⏳ VirusTotal took too long to respond. Please try again."
-            try:
-                await interaction.user.send(dm_message)
-                await interaction.followup.send(
-                    "ℹ️ VirusTotal result sent to your DMs.",
-                    ephemeral=True,
-                )
-            except discord.Forbidden:
-                await interaction.followup.send(
-                    "❌ I couldn't DM you the VirusTotal result. Please enable DMs from this server and try again.",
-                    ephemeral=True,
-                )
-            except discord.HTTPException:
-                await interaction.followup.send(
-                    "❌ Discord rejected the VirusTotal DM. Please try again later.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "⏳ VirusTotal took too long to respond. Please try again."
+            )
 
         except aiohttp.ClientError:
-            dm_message = "❌ I couldn't connect to VirusTotal. Please try again later."
-            try:
-                await interaction.user.send(dm_message)
-                await interaction.followup.send(
-                    "ℹ️ VirusTotal result sent to your DMs.",
-                    ephemeral=True,
-                )
-            except discord.Forbidden:
-                await interaction.followup.send(
-                    "❌ I couldn't DM you the VirusTotal result. Please enable DMs from this server and try again.",
-                    ephemeral=True,
-                )
-            except discord.HTTPException:
-                await interaction.followup.send(
-                    "❌ Discord rejected the VirusTotal DM. Please try again later.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "❌ I couldn't connect to VirusTotal. Please try again later."
+            )
 
         except Exception:
             # Don't expose internal exception details to Discord users.
-            dm_message = "❌ An unexpected error occurred while scanning the URL."
-            try:
-                await interaction.user.send(dm_message)
-                await interaction.followup.send(
-                    "ℹ️ VirusTotal result sent to your DMs.",
-                    ephemeral=True,
-                )
-            except discord.Forbidden:
-                await interaction.followup.send(
-                    "❌ I couldn't DM you the VirusTotal result. Please enable DMs from this server and try again.",
-                    ephemeral=True,
-                )
-            except discord.HTTPException:
-                await interaction.followup.send(
-                    "❌ Discord rejected the VirusTotal DM. Please try again later.",
-                    ephemeral=True,
-                )
+            await interaction.followup.send(
+                "❌ An unexpected error occurred while scanning the URL."
+            )
 
     # --------------------------------------------------------
     # /say
