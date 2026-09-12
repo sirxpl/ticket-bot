@@ -1567,6 +1567,12 @@
                     {% endfor %}
                 </select>
 
+                <label>Schedule display style:</label>
+                <select name="trial_display_mode">
+                    <option value="embed" {% if trial_schedule.display_mode == 'embed' %}selected{% endif %}>Embed</option>
+                    <option value="components_v2" {% if trial_schedule.display_mode == 'components_v2' %}selected{% endif %}>Components V2</option>
+                </select>
+
                 <div style="margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--raised); color:var(--text-dim); font-size:0.9em; line-height:1.6;">
                     <strong style="color:var(--text);">How it works</strong><br>
                     • Eastern Time (America/New_York; EST/EDT automatically)<br>

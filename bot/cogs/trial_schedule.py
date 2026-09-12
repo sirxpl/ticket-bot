@@ -42,6 +42,19 @@ TRIALS = [
 ]
 
 
+class TrialScheduleView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(
+            discord.ui.Button(
+                label="Modifier strategies",
+                url=DOC_URL,
+                style=discord.ButtonStyle.link,
+                emoji="📖",
+            )
+        )
+
+
 def _slot_number(now: dt.datetime) -> int:
     now = now.astimezone(EASTERN)
 
@@ -74,9 +87,7 @@ def build_trial_schedule_embed(
     # Before the schedule begins, start at Limitation.
     first_slot = max(slot_number, 0)
 
-    lines = [
-        f"Strategies for modifiers [here]({DOC_URL}).",
-    ]
+    lines = []
 
     current_start = _slot_start(first_slot)
     current_end = current_start + SLOT
@@ -158,11 +169,48 @@ def build_trial_schedule_embed(
         ),
     )
 
-    embed.set_footer(
-        text="Eastern Time (EST/EDT) • Each trial lasts 3 hours"
-    )
-
     return embed, slot_number
+
+
+def build_trial_schedule_v2_view(description: str):
+    layout_cls = getattr(discord.ui, "LayoutView", None)
+    container_cls = getattr(discord.ui, "Container", None)
+    text_display_cls = getattr(discord.ui, "TextDisplay", None)
+    separator_cls = getattr(discord.ui, "Separator", None)
+    action_row_cls = getattr(discord.ui, "ActionRow", None)
+    if not all((layout_cls, container_cls, text_display_cls, action_row_cls)):
+        return None
+
+    class TrialScheduleV2View(layout_cls):
+        def __init__(self):
+            super().__init__()
+            container = container_cls(accent_color=discord.Color.blurple())
+            container.add_item(text_display_cls("## 🗓️ Trial Schedule"))
+            if separator_cls:
+                container.add_item(separator_cls())
+            container.add_item(text_display_cls(description))
+            row = action_row_cls()
+            row.add_item(
+                discord.ui.Button(
+                    label="Modifier strategies",
+                    url=DOC_URL,
+                    style=discord.ButtonStyle.link,
+                    emoji="📖",
+                )
+            )
+            container.add_item(row)
+            self.add_item(container)
+
+    return TrialScheduleV2View()
+
+
+def trial_schedule_message(embed, mode: str):
+    if mode == "components_v2":
+        description = embed.description or ""
+        view = build_trial_schedule_v2_view(description)
+        if view is not None:
+            return {"view": view}
+    return {"embed": embed, "view": TrialScheduleView()}
 
 
 class TrialSchedule(commands.Cog):
@@ -220,8 +268,9 @@ class TrialSchedule(commands.Cog):
 
                 return None
 
-            embed, slot_no = (
-                build_trial_schedule_embed()
+            embed, slot_no = build_trial_schedule_embed()
+            message_kwargs = trial_schedule_message(
+                embed, cfg.get("display_mode", "embed")
             )
 
             message = None
@@ -264,15 +313,11 @@ class TrialSchedule(commands.Cog):
                         or self._last_slot
                         != slot_no
                     ):
-                        await message.edit(
-                            embed=embed
-                        )
+                        await message.edit(**message_kwargs)
 
                 else:
                     # Create the public schedule message.
-                    message = await channel.send(
-                        embed=embed
-                    )
+                    message = await channel.send(**message_kwargs)
 
                     save_trial_schedule_settings(
                         {
@@ -338,9 +383,13 @@ class TrialSchedule(commands.Cog):
         # Anyone can use this command from any channel. Show the schedule
         # directly in the command response instead of sending a separate DM.
         embed, _ = build_trial_schedule_embed()
+        cfg = get_trial_schedule_settings()
+        message_kwargs = trial_schedule_message(
+            embed, cfg.get("display_mode", "embed")
+        )
 
         await interaction.response.send_message(
-            embed=embed,
+            **message_kwargs,
         )
 
 

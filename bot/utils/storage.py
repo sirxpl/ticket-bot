@@ -60,6 +60,7 @@ def get_trial_schedule_settings():
         "enabled": False,
         "channel_id": None,
         "message_id": None,
+        "display_mode": "embed",
     }
     saved = get_settings().get("trial_schedule") or {}
     return {**defaults, **saved}
@@ -70,7 +71,15 @@ def save_trial_schedule_settings(data):
     current.update(data or {})
     s["trial_schedule"] = current
     save_settings(s)
-    return {**{"enabled": False, "channel_id": None, "message_id": None}, **current}
+    return {
+        **{
+            "enabled": False,
+            "channel_id": None,
+            "message_id": None,
+            "display_mode": "embed",
+        },
+        **current,
+    }
 
 # --- Existing coffee preference API ---
 def get_coffee_dm_enabled(user_id):
