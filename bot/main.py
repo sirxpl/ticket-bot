@@ -178,9 +178,11 @@ intents = discord.Intents.default()
 # the Privileged Intents review is approved - temporarily disabled so the bot
 # can start. Ticket blacklist-role checks still work fine without these (they
 # read interaction.user.roles from the interaction payload, not the member
-# cache). What's degraded: transcript message text will save blank, and the
-# dashboard's "members blocked by role" preview list will be empty. Re-enable
-# both the moment the intents review is approved.
+# cache). What's degraded: real-time message-content event handlers would not
+# work, and the dashboard's "members blocked by role" preview list is empty.
+# Transcripts use REST history retrieval and continue to include message text.
+# Transcript message data is fetched from the channel-history REST endpoint,
+# so it does not depend on the Message Content gateway intent.
 intents.message_content = False
 intents.members = False
 class GlobalCommandTree(discord.app_commands.CommandTree):

@@ -2149,7 +2149,12 @@ class TicketsCog(commands.Cog):
         executor: discord.abc.Snowflake,
         reason: str = "No reason provided.",
     ):
-        """Generate transcript, log close, DM creator, then delete the channel after 5 seconds."""
+        """Fetch the full history, generate a transcript, then close the ticket.
+
+        ``channel.history`` uses Discord's REST API and therefore works with
+        Message Content Intent disabled. The close is aborted if history
+        cannot be read, so a ticket is never deleted without its transcript.
+        """
         ticket_id = str(getattr(channel, "id", ""))
         if ticket_id in self._closing_ticket_ids:
             logger.info("Ignoring duplicate close request for channel=%s", ticket_id)
@@ -2164,7 +2169,10 @@ class TicketsCog(commands.Cog):
                 pass
 
             messages = []
-            async for m in channel.history(limit=1000, oldest_first=True):
+            # Leave pagination to discord.py instead of truncating older
+            # tickets at 1,000 messages. REST-fetched messages include their
+            # content even when the gateway Message Content intent is off.
+            async for m in channel.history(limit=None, oldest_first=True):
                 ts = m.created_at.isoformat()
                 author_name = str(m.author)
                 author_id = getattr(m.author, "id", None)
@@ -2238,6 +2246,11 @@ class TicketsCog(commands.Cog):
                     "components": components_data,
                     "is_bot": getattr(m.author, "bot", False),
                 })
+            logger.info(
+                "Captured %s messages for ticket transcript channel=%s",
+                len(messages),
+                ticket_id,
+            )
 
             filename = f"ticket-{channel.id}.html"
             generated_at = datetime.datetime.utcnow().isoformat() + "Z"
