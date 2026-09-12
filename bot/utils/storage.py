@@ -81,6 +81,26 @@ def save_trial_schedule_settings(data):
         **current,
     }
 
+
+def get_trial_schedule_user_mode(user_id):
+    """Return an individual's preferred format for /trial_schedule."""
+    settings = get_settings()
+    modes = settings.get("trial_schedule_user_modes") or {}
+    mode = modes.get(str(user_id), "embed")
+    return mode if mode in {"embed", "components_v2"} else "embed"
+
+
+def save_trial_schedule_user_mode(user_id, mode):
+    """Persist an individual's preferred format without changing the public post."""
+    if mode not in {"embed", "components_v2"}:
+        raise ValueError("Unsupported Trial Schedule display mode.")
+    settings = get_settings()
+    modes = settings.get("trial_schedule_user_modes") or {}
+    modes[str(user_id)] = mode
+    settings["trial_schedule_user_modes"] = modes
+    save_settings(settings)
+    return mode
+
 # --- Existing coffee preference API ---
 def get_coffee_dm_enabled(user_id):
     uid=str(user_id);db=get_db()
