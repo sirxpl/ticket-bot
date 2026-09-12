@@ -962,6 +962,10 @@ def save_trial_schedule_route():
     # bot creates one clean schedule post in the new channel instead of trying
     # to fetch a message from the wrong place.
     update = {"enabled": enabled, "channel_id": channel_id or None}
+    display_mode = request.form.get("trial_display_mode", "embed").strip().lower()
+    update["display_mode"] = (
+        display_mode if display_mode in {"embed", "components_v2"} else "embed"
+    )
     if str(old.get("channel_id") or "") != channel_id:
         update["message_id"] = None
     save_trial_schedule_settings(update)
