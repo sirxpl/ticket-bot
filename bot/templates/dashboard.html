@@ -2302,6 +2302,51 @@
                 <p style="color: var(--text-dim);">No user IDs added yet.</p>
             {% endfor %}
 
+            <h4 style="margin-top: 20px;">Pin Message Access</h4>
+            <p class="card-subtitle">
+                Controls who can use <code>/pin</code> and <code>/unpin</code> inside ticket channels — on top of the native Manage Messages permission. Anyone with Manage Messages can already pin; add roles or user IDs here to also let staff without that permission (e.g. Trial Staff) pin important messages.
+            </p>
+            <form action="/dashboard/access/add-pin-message-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in pin_message_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-pin-message-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — only members with Manage Messages (or admins) can pin.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-pin-message-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for uid in pin_message_users %}
+                <div class="list-item">
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-pin-message-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
             <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
             <p class="card-subtitle">Opened and closed tickets get posted here. Leave unset to disable.</p>
             <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
