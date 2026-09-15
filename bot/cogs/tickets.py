@@ -840,12 +840,12 @@ class TicketView(discord.ui.View):
                     pass
 
                 try:
-                    # Roles granted Pin Message Access also get Discord's
-                    # native Manage Messages permission inside this ticket
-                    # channel, since pinning has no permission of its own —
-                    # it's bundled with delete-others'-messages and
-                    # remove-reactions at the Discord API level, scoped
-                    # here to ticket channels only rather than server-wide.
+                    # Roles granted Pin Message Access get Discord's actual
+                    # Pin Messages permission inside this ticket channel —
+                    # Discord split this out from Manage Messages, so this
+                    # grants pinning only, nothing else. Falls back to
+                    # Manage Messages only if the installed discord.py
+                    # version predates the dedicated Pin Messages flag.
                     from utils.access import get_pin_message_role_ids
 
                     for rid in get_pin_message_role_ids():
@@ -853,14 +853,15 @@ class TicketView(discord.ui.View):
                         if not pin_role:
                             continue
                         existing = overwrites.get(pin_role)
-                        if existing:
-                            existing.manage_messages = True
-                        else:
-                            overwrites[pin_role] = discord.PermissionOverwrite(
-                                read_messages=True,
-                                send_messages=True,
-                                manage_messages=True,
+                        if existing is None:
+                            existing = discord.PermissionOverwrite(
+                                read_messages=True, send_messages=True
                             )
+                        if hasattr(existing, "pin_messages"):
+                            existing.pin_messages = True
+                        else:
+                            existing.manage_messages = True
+                        overwrites[pin_role] = existing
                 except Exception:
                     pass
 
