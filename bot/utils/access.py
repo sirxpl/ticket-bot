@@ -24,6 +24,8 @@ _DEFAULTS = {
     "powerful_command_users": [],
     "basic_command_roles": [],
     "basic_command_users": [],
+    "pin_message_roles": [],
+    "pin_message_users": [],
     "transcripts_roles": [],
     "analytics_roles": [],
     "remove_cooldown_roles": [],
@@ -74,6 +76,8 @@ def get_access_settings():
         doc.setdefault("powerful_command_users", [])
         doc.setdefault("basic_command_roles", [])
         doc.setdefault("basic_command_users", [])
+        doc.setdefault("pin_message_roles", [])
+        doc.setdefault("pin_message_users", [])
         doc.setdefault("transcripts_roles", [])
         doc.setdefault("analytics_roles", [])
         doc.setdefault("remove_cooldown_roles", [])
@@ -100,6 +104,8 @@ def get_access_settings():
         data.setdefault("powerful_command_users", [])
         data.setdefault("basic_command_roles", [])
         data.setdefault("basic_command_users", [])
+        data.setdefault("pin_message_roles", [])
+        data.setdefault("pin_message_users", [])
         data.setdefault("transcripts_roles", [])
         data.setdefault("analytics_roles", [])
         data.setdefault("remove_cooldown_roles", [])
@@ -669,6 +675,78 @@ def has_basic_command_access(user_id: str, member_role_ids=None) -> bool:
     users = get_basic_command_user_ids()
     if not roles and not users:
         return True
+    if str(user_id) in users:
+        return True
+    if member_role_ids:
+        role_ids = {str(r) for r in member_role_ids}
+        if role_ids.intersection(set(roles)):
+            return True
+    return False
+
+
+def add_pin_message_role(role_id: str) -> bool:
+    """Add a role allowed to use /pin (and /unpin) inside ticket channels
+    — same shape as Basic Command Access."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["pin_message_roles"]:
+        data["pin_message_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_pin_message_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["pin_message_roles"]:
+        data["pin_message_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def add_pin_message_user(user_id: str) -> bool:
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id not in data["pin_message_users"]:
+        data["pin_message_users"].append(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_pin_message_user(user_id: str) -> bool:
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id in data["pin_message_users"]:
+        data["pin_message_users"].remove(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_pin_message_role_ids():
+    return get_access_settings().get("pin_message_roles", [])
+
+
+def get_pin_message_user_ids():
+    return get_access_settings().get("pin_message_users", [])
+
+
+def has_pin_message_access(user_id: str, member_role_ids=None) -> bool:
+    """Return True if this user can pin/unpin messages via /pin and
+    /unpin, via the configurable role/user list.
+
+    Admins always pass. This function only covers the configurable list —
+    the caller separately also allows anyone with the native Manage
+    Messages permission, same "either path" shape as Basic Command
+    Access, so this list is additive rather than a replacement.
+    """
+    if is_admin(user_id):
+        return True
+    roles = get_pin_message_role_ids()
+    users = get_pin_message_user_ids()
     if str(user_id) in users:
         return True
     if member_role_ids:
