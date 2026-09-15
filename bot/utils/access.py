@@ -737,11 +737,11 @@ def get_pin_message_user_ids():
 def has_pin_message_access(user_id: str, member_role_ids=None) -> bool:
     """Return True if this user can pin/unpin messages via the bot's
     Toggle Pin context menu, purely through the configurable role/user
-    list below (or being an admin). Discord's native Manage Messages /
-    channel-level Pin Messages permission is deliberately NOT checked
-    anywhere for this — access is controlled entirely by what's added
-    here, so this list must be populated for anyone (besides admins) to
-    use the feature at all.
+    list below (or being an admin). Roles added here also get Discord's
+    own dedicated Pin Messages permission inside ticket channels (see
+    tickets.py ticket creation and main.py's _sync_pin_role_on_open_tickets),
+    so native right-click pinning works too — this list is the single
+    source of truth for both paths.
     """
     if is_admin(user_id):
         return True
