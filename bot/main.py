@@ -1605,13 +1605,53 @@ def access_remove_basic_command_user(user_id):
     return redirect(url_for("home"))
 
 
+def _sync_pin_role_on_open_tickets(role_id: str, grant: bool):
+    """Grant or revoke Manage Messages for one role across every currently
+    open ticket channel, immediately when the Pin Message Access list
+    changes — not just for tickets created afterward. Fire-and-forget on
+    the bot's event loop; a failure here shouldn't break the dashboard
+    request that triggered it.
+    """
+    async def _do_sync():
+        tickets_info = get_tickets_data()
+        for ticket in tickets_info.get("active_tickets", []):
+            channel_id = ticket.get("channel_id")
+            if not channel_id:
+                continue
+            channel = bot.get_channel(int(channel_id))
+            if not channel:
+                continue
+            role = channel.guild.get_role(int(role_id))
+            if not role:
+                continue
+            try:
+                existing = channel.overwrites_for(role)
+                if grant:
+                    existing.read_messages = True
+                    existing.send_messages = True
+                    existing.manage_messages = True
+                else:
+                    existing.manage_messages = None
+                await channel.set_permissions(role, overwrite=existing)
+            except Exception:
+                app.logger.exception(
+                    f"Failed to sync pin-message role={role_id} on channel={channel_id}"
+                )
+
+    try:
+        asyncio.run_coroutine_threadsafe(_do_sync(), bot.loop)
+    except Exception:
+        app.logger.exception("Failed to schedule pin-message role sync")
+
+
 @app.route("/dashboard/access/add-pin-message-role", methods=["POST"])
 @admin_required
 def access_add_pin_message_role():
     role_id = request.form.get("role_id", "").strip()
     if role_id.isdigit():
         add_pin_message_role(role_id)
-        flash("✅ Role added to Pin Message Access.", "success")
+        _sync_pin_role_on_open_tickets(role_id, grant=True)
+        flash("✅ Role added to Pin Message Access. Applied to open tickets now, and every new ticket going forward.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
     return redirect(url_for("home"))
@@ -1621,7 +1661,8 @@ def access_add_pin_message_role():
 @admin_required
 def access_remove_pin_message_role(role_id):
     remove_pin_message_role(role_id)
-    flash("🗑️ Role removed from Pin Message Access.", "info")
+    _sync_pin_role_on_open_tickets(role_id, grant=False)
+    flash("🗑️ Role removed from Pin Message Access. Manage Messages revoked from open tickets too.", "info")
     return redirect(url_for("home"))
 
 
