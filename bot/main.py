@@ -1606,11 +1606,11 @@ def access_remove_basic_command_user(user_id):
 
 
 def _sync_pin_role_on_open_tickets(role_id: str, grant: bool):
-    """Grant or revoke Manage Messages for one role across every currently
-    open ticket channel, immediately when the Pin Message Access list
-    changes — not just for tickets created afterward. Fire-and-forget on
-    the bot's event loop; a failure here shouldn't break the dashboard
-    request that triggered it.
+    """Grant or revoke Discord's Pin Messages permission for one role
+    across every currently open ticket channel, immediately when the Pin
+    Message Access list changes — not just for tickets created afterward.
+    Fire-and-forget on the bot's event loop; a failure here shouldn't
+    break the dashboard request that triggered it.
     """
     async def _do_sync():
         tickets_info = get_tickets_data()
@@ -1626,12 +1626,19 @@ def _sync_pin_role_on_open_tickets(role_id: str, grant: bool):
                 continue
             try:
                 existing = channel.overwrites_for(role)
+                has_dedicated_flag = hasattr(existing, "pin_messages")
                 if grant:
                     existing.read_messages = True
                     existing.send_messages = True
-                    existing.manage_messages = True
+                    if has_dedicated_flag:
+                        existing.pin_messages = True
+                    else:
+                        existing.manage_messages = True
                 else:
-                    existing.manage_messages = None
+                    if has_dedicated_flag:
+                        existing.pin_messages = None
+                    else:
+                        existing.manage_messages = None
                 await channel.set_permissions(role, overwrite=existing)
             except Exception:
                 app.logger.exception(
