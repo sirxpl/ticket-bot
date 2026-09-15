@@ -1349,6 +1349,37 @@ class TicketsCog(commands.Cog):
             return False
         return True
 
+    async def _pin_command_check(self, interaction: discord.Interaction) -> bool:
+        """Guard for pinning/unpinning messages inside a ticket channel.
+
+        Allowed if EITHER:
+        - the user has a role/user ID granted in Access Control's Pin
+          Message Access list (or is admin), OR
+        - the user has the native Manage Messages permission
+
+        Same "either path" shape as _basic_command_check — this lets you
+        grant pinning to a role that doesn't have Manage Messages at the
+        server level (e.g. Trial Staff), while anyone who already has
+        Manage Messages keeps working without needing to be added here.
+        """
+        if not await self._require_ticket_channel(interaction):
+            return False
+
+        from utils.access import has_pin_message_access
+
+        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
+        has_list_access = has_pin_message_access(interaction.user.id, member_role_ids)
+        has_manage_messages = interaction.user.guild_permissions.manage_messages
+
+        if not (has_list_access or has_manage_messages):
+            await interaction.response.send_message(
+                "❌ You need either the **Manage Messages** permission or a role/user ID "
+                "granted in the Pin Message Access list to pin or unpin messages.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
     async def _dangerous_command_check(self, interaction: discord.Interaction) -> bool:
         """Guard for standalone dangerous commands that aren't tied to a
         ticket channel (/addticketblacklist, /removeticketblacklist).
@@ -1740,6 +1771,33 @@ class TicketsCog(commands.Cog):
         emb.add_field(name="Reason", value=reason, inline=False)
         emb.set_footer(text="Tickety | Tickety.top")
         await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
+    @app_commands.context_menu(name="📌 Toggle Pin")
+    async def toggle_pin_message(self, interaction: discord.Interaction, message: discord.Message):
+        if not await self._pin_command_check(interaction):
+            return
+        try:
+            if message.pinned:
+                await message.unpin(reason=f"Unpinned by {interaction.user}")
+                await interaction.response.send_message(
+                    f"📌 Unpinned [that message]({message.jump_url}).", ephemeral=True
+                )
+            else:
+                await message.pin(reason=f"Pinned by {interaction.user}")
+                await interaction.response.send_message(
+                    f"📌 Pinned [that message]({message.jump_url}).", ephemeral=True
+                )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I don't have permission to pin/unpin messages in this channel.",
+                ephemeral=True,
+            )
+        except discord.HTTPException as e:
+            await interaction.response.send_message(
+                f"❌ Failed to update the pin — {e.text if hasattr(e, 'text') else e}",
+                ephemeral=True,
+            )
 
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")
