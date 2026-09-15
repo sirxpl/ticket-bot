@@ -86,6 +86,11 @@ from utils.access import (
     remove_basic_command_role,
     add_basic_command_user,
     remove_basic_command_user,
+    add_pin_message_role,
+    remove_pin_message_role,
+    add_pin_message_user,
+    remove_pin_message_user,
+    has_pin_message_access,
     add_transcripts_role,
     remove_transcripts_role,
     add_remove_cooldown_role,
@@ -846,6 +851,12 @@ def home():
         basic_command_roles.append({"id": rid, "name": role.name if role else None})
     basic_command_users = access_settings.get("basic_command_users", [])
 
+    pin_message_roles = []
+    for rid in access_settings.get("pin_message_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        pin_message_roles.append({"id": rid, "name": role.name if role else None})
+    pin_message_users = access_settings.get("pin_message_users", [])
+
     # members who are blocked from creating tickets via a Ticket Blacklist Role
     # (in addition to the individually-blacklisted user IDs above)
     role_blacklisted_members = []
@@ -918,6 +929,8 @@ def home():
         moderation_command_roles=moderation_command_roles,
         moderation_command_users=moderation_command_users,
         basic_command_roles=basic_command_roles,
+        pin_message_roles=pin_message_roles,
+        pin_message_users=pin_message_users,
         basic_command_users=basic_command_users,
         carry_manager_roles=carry_manager_roles,
         transcripts_roles=transcripts_roles,
@@ -1589,6 +1602,46 @@ def access_add_basic_command_user():
 def access_remove_basic_command_user(user_id):
     remove_basic_command_user(user_id)
     flash("🗑️ User removed from Basic Command Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-pin-message-role", methods=["POST"])
+@admin_required
+def access_add_pin_message_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_pin_message_role(role_id)
+        flash("✅ Role added to Pin Message Access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-pin-message-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_pin_message_role(role_id):
+    remove_pin_message_role(role_id)
+    flash("🗑️ Role removed from Pin Message Access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-pin-message-user", methods=["POST"])
+@admin_required
+def access_add_pin_message_user():
+    user_id = request.form.get("user_id", "").strip()
+    if user_id.isdigit():
+        add_pin_message_user(user_id)
+        flash("✅ User added to Pin Message Access.", "success")
+    else:
+        flash("❌ Please enter a valid user ID.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-pin-message-user/<user_id>", methods=["POST"])
+@admin_required
+def access_remove_pin_message_user(user_id):
+    remove_pin_message_user(user_id)
+    flash("🗑️ User removed from Pin Message Access.", "info")
     return redirect(url_for("home"))
 
 
