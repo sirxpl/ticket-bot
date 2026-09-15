@@ -735,13 +735,13 @@ def get_pin_message_user_ids():
 
 
 def has_pin_message_access(user_id: str, member_role_ids=None) -> bool:
-    """Return True if this user can pin/unpin messages via /pin and
-    /unpin, via the configurable role/user list.
-
-    Admins always pass. This function only covers the configurable list —
-    the caller separately also allows anyone with the native Manage
-    Messages permission, same "either path" shape as Basic Command
-    Access, so this list is additive rather than a replacement.
+    """Return True if this user can pin/unpin messages via the bot's
+    Toggle Pin context menu, purely through the configurable role/user
+    list below (or being an admin). Discord's native Manage Messages /
+    channel-level Pin Messages permission is deliberately NOT checked
+    anywhere for this — access is controlled entirely by what's added
+    here, so this list must be populated for anyone (besides admins) to
+    use the feature at all.
     """
     if is_admin(user_id):
         return True
