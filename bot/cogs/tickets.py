@@ -839,6 +839,31 @@ class TicketView(discord.ui.View):
                 except Exception:
                     pass
 
+                try:
+                    # Roles granted Pin Message Access also get Discord's
+                    # native Manage Messages permission inside this ticket
+                    # channel, since pinning has no permission of its own —
+                    # it's bundled with delete-others'-messages and
+                    # remove-reactions at the Discord API level, scoped
+                    # here to ticket channels only rather than server-wide.
+                    from utils.access import get_pin_message_role_ids
+
+                    for rid in get_pin_message_role_ids():
+                        pin_role = guild.get_role(int(rid))
+                        if not pin_role:
+                            continue
+                        existing = overwrites.get(pin_role)
+                        if existing:
+                            existing.manage_messages = True
+                        else:
+                            overwrites[pin_role] = discord.PermissionOverwrite(
+                                read_messages=True,
+                                send_messages=True,
+                                manage_messages=True,
+                            )
+                except Exception:
+                    pass
+
                 from utils.storage import get_ticket_categories
 
                 categories = get_ticket_categories()
