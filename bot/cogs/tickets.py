@@ -37,16 +37,6 @@ from utils.storage import (
     update_active_ticket,
 )
 
-try:
-    TRANSCRIPT_MESSAGE_LIMIT = max(
-        1, int(os.getenv("TICKET_TRANSCRIPT_MESSAGE_LIMIT", "10000"))
-    )
-except ValueError:
-    TRANSCRIPT_MESSAGE_LIMIT = 10000
-    logging.getLogger(__name__).warning(
-        "Invalid TICKET_TRANSCRIPT_MESSAGE_LIMIT; using 10000."
-    )
-
 # logger for Render stdout/stderr so platform logs capture ticket close/delete events
 logger = logging.getLogger("tickets")
 
@@ -150,8 +140,7 @@ async def send_blacklist_log(bot, action, **fields):
 
 
 def build_discord_like_transcript(
-    messages, channel_name, ticket_meta, generated_at_iso, filename,
-    omitted_messages=False,
+    messages, channel_name, ticket_meta, generated_at_iso, filename
 ):
     """Render a dark-themed Discord-like HTML transcript, including embeds,
     buttons, and image/file attachments styled to match Discord's real UI."""
@@ -299,14 +288,6 @@ def build_discord_like_transcript(
 
     # messages
     parts.append("<div>")
-    if omitted_messages:
-        parts.append(
-            '<div style="margin:0 0 16px;padding:12px 14px;border:1px solid #f0b232;'
-            'border-radius:8px;background:rgba(240,178,50,.12);color:#ffd778">'
-            f"This transcript includes the latest {len(messages):,} messages. "
-            "Older messages were omitted to protect API usage."
-            "</div>"
-        )
     for m in messages:
         parts.append('<div class="msg">')
         parts.append(
@@ -1102,9 +1083,6 @@ class TicketView(discord.ui.View):
 class TicketsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Keep close operations idempotent while transcript generation and
-        # channel deletion are still in progress.
-        self._closing_ticket_ids = set()
 
     def get_ticket_view(self):
         return TicketView(self.bot)
@@ -1173,10 +1151,6 @@ class TicketsCog(commands.Cog):
             try:
                 member = guild.get_member(int(user_id))
                 if member is None:
-                    # This is a real, uncached HTTP call every time (Members
-                    # intent is disabled), so pace it - firing one of these
-                    # per active ticket back-to-back with zero delay is what
-                    # was triggering Discord's rate limiting.
                     try:
                         await guild.fetch_member(int(user_id))
                     except discord.NotFound:
@@ -1200,8 +1174,6 @@ class TicketsCog(commands.Cog):
                         # transient API issue — don't assume they left, just
                         # skip the rest of this tick's checks for this ticket
                         pass
-                    finally:
-                        await asyncio.sleep(1.2)
             except Exception:
                 logger.exception(
                     f"autoclose_watcher: membership check failed for channel={channel_id}"
@@ -1344,37 +1316,6 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 "❌ You need either the **Manage Channels** permission or a role/user ID "
                 "granted in the Basic Command Access list to use this command.",
-                ephemeral=True,
-            )
-            return False
-        return True
-
-    async def _pin_command_check(self, interaction: discord.Interaction) -> bool:
-        """Guard for pinning/unpinning messages inside a ticket channel.
-
-        Allowed if EITHER:
-        - the user has a role/user ID granted in Access Control's Pin
-          Message Access list (or is admin), OR
-        - the user has the native Manage Messages permission
-
-        Same "either path" shape as _basic_command_check — this lets you
-        grant pinning to a role that doesn't have Manage Messages at the
-        server level (e.g. Trial Staff), while anyone who already has
-        Manage Messages keeps working without needing to be added here.
-        """
-        if not await self._require_ticket_channel(interaction):
-            return False
-
-        from utils.access import has_pin_message_access
-
-        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
-        has_list_access = has_pin_message_access(interaction.user.id, member_role_ids)
-        has_manage_messages = interaction.user.guild_permissions.manage_messages
-
-        if not (has_list_access or has_manage_messages):
-            await interaction.response.send_message(
-                "❌ You need either the **Manage Messages** permission or a role/user ID "
-                "granted in the Pin Message Access list to pin or unpin messages.",
                 ephemeral=True,
             )
             return False
@@ -1771,33 +1712,6 @@ class TicketsCog(commands.Cog):
         emb.add_field(name="Reason", value=reason, inline=False)
         emb.set_footer(text="Tickety | Tickety.top")
         await interaction.response.send_message(embed=emb, ephemeral=True)
-
-    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
-    @app_commands.context_menu(name="📌 Toggle Pin")
-    async def toggle_pin_message(self, interaction: discord.Interaction, message: discord.Message):
-        if not await self._pin_command_check(interaction):
-            return
-        try:
-            if message.pinned:
-                await message.unpin(reason=f"Unpinned by {interaction.user}")
-                await interaction.response.send_message(
-                    f"📌 Unpinned [that message]({message.jump_url}).", ephemeral=True
-                )
-            else:
-                await message.pin(reason=f"Pinned by {interaction.user}")
-                await interaction.response.send_message(
-                    f"📌 Pinned [that message]({message.jump_url}).", ephemeral=True
-                )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ I don't have permission to pin/unpin messages in this channel.",
-                ephemeral=True,
-            )
-        except discord.HTTPException as e:
-            await interaction.response.send_message(
-                f"❌ Failed to update the pin — {e.text if hasattr(e, 'text') else e}",
-                ephemeral=True,
-            )
 
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")
@@ -2226,17 +2140,7 @@ class TicketsCog(commands.Cog):
         executor: discord.abc.Snowflake,
         reason: str = "No reason provided.",
     ):
-        """Fetch the full history, generate a transcript, then close the ticket.
-
-        ``channel.history`` uses Discord's REST API and therefore works with
-        Message Content Intent disabled. The close is aborted if history
-        cannot be read, so a ticket is never deleted without its transcript.
-        """
-        ticket_id = str(getattr(channel, "id", ""))
-        if ticket_id in self._closing_ticket_ids:
-            logger.info("Ignoring duplicate close request for channel=%s", ticket_id)
-            return False
-        self._closing_ticket_ids.add(ticket_id)
+        """Generate transcript, log close, DM creator, then delete the channel after 5 seconds."""
         try:
             try:
                 logger.info(
@@ -2246,12 +2150,7 @@ class TicketsCog(commands.Cog):
                 pass
 
             messages = []
-            # Capture the newest messages within a configurable bound. REST
-            # retrieval includes content without the gateway Message Content
-            # intent and discord.py handles pagination/rate-limit waits.
-            async for m in channel.history(
-                limit=TRANSCRIPT_MESSAGE_LIMIT + 1, oldest_first=False
-            ):
+            async for m in channel.history(limit=1000, oldest_first=True):
                 ts = m.created_at.isoformat()
                 author_name = str(m.author)
                 author_id = getattr(m.author, "id", None)
@@ -2325,16 +2224,6 @@ class TicketsCog(commands.Cog):
                     "components": components_data,
                     "is_bot": getattr(m.author, "bot", False),
                 })
-            history_limited = len(messages) > TRANSCRIPT_MESSAGE_LIMIT
-            if history_limited:
-                messages = messages[:TRANSCRIPT_MESSAGE_LIMIT]
-            messages.reverse()
-            logger.info(
-                "Captured %s messages for ticket transcript channel=%s (limit=%s)",
-                len(messages),
-                ticket_id,
-                TRANSCRIPT_MESSAGE_LIMIT,
-            )
 
             filename = f"ticket-{channel.id}.html"
             generated_at = datetime.datetime.utcnow().isoformat() + "Z"
@@ -2353,12 +2242,7 @@ class TicketsCog(commands.Cog):
                 ticket_meta = {}
 
             html_out = build_discord_like_transcript(
-                messages,
-                channel.name,
-                ticket_meta,
-                generated_at,
-                filename,
-                omitted_messages=history_limited,
+                messages, channel.name, ticket_meta, generated_at, filename
             )
             from utils.storage import save_transcript_html
             save_transcript_html(filename, html_out)
@@ -2418,64 +2302,24 @@ class TicketsCog(commands.Cog):
                 filename, expires_seconds=3600
             )
 
-            if creator_id and signed_url:
+            if creator_id:
                 try:
                     user = await self.bot.fetch_user(int(creator_id))
 
-                    layout_cls = getattr(discord.ui, "LayoutView", None)
-                    container_cls = getattr(discord.ui, "Container", None)
-                    text_display_cls = getattr(discord.ui, "TextDisplay", None)
-                    separator_cls = getattr(discord.ui, "Separator", None)
-                    action_row_cls = getattr(discord.ui, "ActionRow", None)
+                    class LinkView(discord.ui.View):
 
-                    if layout_cls and container_cls and text_display_cls and action_row_cls:
-                        class TranscriptAccessView(layout_cls):
-                            def __init__(self):
-                                super().__init__()
-                                container = container_cls(
-                                    accent_color=discord.Color.blurple()
+                        def __init__(self, url):
+                            super().__init__(timeout=None)
+                            self.add_item(
+                                discord.ui.Button(
+                                    label="View Transcript", url=url
                                 )
-                                container.add_item(
-                                    text_display_cls("## 🔐 Transcript ready")
-                                )
-                                if separator_cls:
-                                    container.add_item(separator_cls())
-                                container.add_item(
-                                    text_display_cls(
-                                        f"Your ticket **{channel.name}** has been closed.\n"
-                                        "Authorize with Discord to verify that this transcript belongs to you. "
-                                        "The secure link expires in **1 hour**."
-                                    )
-                                )
-                                row = action_row_cls()
-                                row.add_item(
-                                    discord.ui.Button(
-                                        label="Authorize & view transcript",
-                                        url=signed_url,
-                                        style=discord.ButtonStyle.link,
-                                    )
-                                )
-                                container.add_item(row)
-                                self.add_item(container)
-
-                        await user.send(view=TranscriptAccessView())
-                    else:
-                        view = discord.ui.View(timeout=None)
-                        view.add_item(
-                            discord.ui.Button(
-                                label="Authorize & view transcript",
-                                url=signed_url,
-                                style=discord.ButtonStyle.link,
                             )
-                        )
-                        await user.send(
-                            content=(
-                                f"Your ticket '{channel.name}' has been closed. "
-                                "Authorize with Discord to view your transcript. "
-                                "The secure link expires in 1 hour."
-                            ),
-                            view=view,
-                        )
+
+                    await user.send(
+                        content=f"Your ticket '{channel.name}' has been closed. The transcript is available for 1 hour.",
+                        view=LinkView(signed_url),
+                    )
                 except Exception as e:
                     logger.exception(f"Failed DM user: {e}")
 
@@ -2542,10 +2386,8 @@ class TicketsCog(commands.Cog):
                         await channel.edit(name=f"closed-{channel.name}")
                     except Exception:
                         pass
-            return True
         except Exception as global_err:
             logger.exception(f"Error in do_close: {global_err}")
-            return False
 
 
 async def setup(bot):
