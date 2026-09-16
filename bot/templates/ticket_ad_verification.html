@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ticket Verification</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { align-items:center; background:#10131a; color:#eef2ff; display:flex; font:16px system-ui,sans-serif; justify-content:center; margin:0; min-height:100vh; }
+    main { background:#1a1f2b; border:1px solid #30394f; border-radius:16px; box-shadow:0 18px 55px #0006; max-width:620px; padding:32px; width:min(90vw,620px); }
+    h1 { margin-top:0; } .muted { color:#b5bfd3; line-height:1.55; }
+    .account { background:#252c3d; border-radius:10px; margin:20px 0; padding:12px 14px; }
+    iframe { background:#0d1119; border:0; border-radius:10px; height:300px; margin:12px 0 20px; width:100%; }
+    button { background:#5865f2; border:0; border-radius:9px; color:white; cursor:pointer; font-weight:700; padding:12px 18px; }
+    button:disabled { background:#475069; cursor:not-allowed; opacity:.65; }
+    .success { color:#7de5a1; font-weight:700; }
+    .warning { background:#382b18; border-radius:10px; color:#ffd58a; padding:14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Authorize ticket access</h1>
+    <p class="muted">You are signed in as <strong>{{ user.username }}</strong>. Complete the provider's ad experience to unlock one ticket submission.</p>
+    <div class="account">Discord account: <strong>{{ user.id }}</strong></div>
+
+    {% if ready_to_return %}
+      <p class="success">Verification complete. Return to Discord and select a ticket type again to continue.</p>
+    {% elif not ad_provider_configured %}
+      <p class="warning">Ticket verification is not configured by this server yet. Please contact an administrator.</p>
+    {% else %}
+      {% if ad_embed_url %}
+        <iframe title="Verification ad" src="{{ ad_embed_url }}" allow="autoplay; fullscreen"></iframe>
+      {% endif %}
+      <p id="status" class="muted">Waiting for the ad provider to confirm completion…</p>
+      <form method="post" action="{{ url_for('ticket_ad_verification_continue', token=verification_token) }}">
+        <button id="continue" type="submit" {% if not completed %}disabled{% endif %}>Continue</button>
+      </form>
+    {% endif %}
+  </main>
+
+  {% if ad_provider_configured and not ready_to_return %}
+  <script>
+    const button = document.getElementById('continue');
+    const status = document.getElementById('status');
+    async function checkCompletion() {
+      const response = await fetch({{ url_for('ticket_ad_verification_status', token=verification_token)|tojson }}, {credentials: 'same-origin'});
+      const data = await response.json();
+      if (data.ok && data.completed) {
+        button.disabled = false;
+        status.textContent = 'Ad completion confirmed. You can continue.';
+        status.className = 'success';
+        return;
+      }
+      window.setTimeout(checkCompletion, 3000);
+    }
+    checkCompletion();
+  </script>
+  {% endif %}
+</body>
+</html>
