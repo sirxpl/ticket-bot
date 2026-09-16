@@ -1,5 +1,6 @@
 import os
 import glob
+import hmac
 import json
 import re
 import asyncio
@@ -116,6 +117,9 @@ from utils.access import (
     consume_terms_unblock_token,
     get_active_terms_unblock_tokens,
     revoke_terms_unblock_token,
+    get_ticket_ad_verification,
+    complete_ticket_ad_verification,
+    user_has_completed_ticket_ad_verification,
 )
 
 # Environment & OAuth Setup
@@ -133,6 +137,10 @@ LINKED_ROLE_REDIRECT_URI = os.getenv("LINKED_ROLE_REDIRECT_URI", "").strip()
 # Optional Discord role granted after a member accepts the Carry Service System
 # Rules. Set this to the role ID in your hosting environment.
 CARRY_RULES_ROLE_ID = os.getenv("CARRY_RULES_ROLE_ID", "").strip()
+# The provider must call the callback with an HMAC signature. Never enable a
+# browser-only "ad completed" button: it can be forged in seconds.
+AD_VERIFICATION_WEBHOOK_SECRET = os.getenv("AD_VERIFICATION_WEBHOOK_SECRET", "")
+AD_VERIFICATION_EMBED_URL = os.getenv("AD_VERIFICATION_EMBED_URL", "").strip()
 
 AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
 TOKEN_URL = 'https://discord.com/api/oauth2/token'
@@ -1044,10 +1052,93 @@ def callback():
     terms_token = session.pop("terms_unblock_token", None)
     if terms_token:
         return redirect(url_for("terms_unblock", token=terms_token))
+    ticket_ad_token = session.pop("ticket_ad_verification_token", None)
+    if ticket_ad_token:
+        return redirect(url_for("ticket_ad_verification", token=ticket_ad_token))
     transcript_return_to = session.pop("transcript_return_to", None)
     if transcript_return_to:
         return redirect(transcript_return_to)
     return redirect(url_for('home'))
+
+
+@app.route("/ticket-verification/<token>")
+def ticket_ad_verification(token):
+    """Dedicated Discord authorization and ad-verification page for tickets."""
+    verification = get_ticket_ad_verification(token)
+    if not verification:
+        return "This ticket verification link is invalid, expired, or already used.", 410
+
+    user = session.get("user")
+    if not user:
+        session["ticket_ad_verification_token"] = token
+        return redirect(url_for("login"))
+    if str(user.get("id")) != str(verification.get("user_id")):
+        return "This verification link belongs to a different Discord account.", 403
+
+    embed_url = ""
+    if AD_VERIFICATION_EMBED_URL:
+        # The provider receives the opaque session ID and must later send an
+        # authenticated completion callback for the same value.
+        embed_url = AD_VERIFICATION_EMBED_URL.replace("{session_id}", token)
+    return render_template(
+        "ticket_ad_verification.html",
+        user=user,
+        verification_token=token,
+        ad_embed_url=embed_url,
+        ad_provider_configured=bool(AD_VERIFICATION_EMBED_URL and AD_VERIFICATION_WEBHOOK_SECRET),
+        completed=bool(verification.get("completed")),
+    )
+
+
+@app.route("/ticket-verification/<token>/status")
+def ticket_ad_verification_status(token):
+    verification = get_ticket_ad_verification(token)
+    user = session.get("user") or {}
+    if not verification or str(user.get("id")) != str(verification.get("user_id")):
+        return jsonify({"ok": False}), 403
+    return jsonify({"ok": True, "completed": bool(verification.get("completed"))})
+
+
+@app.route("/ticket-verification/<token>/continue", methods=["POST"])
+def ticket_ad_verification_continue(token):
+    verification = get_ticket_ad_verification(token)
+    user = session.get("user") or {}
+    if not verification or str(user.get("id")) != str(verification.get("user_id")):
+        return "This verification link is invalid or belongs to a different Discord account.", 403
+    if not verification.get("completed"):
+        return "The ad provider has not confirmed completion yet.", 409
+    return render_template(
+        "ticket_ad_verification.html",
+        user=user,
+        verification_token=token,
+        ad_embed_url="",
+        ad_provider_configured=True,
+        completed=True,
+        ready_to_return=True,
+    )
+
+
+@app.route("/ticket-verification/ad-callback", methods=["POST"])
+def ticket_ad_verification_callback():
+    """Receive an authenticated server-to-server completion event from the ad provider.
+
+    Configure the provider to POST its session identifier as ``session_id`` and
+    an ``X-Ad-Verification-Signature`` header containing HMAC-SHA256 of that
+    identifier using AD_VERIFICATION_WEBHOOK_SECRET.
+    """
+    if not AD_VERIFICATION_WEBHOOK_SECRET:
+        return jsonify({"ok": False, "error": "Ad verification is not configured."}), 503
+    payload = request.get_json(silent=True) or request.form
+    token = str(payload.get("session_id") or payload.get("token") or "")
+    signature = request.headers.get("X-Ad-Verification-Signature", "")
+    expected = hmac.new(
+        AD_VERIFICATION_WEBHOOK_SECRET.encode(), token.encode(), "sha256"
+    ).hexdigest()
+    if not token or not hmac.compare_digest(signature, expected):
+        return jsonify({"ok": False, "error": "Invalid callback signature."}), 403
+    if not complete_ticket_ad_verification(token):
+        return jsonify({"ok": False, "error": "Unknown or expired session."}), 404
+    return jsonify({"ok": True})
 
 
 @app.route("/logout")
