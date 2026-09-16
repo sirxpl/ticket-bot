@@ -53,6 +53,9 @@ def save_settings(settings):
 def set_tickets_enabled(status):
     s=get_settings();s["tickets_enabled"]=bool(status);save_settings(s)
 
+def set_april_fools_enabled(status):
+    s=get_settings();s["april_fools_enabled"]=bool(status);save_settings(s)
+
 # --- Trial schedule settings ---
 def get_trial_schedule_settings():
     """Persistent config for the automatically maintained Trial Schedule post."""
