@@ -1121,7 +1121,75 @@ class TicketView(discord.ui.View):
                     )
 
         modal = TicketModal(interaction.user, selection)
+
+        af_settings = get_settings()
+        if af_settings.get("april_fools_enabled", False):
+            gate_view = AdGateView(modal, interaction.user.id)
+            ad_embed = discord.Embed(
+                title="📺 A Message From Our Totally Real Sponsors",
+                description=(
+                    "Before you can open your ticket, please enjoy this brief, "
+                    "completely unskippable advertisement:\n\n"
+                    "**[▶️ Watch the ad here](https://youtu.be/y0y1AM9zpnI)**\n\n"
+                    "*(April Fools! ...mostly. That button really is timed.)*"
+                ),
+                color=discord.Color.gold(),
+            )
+            ad_embed.set_footer(text="🃏 April Fools Mode is enabled on this server")
+            await interaction.response.send_message(
+                embed=ad_embed, view=gate_view, ephemeral=True
+            )
+            gate_view.message = await interaction.original_response()
+            asyncio.create_task(gate_view.run_countdown())
+            return
+
         await interaction.response.send_modal(modal)
+
+
+class AdGateView(discord.ui.View):
+    """April Fools mode: a goofy, genuinely-timed 15-second 'ad' gate shown
+    before the ticket modal opens, mimicking a YouTube skip-ad button."""
+    def __init__(self, modal, user_id):
+        super().__init__(timeout=120)
+        self.modal = modal
+        self.user_id = user_id
+        self.message = None
+
+        self.skip_button = discord.ui.Button(
+            label="⏳ Skip Ad (15)",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+        )
+        self.skip_button.callback = self._on_skip
+        self.add_item(self.skip_button)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ This ad is playing just for the person who clicked it.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def _on_skip(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(self.modal)
+        self.stop()
+
+    async def run_countdown(self):
+        for remaining in (10, 5, 0):
+            await asyncio.sleep(5)
+            if remaining > 0:
+                self.skip_button.label = f"⏳ Skip Ad ({remaining})"
+            else:
+                self.skip_button.label = "✅ Skip Ad"
+                self.skip_button.style = discord.ButtonStyle.success
+                self.skip_button.disabled = False
+            try:
+                if self.message:
+                    await self.message.edit(view=self)
+            except Exception:
+                pass
 
 
 # --- TICKETS COG & SLASH COMMANDS ---
