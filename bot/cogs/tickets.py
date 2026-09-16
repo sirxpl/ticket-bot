@@ -36,6 +36,11 @@ from utils.storage import (
     touch_ticket_activity,
     update_active_ticket,
 )
+from utils.access import (
+    consume_ticket_ad_verification,
+    create_ticket_ad_verification,
+    user_has_completed_ticket_ad_verification,
+)
 
 try:
     TRANSCRIPT_MESSAGE_LIMIT = max(
@@ -748,6 +753,39 @@ class TicketView(discord.ui.View):
         except Exception:
             pass
 
+        # Ticket creation is gated by a completed web verification. The web
+        # page only enables Continue after the ad provider has confirmed the
+        # view through its server-to-server callback.
+        if not user_has_completed_ticket_ad_verification(interaction.user.id):
+            from utils.storage import get_dashboard_base_url
+
+            base_url = get_dashboard_base_url()
+            if not base_url:
+                await interaction.response.send_message(
+                    "❌ Ticket verification is not configured yet. Ask an administrator "
+                    "to set PUBLIC_BASE_URL on the bot host.",
+                    ephemeral=True,
+                )
+                return
+            verification_token = create_ticket_ad_verification(interaction.user.id)
+            verification_url = f"{base_url}/ticket-verification/{verification_token}"
+            view = discord.ui.View(timeout=300)
+            view.add_item(
+                discord.ui.Button(
+                    label="Authorize Discord & Continue",
+                    url=verification_url,
+                    style=discord.ButtonStyle.link,
+                )
+            )
+            await interaction.response.send_message(
+                "Before opening a ticket, authorize the same Discord account and "
+                "complete the verification in your browser. Then return here and "
+                "choose a ticket type again.",
+                view=view,
+                ephemeral=True,
+            )
+            return
+
         class TicketModal(discord.ui.Modal, title=f"{selection}"):
             def __init__(self, author, selection):
                 super().__init__()
@@ -799,6 +837,16 @@ class TicketView(discord.ui.View):
                 user = self.author
 
                 await modal_interaction.response.defer(ephemeral=True)
+
+                # A completed web verification is single-use and is consumed
+                # only when the user actually submits this ticket form.
+                if not consume_ticket_ad_verification(user.id):
+                    await modal_interaction.followup.send(
+                        "❌ Your ticket verification expired. Please choose a ticket "
+                        "type again and complete the browser verification.",
+                        ephemeral=True,
+                    )
+                    return
 
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(
