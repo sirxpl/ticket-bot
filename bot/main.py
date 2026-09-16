@@ -32,6 +32,7 @@ from utils.storage import (
     TRANSCRIPTS_DIR,
     get_settings,
     set_tickets_enabled,
+    set_april_fools_enabled,
     get_ticket_logs,
     get_logs_for_ticket,
     get_transcript_info,
@@ -914,6 +915,7 @@ def home():
         categories=categories,
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
+        april_fools_enabled=settings.get("april_fools_enabled", False),
         total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=active_tickets,
         transcripts=transcripts,
@@ -1127,6 +1129,16 @@ def toggle_tickets():
     
     status_text = "enabled" if is_enabled else "disabled"
     flash(f"⚙️ Ticket creation has been {status_text}.", "success" if is_enabled else "warning")
+    return redirect("/")
+
+@app.route("/dashboard/toggle-april-fools", methods=["POST"])
+@carry_manager_required
+def toggle_april_fools():
+    is_enabled = request.form.get("april_fools_enabled") in ["on", "true", "True"]
+    set_april_fools_enabled(is_enabled)
+
+    status_text = "enabled 🃏" if is_enabled else "disabled"
+    flash(f"🎉 April Fools Mode has been {status_text}.", "success" if is_enabled else "warning")
     return redirect("/")
 
 
