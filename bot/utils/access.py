@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import hmac
 import secrets
 import time
 
@@ -33,6 +34,7 @@ _DEFAULTS = {
     "moderation_command_users": [],
     "globally_blocked_users": [],
     "terms_unblock_tokens": [],
+    "ticket_ad_verifications": [],
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -85,6 +87,7 @@ def get_access_settings():
         doc.setdefault("moderation_command_users", [])
         doc.setdefault("globally_blocked_users", [])
         doc.setdefault("terms_unblock_tokens", [])
+        doc.setdefault("ticket_ad_verifications", [])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -113,6 +116,7 @@ def get_access_settings():
         data.setdefault("moderation_command_users", [])
         data.setdefault("globally_blocked_users", [])
         data.setdefault("terms_unblock_tokens", [])
+        data.setdefault("ticket_ad_verifications", [])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -244,6 +248,110 @@ def revoke_terms_unblock_token(token: str) -> bool:
             _save(data)
             return True
     return False
+
+
+# --- Ticket ad verification ---
+# A verification is issued for a Discord user before they can open a ticket.
+# It becomes usable only when the ad provider calls our authenticated webhook;
+# a browser button alone never grants access.
+TICKET_AD_VERIFICATION_TTL_SECONDS = 30 * 60
+
+
+def _ticket_ad_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token).encode()).hexdigest()
+
+
+def create_ticket_ad_verification(user_id: str) -> str:
+    """Create a short-lived, single-use ad-verification session for one user."""
+    user_id = str(user_id).strip()
+    if not user_id.isdigit():
+        raise ValueError("User ID must contain only numbers.")
+
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    data = get_access_settings()
+    sessions = data.setdefault("ticket_ad_verifications", [])
+    # Keep the list bounded and invalidate older unfinished sessions for this
+    # user, so only the newest Discord link can be completed.
+    sessions[:] = [
+        entry
+        for entry in sessions
+        if int(entry.get("expires_at", 0)) > now
+        and (str(entry.get("user_id")) != user_id or entry.get("completed"))
+    ]
+    sessions.append({
+        "token_hash": _ticket_ad_token_hash(token),
+        "user_id": user_id,
+        "created_at": now,
+        "expires_at": now + TICKET_AD_VERIFICATION_TTL_SECONDS,
+        "completed": False,
+        "consumed": False,
+    })
+    _save(data)
+    return token
+
+
+def get_ticket_ad_verification(token: str) -> dict | None:
+    token_hash = _ticket_ad_token_hash(token)
+    now = int(time.time())
+    for entry in get_access_settings().get("ticket_ad_verifications", []):
+        if (
+            hmac.compare_digest(entry.get("token_hash", ""), token_hash)
+            and not entry.get("consumed")
+            and int(entry.get("expires_at", 0)) > now
+        ):
+            return dict(entry)
+    return None
+
+
+def complete_ticket_ad_verification(token: str) -> bool:
+    """Mark a session complete after a verified provider callback."""
+    token_hash = _ticket_ad_token_hash(token)
+    now = int(time.time())
+    data = get_access_settings()
+    for entry in data.setdefault("ticket_ad_verifications", []):
+        if (
+            hmac.compare_digest(entry.get("token_hash", ""), token_hash)
+            and not entry.get("consumed")
+            and int(entry.get("expires_at", 0)) > now
+        ):
+            entry["completed"] = True
+            entry["completed_at"] = now
+            _save(data)
+            return True
+    return False
+
+
+def user_has_completed_ticket_ad_verification(user_id: str) -> bool:
+    now = int(time.time())
+    return any(
+        str(entry.get("user_id")) == str(user_id)
+        and entry.get("completed")
+        and not entry.get("consumed")
+        and int(entry.get("expires_at", 0)) > now
+        for entry in get_access_settings().get("ticket_ad_verifications", [])
+    )
+
+
+def consume_ticket_ad_verification(user_id: str) -> bool:
+    """Consume the newest completed session when a ticket is submitted."""
+    now = int(time.time())
+    data = get_access_settings()
+    matches = [
+        entry
+        for entry in data.setdefault("ticket_ad_verifications", [])
+        if str(entry.get("user_id")) == str(user_id)
+        and entry.get("completed")
+        and not entry.get("consumed")
+        and int(entry.get("expires_at", 0)) > now
+    ]
+    if not matches:
+        return False
+    newest = max(matches, key=lambda entry: int(entry.get("completed_at", 0)))
+    newest["consumed"] = True
+    newest["consumed_at"] = now
+    _save(data)
+    return True
 
 
 def add_allowed_user(user_id: str) -> bool:
