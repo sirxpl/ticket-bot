@@ -156,6 +156,17 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 
+@app.context_processor
+def inject_public_flags():
+    try:
+        settings = get_settings()
+    except Exception:
+        settings = {}
+    return {
+        "april_fools_enabled": bool(settings.get("april_fools_enabled", False)),
+    }
+
+
 def current_base_url():
     """Public origin of the current request, honouring PUBLIC_BASE_URL."""
     return PUBLIC_BASE_URL or request.url_root.rstrip("/")
