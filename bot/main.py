@@ -1,6 +1,5 @@
 import os
 import glob
-import hmac
 import json
 import re
 import asyncio
@@ -33,6 +32,7 @@ from utils.storage import (
     TRANSCRIPTS_DIR,
     get_settings,
     set_tickets_enabled,
+    get_april_fools_enabled,
     set_april_fools_enabled,
     get_ticket_logs,
     get_logs_for_ticket,
@@ -88,11 +88,6 @@ from utils.access import (
     remove_basic_command_role,
     add_basic_command_user,
     remove_basic_command_user,
-    add_pin_message_role,
-    remove_pin_message_role,
-    add_pin_message_user,
-    remove_pin_message_user,
-    has_pin_message_access,
     add_transcripts_role,
     remove_transcripts_role,
     add_remove_cooldown_role,
@@ -117,9 +112,6 @@ from utils.access import (
     consume_terms_unblock_token,
     get_active_terms_unblock_tokens,
     revoke_terms_unblock_token,
-    get_ticket_ad_verification,
-    complete_ticket_ad_verification,
-    user_has_completed_ticket_ad_verification,
 )
 
 # Environment & OAuth Setup
@@ -137,10 +129,6 @@ LINKED_ROLE_REDIRECT_URI = os.getenv("LINKED_ROLE_REDIRECT_URI", "").strip()
 # Optional Discord role granted after a member accepts the Carry Service System
 # Rules. Set this to the role ID in your hosting environment.
 CARRY_RULES_ROLE_ID = os.getenv("CARRY_RULES_ROLE_ID", "").strip()
-# The provider must call the callback with an HMAC signature. Never enable a
-# browser-only "ad completed" button: it can be forged in seconds.
-AD_VERIFICATION_WEBHOOK_SECRET = os.getenv("AD_VERIFICATION_WEBHOOK_SECRET", "")
-AD_VERIFICATION_EMBED_URL = os.getenv("AD_VERIFICATION_EMBED_URL", "").strip()
 
 AUTHORIZATION_BASE_URL = 'https://discord.com/api/oauth2/authorize'
 TOKEN_URL = 'https://discord.com/api/oauth2/token'
@@ -154,17 +142,6 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 # Hosts like Render terminate TLS in front of the app, so without this Flask
 # builds http:// URLs for an https:// site and Discord rejects the redirect.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-
-
-@app.context_processor
-def inject_public_flags():
-    try:
-        settings = get_settings()
-    except Exception:
-        settings = {}
-    return {
-        "april_fools_enabled": bool(settings.get("april_fools_enabled", False)),
-    }
 
 
 def current_base_url():
@@ -871,12 +848,6 @@ def home():
         basic_command_roles.append({"id": rid, "name": role.name if role else None})
     basic_command_users = access_settings.get("basic_command_users", [])
 
-    pin_message_roles = []
-    for rid in access_settings.get("pin_message_roles", []):
-        role = guild.get_role(int(rid)) if guild else None
-        pin_message_roles.append({"id": rid, "name": role.name if role else None})
-    pin_message_users = access_settings.get("pin_message_users", [])
-
     # members who are blocked from creating tickets via a Ticket Blacklist Role
     # (in addition to the individually-blacklisted user IDs above)
     role_blacklisted_members = []
@@ -934,7 +905,7 @@ def home():
         categories=categories,
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
-        april_fools_enabled=settings.get("april_fools_enabled", False),
+        april_fools_enabled=get_april_fools_enabled(),
         total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=active_tickets,
         transcripts=transcripts,
@@ -950,8 +921,6 @@ def home():
         moderation_command_roles=moderation_command_roles,
         moderation_command_users=moderation_command_users,
         basic_command_roles=basic_command_roles,
-        pin_message_roles=pin_message_roles,
-        pin_message_users=pin_message_users,
         basic_command_users=basic_command_users,
         carry_manager_roles=carry_manager_roles,
         transcripts_roles=transcripts_roles,
@@ -1063,93 +1032,10 @@ def callback():
     terms_token = session.pop("terms_unblock_token", None)
     if terms_token:
         return redirect(url_for("terms_unblock", token=terms_token))
-    ticket_ad_token = session.pop("ticket_ad_verification_token", None)
-    if ticket_ad_token:
-        return redirect(url_for("ticket_ad_verification", token=ticket_ad_token))
     transcript_return_to = session.pop("transcript_return_to", None)
     if transcript_return_to:
         return redirect(transcript_return_to)
     return redirect(url_for('home'))
-
-
-@app.route("/ticket-verification/<token>")
-def ticket_ad_verification(token):
-    """Dedicated Discord authorization and ad-verification page for tickets."""
-    verification = get_ticket_ad_verification(token)
-    if not verification:
-        return "This ticket verification link is invalid, expired, or already used.", 410
-
-    user = session.get("user")
-    if not user:
-        session["ticket_ad_verification_token"] = token
-        return redirect(url_for("login"))
-    if str(user.get("id")) != str(verification.get("user_id")):
-        return "This verification link belongs to a different Discord account.", 403
-
-    embed_url = ""
-    if AD_VERIFICATION_EMBED_URL:
-        # The provider receives the opaque session ID and must later send an
-        # authenticated completion callback for the same value.
-        embed_url = AD_VERIFICATION_EMBED_URL.replace("{session_id}", token)
-    return render_template(
-        "ticket_ad_verification.html",
-        user=user,
-        verification_token=token,
-        ad_embed_url=embed_url,
-        ad_provider_configured=bool(AD_VERIFICATION_EMBED_URL and AD_VERIFICATION_WEBHOOK_SECRET),
-        completed=bool(verification.get("completed")),
-    )
-
-
-@app.route("/ticket-verification/<token>/status")
-def ticket_ad_verification_status(token):
-    verification = get_ticket_ad_verification(token)
-    user = session.get("user") or {}
-    if not verification or str(user.get("id")) != str(verification.get("user_id")):
-        return jsonify({"ok": False}), 403
-    return jsonify({"ok": True, "completed": bool(verification.get("completed"))})
-
-
-@app.route("/ticket-verification/<token>/continue", methods=["POST"])
-def ticket_ad_verification_continue(token):
-    verification = get_ticket_ad_verification(token)
-    user = session.get("user") or {}
-    if not verification or str(user.get("id")) != str(verification.get("user_id")):
-        return "This verification link is invalid or belongs to a different Discord account.", 403
-    if not verification.get("completed"):
-        return "The ad provider has not confirmed completion yet.", 409
-    return render_template(
-        "ticket_ad_verification.html",
-        user=user,
-        verification_token=token,
-        ad_embed_url="",
-        ad_provider_configured=True,
-        completed=True,
-        ready_to_return=True,
-    )
-
-
-@app.route("/ticket-verification/ad-callback", methods=["POST"])
-def ticket_ad_verification_callback():
-    """Receive an authenticated server-to-server completion event from the ad provider.
-
-    Configure the provider to POST its session identifier as ``session_id`` and
-    an ``X-Ad-Verification-Signature`` header containing HMAC-SHA256 of that
-    identifier using AD_VERIFICATION_WEBHOOK_SECRET.
-    """
-    if not AD_VERIFICATION_WEBHOOK_SECRET:
-        return jsonify({"ok": False, "error": "Ad verification is not configured."}), 503
-    payload = request.get_json(silent=True) or request.form
-    token = str(payload.get("session_id") or payload.get("token") or "")
-    signature = request.headers.get("X-Ad-Verification-Signature", "")
-    expected = hmac.new(
-        AD_VERIFICATION_WEBHOOK_SECRET.encode(), token.encode(), "sha256"
-    ).hexdigest()
-    if not token or not hmac.compare_digest(signature, expected):
-        return jsonify({"ok": False, "error": "Invalid callback signature."}), 403
-    if not complete_ticket_ad_verification(token):
-        return jsonify({"ok": False, "error": "Unknown or expired session."}), 404
-    return jsonify({"ok": True})
 
 
 @app.route("/logout")
@@ -1233,14 +1119,15 @@ def toggle_tickets():
     flash(f"⚙️ Ticket creation has been {status_text}.", "success" if is_enabled else "warning")
     return redirect("/")
 
+
 @app.route("/dashboard/toggle-april-fools", methods=["POST"])
 @carry_manager_required
 def toggle_april_fools():
     is_enabled = request.form.get("april_fools_enabled") in ["on", "true", "True"]
     set_april_fools_enabled(is_enabled)
 
-    status_text = "enabled 🃏" if is_enabled else "disabled"
-    flash(f"🎉 April Fools Mode has been {status_text}.", "success" if is_enabled else "warning")
+    status_text = "enabled" if is_enabled else "disabled"
+    flash(f"📺 April Fools ad gag has been {status_text}.", "success" if is_enabled else "warning")
     return redirect("/")
 
 
@@ -1716,94 +1603,6 @@ def access_add_basic_command_user():
 def access_remove_basic_command_user(user_id):
     remove_basic_command_user(user_id)
     flash("🗑️ User removed from Basic Command Access.", "info")
-    return redirect(url_for("home"))
-
-
-def _sync_pin_role_on_open_tickets(role_id: str, grant: bool):
-    """Grant or revoke Discord's Pin Messages permission for one role
-    across every currently open ticket channel, immediately when the Pin
-    Message Access list changes — not just for tickets created afterward.
-    Fire-and-forget on the bot's event loop; a failure here shouldn't
-    break the dashboard request that triggered it.
-    """
-    async def _do_sync():
-        tickets_info = get_tickets_data()
-        for ticket in tickets_info.get("active_tickets", []):
-            channel_id = ticket.get("channel_id")
-            if not channel_id:
-                continue
-            channel = bot.get_channel(int(channel_id))
-            if not channel:
-                continue
-            role = channel.guild.get_role(int(role_id))
-            if not role:
-                continue
-            try:
-                existing = channel.overwrites_for(role)
-                has_dedicated_flag = hasattr(existing, "pin_messages")
-                if grant:
-                    existing.read_messages = True
-                    existing.send_messages = True
-                    if has_dedicated_flag:
-                        existing.pin_messages = True
-                    else:
-                        existing.manage_messages = True
-                else:
-                    if has_dedicated_flag:
-                        existing.pin_messages = None
-                    else:
-                        existing.manage_messages = None
-                await channel.set_permissions(role, overwrite=existing)
-            except Exception:
-                app.logger.exception(
-                    f"Failed to sync pin-message role={role_id} on channel={channel_id}"
-                )
-
-    try:
-        asyncio.run_coroutine_threadsafe(_do_sync(), bot.loop)
-    except Exception:
-        app.logger.exception("Failed to schedule pin-message role sync")
-
-
-@app.route("/dashboard/access/add-pin-message-role", methods=["POST"])
-@admin_required
-def access_add_pin_message_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_pin_message_role(role_id)
-        _sync_pin_role_on_open_tickets(role_id, grant=True)
-        flash("✅ Role added to Pin Message Access. Applied to open tickets now, and every new ticket going forward.", "success")
-    else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-pin-message-role/<role_id>", methods=["POST"])
-@admin_required
-def access_remove_pin_message_role(role_id):
-    remove_pin_message_role(role_id)
-    _sync_pin_role_on_open_tickets(role_id, grant=False)
-    flash("🗑️ Role removed from Pin Message Access. Manage Messages revoked from open tickets too.", "info")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/add-pin-message-user", methods=["POST"])
-@admin_required
-def access_add_pin_message_user():
-    user_id = request.form.get("user_id", "").strip()
-    if user_id.isdigit():
-        add_pin_message_user(user_id)
-        flash("✅ User added to Pin Message Access.", "success")
-    else:
-        flash("❌ Please enter a valid user ID.", "danger")
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard/access/remove-pin-message-user/<user_id>", methods=["POST"])
-@admin_required
-def access_remove_pin_message_user(user_id):
-    remove_pin_message_user(user_id)
-    flash("🗑️ User removed from Pin Message Access.", "info")
     return redirect(url_for("home"))
 
 
