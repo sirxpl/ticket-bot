@@ -1121,6 +1121,53 @@ class TicketView(discord.ui.View):
                     )
 
         modal = TicketModal(interaction.user, selection)
+
+        from utils.storage import get_april_fools_enabled, get_dashboard_base_url
+
+        if get_april_fools_enabled():
+            from utils.access import create_ticket_ad_verification, consume_ticket_ad_verification
+
+            # If they already finished the ad on a previous attempt (picked a
+            # category, went and watched it, came back and picked again), this
+            # consumes that completed session and lets them straight through.
+            if consume_ticket_ad_verification(interaction.user.id):
+                await interaction.response.send_modal(modal)
+                return
+
+            base_url = get_dashboard_base_url()
+            token = None
+            try:
+                token = create_ticket_ad_verification(interaction.user.id)
+            except ValueError:
+                token = None
+
+            if token and base_url:
+                ad_url = f"{base_url}/ticket-ad/{token}"
+                gate_view = discord.ui.View()
+                gate_view.add_item(
+                    discord.ui.Button(
+                        label="📺 Watch Ad",
+                        style=discord.ButtonStyle.link,
+                        url=ad_url,
+                    )
+                )
+                ad_embed = discord.Embed(
+                    title="📺 A Message From Our Totally Real Sponsors",
+                    description=(
+                        "Before your ticket opens, please watch the ad on our website, "
+                        "then come back here and pick your ticket option again.\n\n"
+                        "*(April Fools! ...mostly. You do actually need to watch it.)*"
+                    ),
+                    color=discord.Color.gold(),
+                )
+                ad_embed.set_footer(text="🃏 April Fools Mode is enabled on this server")
+                await interaction.response.send_message(
+                    embed=ad_embed, view=gate_view, ephemeral=True
+                )
+                return
+            # No PUBLIC_BASE_URL configured, so there's nowhere to send them —
+            # fail open rather than locking every ticket behind a dead link.
+
         await interaction.response.send_modal(modal)
 
 
