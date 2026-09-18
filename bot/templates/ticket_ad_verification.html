@@ -1,60 +1,165 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ticket Verification</title>
-  <style>
-    :root { color-scheme: dark; }
-    body { align-items:center; background:#10131a; color:#eef2ff; display:flex; font:16px system-ui,sans-serif; justify-content:center; margin:0; min-height:100vh; }
-    main { background:#1a1f2b; border:1px solid #30394f; border-radius:16px; box-shadow:0 18px 55px #0006; max-width:620px; padding:32px; width:min(90vw,620px); }
-    h1 { margin-top:0; } .muted { color:#b5bfd3; line-height:1.55; }
-    .account { background:#252c3d; border-radius:10px; margin:20px 0; padding:12px 14px; }
-    iframe { background:#0d1119; border:0; border-radius:10px; height:300px; margin:12px 0 20px; width:100%; }
-    button { background:#5865f2; border:0; border-radius:9px; color:white; cursor:pointer; font-weight:700; padding:12px 18px; }
-    button:disabled { background:#475069; cursor:not-allowed; opacity:.65; }
-    .success { color:#7de5a1; font-weight:700; }
-    .warning { background:#382b18; border-radius:10px; color:#ffd58a; padding:14px; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if ready_to_return %}Verified{% else %}Advertisement{% endif %} — Tickety</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14151f; --surface-2:#191b28; --border:#25273a;
+    --text:#eef0f7; --muted:#8d90a8; --yellow:#ffc93c; --indigo:#7c6cf0;
+    --green:#5ee6a0; --red:#ff6767;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif;
+       line-height:1.65; margin:0; display:flex; align-items:center;
+       justify-content:center; min-height:100vh; padding:24px;}
+  h1,h2,.brand{font-family:'Space Grotesk',sans-serif;}
+  main{width:min(100%,600px);}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px;
+         color:var(--text); text-decoration:none; margin-bottom:18px; justify-content:center;}
+  .brand .stub{width:24px; height:18px; background:var(--yellow); border-radius:5px; position:relative;}
+  .brand .stub::after{content:""; position:absolute; left:60%; top:-3px; bottom:-3px;
+                      border-left:2px dashed #0b0c1288;}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:14px;
+        padding:28px; box-shadow:0 18px 55px #0006;}
+  .ad-label{display:inline-block; font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+            color:var(--muted); border:1px solid var(--border); border-radius:4px;
+            padding:3px 8px; margin-bottom:14px;}
+  h1{font-size:23px; margin:0 0 10px 0;}
+  p{color:#c7c9db; font-size:14.5px; margin:0 0 14px 0;}
+  .account{background:var(--surface-2); border-radius:9px; padding:10px 14px;
+           font-size:13.5px; color:var(--muted); margin-bottom:18px;}
+  .account strong{color:var(--text);}
+  .ad-image{width:100%; border-radius:10px; margin:4px 0 18px; display:block;
+            border:1px solid var(--border);}
+  .ad-link{display:inline-block; color:var(--yellow); text-decoration:none;
+           font-weight:600; font-size:14px; margin-bottom:18px;}
+  .ad-link:hover{text-decoration:underline;}
+  .countdown-bar{height:6px; background:var(--surface-2); border-radius:99px;
+                 overflow:hidden; margin:18px 0 14px;}
+  .countdown-fill{height:100%; width:0%; background:var(--indigo);
+                  transition:width 1s linear;}
+  button{background:var(--indigo); border:0; border-radius:9px; color:white;
+         cursor:pointer; font-weight:700; font-size:14.5px; padding:12px 22px;
+         font-family:'Inter',sans-serif; width:100%;}
+  button:disabled{background:#3a3f57; cursor:not-allowed; color:var(--muted);}
+  button.ready{background:var(--green); color:#07120c;}
+  .notice{border-left:2px dashed var(--yellow); background:var(--surface-2);
+          border-radius:8px; padding:14px 16px; font-size:14px; color:#c7c9db; margin-bottom:16px;}
+  .notice.bad{border-left-color:var(--red);}
+  .notice.good{border-left-color:var(--green);}
+  .footer-note{text-align:center; color:var(--muted); font-size:12px; margin-top:18px;}
+  .big-check{font-size:46px; text-align:center; margin-bottom:8px;}
+</style>
 </head>
 <body>
-  <main>
-    <h1>Authorize ticket access</h1>
-    <p class="muted">You are signed in as <strong>{{ user.username }}</strong>. Complete the provider's ad experience to unlock one ticket submission.</p>
-    <div class="account">Discord account: <strong>{{ user.id }}</strong></div>
+<main>
+  <a href="/" class="brand"><span class="stub"></span> Tickety</a>
 
-    {% if ready_to_return %}
-      <p class="success">Verification complete. Return to Discord and select a ticket type again to continue.</p>
-    {% elif not ad_provider_configured %}
-      <p class="warning">Ticket verification is not configured by this server yet. Please contact an administrator.</p>
-    {% else %}
-      {% if ad_embed_url %}
-        <iframe title="Verification ad" src="{{ ad_embed_url }}" allow="autoplay; fullscreen"></iframe>
+  {% if invalid %}
+    <div class="card">
+      <h1>⚠️ Link expired</h1>
+      <div class="notice bad">
+        This verification link is no longer valid. Head back to Discord and pick
+        a ticket type again to get a fresh one.
+      </div>
+    </div>
+
+  {% elif mismatch %}
+    <div class="card">
+      <h1>🔁 Wrong account</h1>
+      <div class="notice bad">
+        You're signed in as <strong>{{ user.username }}</strong>, but this link was
+        created for a different Discord account.
+      </div>
+      <p>Log out, sign in with the account that opened the ticket, then use the link again.</p>
+      <a class="ad-link" href="/logout">Log out</a>
+    </div>
+
+  {% elif ready_to_return %}
+    <div class="card">
+      <div class="big-check">✅</div>
+      <h1 style="text-align:center;">You're all set</h1>
+      <div class="notice good">
+        Verification complete. Head back to Discord and press
+        <strong>I've watched it</strong> to open your ticket form.
+      </div>
+    </div>
+
+  {% else %}
+    <div class="card">
+      <span class="ad-label">Advertisement</span>
+      <h1>{{ ad.headline or "A word from our sponsor" }}</h1>
+
+      {% if ad.body %}<p>{{ ad.body }}</p>{% endif %}
+
+      {% if ad.image_url %}
+        <img class="ad-image" src="{{ ad.image_url }}" alt="Advertisement">
       {% endif %}
-      <p id="status" class="muted">Waiting for the ad provider to confirm completion…</p>
-      <form method="post" action="{{ url_for('ticket_ad_verification_continue', token=verification_token) }}">
-        <button id="continue" type="submit" {% if not completed %}disabled{% endif %}>Continue</button>
-      </form>
-    {% endif %}
-  </main>
 
-  {% if ad_provider_configured and not ready_to_return %}
-  <script>
-    const button = document.getElementById('continue');
-    const status = document.getElementById('status');
-    async function checkCompletion() {
-      const response = await fetch({{ url_for('ticket_ad_verification_status', token=verification_token)|tojson }}, {credentials: 'same-origin'});
-      const data = await response.json();
-      if (data.ok && data.completed) {
-        button.disabled = false;
-        status.textContent = 'Ad completion confirmed. You can continue.';
-        status.className = 'success';
-        return;
-      }
-      window.setTimeout(checkCompletion, 3000);
-    }
-    checkCompletion();
-  </script>
+      {% if ad.link_url %}
+        <a class="ad-link" href="{{ ad.link_url }}" target="_blank" rel="noopener noreferrer">
+          {{ ad.link_label or "Learn more" }} ↗
+        </a>
+      {% endif %}
+
+      <div class="account">
+        Signed in as <strong>{{ user.username }}</strong> · ID {{ user.id }}
+      </div>
+
+      {% if too_early %}
+        <div class="notice bad">Not so fast — the countdown hasn't finished yet.</div>
+      {% endif %}
+
+      <div class="countdown-bar"><div class="countdown-fill" id="fill"></div></div>
+
+      <form method="post" action="{{ url_for('ticket_ad_complete', token=verification_token) }}">
+        <button id="continue" type="submit" disabled>
+          Continue in {{ seconds_remaining }}s...
+        </button>
+      </form>
+
+      <div class="footer-note">
+        {{ ad.sponsor or "Tickety Ad Network" }} · Ad-free plan available for $0.00/mo
+      </div>
+    </div>
   {% endif %}
+</main>
+
+{% if not invalid and not mismatch and not ready_to_return %}
+<script>
+  (function () {
+    var total = {{ ad.countdown_seconds|int }};
+    var left  = {{ seconds_remaining|int }};
+    var btn   = document.getElementById('continue');
+    var fill  = document.getElementById('fill');
+
+    function paint() {
+      var done = Math.max(0, total - left);
+      fill.style.width = (total ? (done / total) * 100 : 100) + '%';
+      if (left > 0) {
+        btn.textContent = 'Continue in ' + left + 's...';
+      } else {
+        btn.textContent = '✅ Continue';
+        btn.disabled = false;
+        btn.classList.add('ready');
+      }
+    }
+
+    paint();
+    if (left > 0) {
+      var timer = setInterval(function () {
+        left -= 1;
+        paint();
+        if (left <= 0) clearInterval(timer);
+      }, 1000);
+    }
+  })();
+</script>
+{% endif %}
 </body>
 </html>
