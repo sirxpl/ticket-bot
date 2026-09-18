@@ -1143,7 +1143,7 @@ class TicketView(discord.ui.View):
 
             if token and base_url:
                 ad_url = f"{base_url}/ticket-ad/{token}"
-                gate_view = discord.ui.View()
+                gate_view = discord.ui.View(timeout=600)
                 gate_view.add_item(
                     discord.ui.Button(
                         label="📺 Watch Ad",
@@ -1151,11 +1151,36 @@ class TicketView(discord.ui.View):
                         url=ad_url,
                     )
                 )
+
+                watched_button = discord.ui.Button(
+                    label="✅ I've watched it", style=discord.ButtonStyle.success
+                )
+
+                async def _on_watched(watched_interaction: discord.Interaction, _user_id=interaction.user.id, _modal=modal):
+                    if watched_interaction.user.id != _user_id:
+                        await watched_interaction.response.send_message(
+                            "❌ This isn't your ad to confirm.", ephemeral=True
+                        )
+                        return
+                    from utils.access import consume_ticket_ad_verification
+                    if consume_ticket_ad_verification(watched_interaction.user.id):
+                        await watched_interaction.response.send_modal(_modal)
+                    else:
+                        await watched_interaction.response.send_message(
+                            "⏳ Looks like the countdown on the ad page isn't done yet (or you "
+                            "haven't opened it). Click **Watch Ad** above, wait for it to finish, "
+                            "press Continue there, then press this button again.",
+                            ephemeral=True,
+                        )
+
+                watched_button.callback = _on_watched
+                gate_view.add_item(watched_button)
+
                 ad_embed = discord.Embed(
                     title="📺 A Message From Our Totally Real Sponsors",
                     description=(
                         "Before your ticket opens, please watch the ad on our website, "
-                        "then come back here and pick your ticket option again.\n\n"
+                        "then come back here and press **I've watched it**.\n\n"
                         "*(April Fools! ...mostly. You do actually need to watch it.)*"
                     ),
                     color=discord.Color.gold(),
