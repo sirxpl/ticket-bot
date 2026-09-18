@@ -1,54 +1,145 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Admin Panel</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 32px;
-            background: #1e1f22;
-            color: #f2f3f5;
-            font-family: "Segoe UI", sans-serif;
-        }
-        main {
-            max-width: 760px;
-            margin: 0 auto;
-            background: #2b2d31;
-            padding: 28px;
-            border-radius: 10px;
-        }
-        a { color: #8ea1ff; }
-        .muted { color: #b5bac1; }
-        code {
-            display: inline-block;
-            margin: 4px 6px 4px 0;
-            padding: 4px 7px;
-            background: #1e1f22;
-            border-radius: 4px;
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Panel — Tickety</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14151f; --surface-2:#191b28; --border:#25273a;
+    --text:#eef0f7; --muted:#8d90a8; --yellow:#ffc93c; --indigo:#7c6cf0;
+    --green:#5ee6a0; --red:#ff6767;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif;
+       line-height:1.65; margin:0; padding:32px 20px 80px;}
+  h1,h2,h3,.brand{font-family:'Space Grotesk',sans-serif;}
+  .wrap{max-width:820px; margin:0 auto;}
+  .topline{display:flex; justify-content:space-between; align-items:center;
+           margin-bottom:22px; font-size:14px;}
+  .topline a{color:var(--muted); text-decoration:none;}
+  .topline a:hover{color:var(--yellow);}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px; color:var(--text);}
+  .brand .stub{width:24px; height:18px; background:var(--yellow); border-radius:5px; position:relative;}
+  .brand .stub::after{content:""; position:absolute; left:60%; top:-3px; bottom:-3px;
+                      border-left:2px dashed #0b0c1288;}
+  h1{font-size:28px; margin:0 0 4px 0;}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 26px 0;}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:12px;
+        padding:24px; margin-bottom:20px;}
+  .card h2{font-size:19px; margin:0 0 4px 0;}
+  .card .card-sub{color:var(--muted); font-size:13.5px; margin:0 0 18px 0;}
+  label{display:block; font-weight:600; font-size:13px; margin:14px 0 5px;
+        text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
+  label .hint{text-transform:none; letter-spacing:0; font-weight:400; color:var(--muted);}
+  input[type=text], input[type=url], input[type=number], textarea{
+    width:100%; padding:10px 12px; background:var(--surface-2); color:var(--text);
+    border:1px solid var(--border); border-radius:7px; font-size:14px;
+    font-family:'Inter',sans-serif;}
+  textarea{resize:vertical; min-height:74px;}
+  .row{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .btn{background:var(--indigo); border:0; border-radius:8px; color:white; cursor:pointer;
+       font-weight:700; font-size:14px; padding:11px 22px; margin-top:20px;
+       font-family:'Inter',sans-serif;}
+  .btn:hover{opacity:.92;}
+  .status{display:inline-flex; align-items:center; gap:8px; font-size:13.5px;
+          background:var(--surface-2); border-radius:8px; padding:10px 14px;}
+  .dot{width:9px; height:9px; border-radius:50%;}
+  .dot.on{background:var(--green);} .dot.off{background:var(--muted);}
+  .flash{border-left:2px dashed var(--yellow); background:var(--surface);
+         border-radius:8px; padding:12px 16px; margin-bottom:18px; font-size:14px; color:#c7c9db;}
+  .flash.success{border-left-color:var(--green);}
+  .flash.danger{border-left-color:var(--red);}
+  code{background:var(--surface-2); border-radius:4px; padding:3px 7px; font-size:13px;}
+  .ids code{display:inline-block; margin:4px 6px 0 0;}
+  .preview-link{color:var(--yellow); text-decoration:none; font-size:13.5px; font-weight:600;}
+  .preview-link:hover{text-decoration:underline;}
+</style>
 </head>
 <body>
-    <main>
-        <p><a href="/">← Dashboard</a> · <a href="/logout">Log out</a></p>
-        <h1>Admin Panel</h1>
-        <p class="muted">
-            You are signed in as {{ user.username }}. This panel is restricted to
-            users listed in the <code>ADMIN_USER_IDS</code> environment variable.
-        </p>
-        <h2>Configured admin IDs</h2>
-        {% for admin_id in admin_ids %}
-            <code>{{ admin_id }}</code>
-        {% else %}
-            <p class="muted">No admin IDs are configured.</p>
-        {% endfor %}
-        <h2>Coming next</h2>
-        <p class="muted">
-            Access-control settings, warning templates, audit-log settings, and
-            admin-panel access management will be added here incrementally.
-        </p>
-    </main>
+<div class="wrap">
+  <div class="topline">
+    <span class="brand"><span class="stub"></span> Tickety</span>
+    <span><a href="/">← Dashboard</a> · <a href="/logout">Log out</a></span>
+  </div>
+
+  <h1>Admin Panel</h1>
+  <p class="sub">Signed in as {{ user.username }}. Restricted to configured admins.</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}{% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}{% endif %}
+  {% endwith %}
+
+  <div class="card">
+    <h2>📺 April Fools Settings</h2>
+    <p class="card-sub">
+      Controls the joke "ad" page members see before the ticket form opens.
+      Everything here is optional except the countdown.
+    </p>
+
+    <div class="status">
+      <span class="dot {% if april_fools_enabled %}on{% else %}off{% endif %}"></span>
+      April Fools mode is <strong>{% if april_fools_enabled %}ON{% else %}OFF{% endif %}</strong>
+      &nbsp;·&nbsp;
+      <a class="preview-link" href="/">toggle it on the dashboard</a>
+    </div>
+
+    <form action="{{ url_for('admin_save_april_fools') }}" method="POST">
+      <label>Headline</label>
+      <input type="text" name="headline" maxlength="120"
+             value="{{ ad.headline }}" placeholder="A word from our sponsor">
+
+      <label>Body text <span class="hint">(optional)</span></label>
+      <textarea name="body" maxlength="600"
+                placeholder="Your ticket will open right after this short message.">{{ ad.body }}</textarea>
+
+      <label>Image URL <span class="hint">(optional — shown above the link)</span></label>
+      <input type="url" name="image_url" value="{{ ad.image_url }}"
+             placeholder="https://example.com/banner.png">
+
+      <div class="row">
+        <div>
+          <label>Link URL <span class="hint">(optional)</span></label>
+          <input type="url" name="link_url" value="{{ ad.link_url }}"
+                 placeholder="https://youtu.be/...">
+        </div>
+        <div>
+          <label>Link button text</label>
+          <input type="text" name="link_label" maxlength="60"
+                 value="{{ ad.link_label }}" placeholder="Learn more">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Sponsor name <span class="hint">(footer)</span></label>
+          <input type="text" name="sponsor" maxlength="80"
+                 value="{{ ad.sponsor }}" placeholder="Tickety Ad Network">
+        </div>
+        <div>
+          <label>Countdown seconds <span class="hint">(1–120)</span></label>
+          <input type="number" name="countdown_seconds" min="1" max="120"
+                 value="{{ ad.countdown_seconds }}">
+        </div>
+      </div>
+
+      <button class="btn" type="submit">💾 Save Ad Settings</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Configured admin IDs</h2>
+    <p class="card-sub">Set via the <code>ADMIN_USER_IDS</code> environment variable.</p>
+    <div class="ids">
+      {% for admin_id in admin_ids %}<code>{{ admin_id }}</code>
+      {% else %}<p class="card-sub">No admin IDs are configured.</p>{% endfor %}
+    </div>
+  </div>
+</div>
 </body>
 </html>
