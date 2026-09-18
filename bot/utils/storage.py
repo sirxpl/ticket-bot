@@ -446,6 +446,21 @@ def get_dashboard_base_url():
     for b in (os.getenv('PUBLIC_BASE_URL'),os.getenv('DASHBOARD_URL'),_detected_base_url,(get_settings() or {}).get('public_base_url'),os.getenv('OAUTH2_REDIRECT_URI')):
         if b:return b.strip().removesuffix('/callback').rstrip('/')
     return ''
+
+def youtube_embed_url(url):
+    """Return an embeddable https://www.youtube.com/embed/<id> URL for a
+    youtu.be/youtube.com link (watch, youtu.be, shorts, or already-embed
+    forms), or None if `url` doesn't look like a YouTube link."""
+    if not url:
+        return None
+    m = re.search(
+        r'(?:youtu\.be/|youtube\.com/(?:watch\?v=|embed/|shorts/))([A-Za-z0-9_-]{6,})',
+        url,
+    )
+    if not m:
+        return None
+    return f"https://www.youtube.com/embed/{m.group(1)}"
+
 def generate_transcript_token(filename,expires_seconds=3600):
     import hmac,hashlib,base64
     exp=int(time.time())+int(expires_seconds);p=f"{filename}|{exp}".encode();sig=hmac.new((os.getenv('SECRET_KEY') or 'supersecretkey123').encode(),p,hashlib.sha256).digest();return base64.urlsafe_b64encode(p+b"|"+sig).decode()
