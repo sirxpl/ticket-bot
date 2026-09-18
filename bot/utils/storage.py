@@ -63,6 +63,35 @@ def get_april_fools_enabled():
 def set_april_fools_enabled(status):
     s=get_settings();s["april_fools_enabled"]=bool(status);save_settings(s)
 
+APRIL_FOOLS_AD_DEFAULTS = {
+    "headline": "A word from our sponsor",
+    "body": "Your ticket will open right after this short message.",
+    "image_url": "",
+    "link_url": "",
+    "link_label": "Learn more",
+    "sponsor": "Tickety Ad Network",
+    "countdown_seconds": 15,
+}
+
+def get_april_fools_ad_settings():
+    """Admin-configurable content for the joke ad page shown before a ticket
+    form opens. Every field is optional except the countdown."""
+    saved = get_settings().get("april_fools_ad") or {}
+    merged = {**APRIL_FOOLS_AD_DEFAULTS, **saved}
+    try:
+        merged["countdown_seconds"] = max(1, min(int(merged["countdown_seconds"]), 120))
+    except (TypeError, ValueError):
+        merged["countdown_seconds"] = APRIL_FOOLS_AD_DEFAULTS["countdown_seconds"]
+    return merged
+
+def save_april_fools_ad_settings(data):
+    s = get_settings()
+    current = s.get("april_fools_ad") or {}
+    current.update(data or {})
+    s["april_fools_ad"] = current
+    save_settings(s)
+    return get_april_fools_ad_settings()
+
 # --- Trial schedule settings ---
 def get_trial_schedule_settings():
     """Persistent config for the automatically maintained Trial Schedule post."""
