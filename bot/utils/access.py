@@ -304,8 +304,14 @@ def get_ticket_ad_verification(token: str) -> dict | None:
     return None
 
 
-def complete_ticket_ad_verification(token: str) -> bool:
-    """Mark a session complete after a verified provider callback."""
+def mark_ticket_ad_viewed(token: str) -> int | None:
+    """Stamp when the ad page was first opened, and return that timestamp.
+
+    The countdown is enforced against this server-side stamp rather than
+    trusting the browser, so the gag can't be skipped by calling the
+    completion endpoint directly. Only the first view counts, so
+    reloading the page doesn't restart (or extend) the clock.
+    """
     token_hash = _ticket_ad_token_hash(token)
     now = int(time.time())
     data = get_access_settings()
@@ -315,6 +321,51 @@ def complete_ticket_ad_verification(token: str) -> bool:
             and not entry.get("consumed")
             and int(entry.get("expires_at", 0)) > now
         ):
+            if not entry.get("viewed_at"):
+                entry["viewed_at"] = now
+                _save(data)
+            return int(entry["viewed_at"])
+    return None
+
+
+def ticket_ad_seconds_remaining(token: str, min_watch_seconds: int) -> int | None:
+    """Seconds still left before this session may be completed.
+
+    0 means it's ready. None means the token is invalid/expired, or the
+    page was never actually opened.
+    """
+    entry = get_ticket_ad_verification(token)
+    if not entry:
+        return None
+    viewed_at = entry.get("viewed_at")
+    if not viewed_at:
+        return None
+    elapsed = int(time.time()) - int(viewed_at)
+    return max(0, int(min_watch_seconds) - elapsed)
+
+
+def complete_ticket_ad_verification(token: str, min_watch_seconds: int = 0) -> bool:
+    """Mark a session complete once the required watch time has elapsed.
+
+    min_watch_seconds is checked against the server-side viewed_at stamp;
+    a session that was never opened (no stamp) can never be completed.
+    """
+    token_hash = _ticket_ad_token_hash(token)
+    now = int(time.time())
+    data = get_access_settings()
+    for entry in data.setdefault("ticket_ad_verifications", []):
+        if (
+            hmac.compare_digest(entry.get("token_hash", ""), token_hash)
+            and not entry.get("consumed")
+            and int(entry.get("expires_at", 0)) > now
+        ):
+            if min_watch_seconds > 0:
+                viewed_at = entry.get("viewed_at")
+                if not viewed_at:
+                    return False
+                # 1s grace for clock skew / request latency
+                if now - int(viewed_at) < int(min_watch_seconds) - 1:
+                    return False
             entry["completed"] = True
             entry["completed_at"] = now
             _save(data)
