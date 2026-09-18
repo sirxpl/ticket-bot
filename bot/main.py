@@ -34,6 +34,8 @@ from utils.storage import (
     set_tickets_enabled,
     get_april_fools_enabled,
     set_april_fools_enabled,
+    get_april_fools_ad_settings,
+    save_april_fools_ad_settings,
     get_ticket_logs,
     get_logs_for_ticket,
     get_transcript_info,
@@ -65,6 +67,12 @@ from utils.storage import (
 # Import access-control helpers
 from utils.access import (
     get_access_settings,
+    create_ticket_ad_verification,
+    get_ticket_ad_verification,
+    mark_ticket_ad_viewed,
+    ticket_ad_seconds_remaining,
+    complete_ticket_ad_verification,
+    get_admin_ids,
     add_allowed_user,
     remove_allowed_user,
     add_allowed_role,
@@ -1032,6 +1040,9 @@ def callback():
     terms_token = session.pop("terms_unblock_token", None)
     if terms_token:
         return redirect(url_for("terms_unblock", token=terms_token))
+    ad_return_to = session.pop("ad_return_to", None)
+    if ad_return_to:
+        return redirect(ad_return_to)
     transcript_return_to = session.pop("transcript_return_to", None)
     if transcript_return_to:
         return redirect(transcript_return_to)
@@ -1129,6 +1140,121 @@ def toggle_april_fools():
     status_text = "enabled" if is_enabled else "disabled"
     flash(f"📺 April Fools ad gag has been {status_text}.", "success" if is_enabled else "warning")
     return redirect("/")
+
+
+# --- April Fools: web ad gate before a ticket form opens ---
+def _ad_page_guard(token):
+    """Shared checks for the ad pages. Returns (entry, error_response).
+
+    Deliberately NOT using admin_required/login_required: an ordinary
+    member opening a ticket needs to prove Discord identity only, not
+    hold any dashboard permission.
+    """
+    entry = get_ticket_ad_verification(token)
+    if not entry:
+        return None, render_template(
+            "ticket_ad_verification.html",
+            invalid=True,
+            ad=get_april_fools_ad_settings(),
+        )
+
+    user_data = session.get("user")
+    if not user_data:
+        session["ad_return_to"] = url_for("ticket_ad_page", token=token)
+        return None, redirect(url_for("login"))
+
+    if str(user_data.get("id")) != str(entry.get("user_id")):
+        return None, render_template(
+            "ticket_ad_verification.html",
+            mismatch=True,
+            user=user_data,
+            ad=get_april_fools_ad_settings(),
+        )
+
+    return entry, None
+
+
+@app.route("/ticket-ad/<token>")
+def ticket_ad_page(token):
+    entry, error = _ad_page_guard(token)
+    if error:
+        return error
+
+    ad = get_april_fools_ad_settings()
+    mark_ticket_ad_viewed(token)
+    remaining = ticket_ad_seconds_remaining(token, ad["countdown_seconds"])
+
+    return render_template(
+        "ticket_ad_verification.html",
+        user=session.get("user"),
+        ad=ad,
+        verification_token=token,
+        completed=bool(entry.get("completed")),
+        seconds_remaining=remaining if remaining is not None else ad["countdown_seconds"],
+    )
+
+
+@app.route("/ticket-ad/<token>/complete", methods=["POST"])
+def ticket_ad_complete(token):
+    entry, error = _ad_page_guard(token)
+    if error:
+        return error
+
+    ad = get_april_fools_ad_settings()
+    if complete_ticket_ad_verification(token, min_watch_seconds=ad["countdown_seconds"]):
+        return render_template(
+            "ticket_ad_verification.html",
+            user=session.get("user"),
+            ad=ad,
+            verification_token=token,
+            completed=True,
+            ready_to_return=True,
+            seconds_remaining=0,
+        )
+
+    remaining = ticket_ad_seconds_remaining(token, ad["countdown_seconds"])
+    return render_template(
+        "ticket_ad_verification.html",
+        user=session.get("user"),
+        ad=ad,
+        verification_token=token,
+        completed=False,
+        too_early=True,
+        seconds_remaining=remaining if remaining is not None else ad["countdown_seconds"],
+    )
+
+
+@app.route("/admin")
+@admin_required
+def admin_panel():
+    return render_template(
+        "admin_panel.html",
+        user=session.get("user"),
+        admin_ids=get_admin_ids(),
+        april_fools_enabled=get_april_fools_enabled(),
+        ad=get_april_fools_ad_settings(),
+    )
+
+
+@app.route("/admin/april-fools", methods=["POST"])
+@admin_required
+def admin_save_april_fools():
+    try:
+        countdown = int(request.form.get("countdown_seconds", 15))
+    except (TypeError, ValueError):
+        countdown = 15
+
+    save_april_fools_ad_settings({
+        "headline": request.form.get("headline", "").strip(),
+        "body": request.form.get("body", "").strip(),
+        "image_url": request.form.get("image_url", "").strip(),
+        "link_url": request.form.get("link_url", "").strip(),
+        "link_label": request.form.get("link_label", "").strip() or "Learn more",
+        "sponsor": request.form.get("sponsor", "").strip(),
+        "countdown_seconds": max(1, min(countdown, 120)),
+    })
+    flash("📺 April Fools ad settings saved.", "success")
+    return redirect(url_for("admin_panel"))
 
 
 @app.route("/transcripts/<path:filename>")
