@@ -18,6 +18,7 @@ from utils.storage import (
     append_ticket_log,
     get_active_ticket,
     get_active_ticket_for_user,
+    get_april_fools_enabled,
     get_blacklist_data,
     get_category_counter,
     get_redirect_message,
@@ -35,11 +36,6 @@ from utils.storage import (
     slugify,
     touch_ticket_activity,
     update_active_ticket,
-)
-from utils.access import (
-    consume_ticket_ad_verification,
-    create_ticket_ad_verification,
-    user_has_completed_ticket_ad_verification,
 )
 
 try:
@@ -558,6 +554,88 @@ class CloseConfirmView(discord.ui.View):
 
 
 # --- MAIN TICKET CREATION SELECT MENU ---
+APRIL_FOOLS_AD_URL = "https://youtu.be/y0y1AM9zpnI"
+APRIL_FOOLS_COUNTDOWN_SECONDS = 15
+
+
+class AprilFoolsAdView(discord.ui.View):
+    """Joke 'ad' gate shown before the ticket modal when April Fools mode is
+    on. The video is deliberately NOT embedded or autoplayed - it's just an
+    optional link, so this is a gag about ad UX rather than anything that
+    forces views. The Continue button stays disabled until the countdown
+    finishes, and on_continue only fires once it's actually been clicked."""
+
+    def __init__(self, on_continue, invoker_id: int):
+        super().__init__(timeout=180)
+        self.on_continue = on_continue
+        self.invoker_id = invoker_id
+        self.continued = False
+
+        self.add_item(
+            discord.ui.Button(
+                label="Watch the ad (optional)",
+                emoji="📺",
+                url=APRIL_FOOLS_AD_URL,
+                style=discord.ButtonStyle.link,
+            )
+        )
+
+        self.continue_btn = discord.ui.Button(
+            label=f"Continue in {APRIL_FOOLS_COUNTDOWN_SECONDS}s...",
+            emoji="⏳",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+        )
+        self.continue_btn.callback = self._continue_callback
+        self.add_item(self.continue_btn)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.invoker_id:
+            await interaction.response.send_message(
+                "❌ This isn't your ad to skip.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def _continue_callback(self, interaction: discord.Interaction):
+        # Guard against double-clicks racing two modals open
+        if self.continued:
+            return
+        self.continued = True
+        self.stop()
+        await self.on_continue(interaction)
+
+    async def run_countdown(self, interaction: discord.Interaction):
+        """Ticks the button label down, then enables it after exactly
+        APRIL_FOOLS_COUNTDOWN_SECONDS. Edits are spaced a few seconds apart
+        rather than every second - a per-second edit loop would be a
+        pointless way to burn Discord rate limits."""
+        # (seconds to wait before this update, label to show after waiting)
+        steps = [(5, "Continue in 10s..."), (5, "Continue in 5s...")]
+        for wait_for, label in steps:
+            await asyncio.sleep(wait_for)
+            if self.continued:
+                return
+            self.continue_btn.label = label
+            try:
+                await interaction.edit_original_response(view=self)
+            except Exception:
+                return
+
+        # final stretch: 5 + 5 + 5 == APRIL_FOOLS_COUNTDOWN_SECONDS
+        await asyncio.sleep(5)
+        if self.continued:
+            return
+        self.continue_btn.label = "Continue"
+        self.continue_btn.emoji = "✅"
+        self.continue_btn.style = discord.ButtonStyle.success
+        self.continue_btn.disabled = False
+        try:
+            await interaction.edit_original_response(view=self)
+        except Exception:
+            pass
+
+
 class TicketView(discord.ui.View):
     def __init__(self, bot):
         super().__init__(timeout=None)
@@ -753,39 +831,6 @@ class TicketView(discord.ui.View):
         except Exception:
             pass
 
-        # Ticket creation is gated by a completed web verification. The web
-        # page only enables Continue after the ad provider has confirmed the
-        # view through its server-to-server callback.
-        if not user_has_completed_ticket_ad_verification(interaction.user.id):
-            from utils.storage import get_dashboard_base_url
-
-            base_url = get_dashboard_base_url()
-            if not base_url:
-                await interaction.response.send_message(
-                    "❌ Ticket verification is not configured yet. Ask an administrator "
-                    "to set PUBLIC_BASE_URL on the bot host.",
-                    ephemeral=True,
-                )
-                return
-            verification_token = create_ticket_ad_verification(interaction.user.id)
-            verification_url = f"{base_url}/ticket-verification/{verification_token}"
-            view = discord.ui.View(timeout=300)
-            view.add_item(
-                discord.ui.Button(
-                    label="Authorize Discord & Continue",
-                    url=verification_url,
-                    style=discord.ButtonStyle.link,
-                )
-            )
-            await interaction.response.send_message(
-                "Before opening a ticket, authorize the same Discord account and "
-                "complete the verification in your browser. Then return here and "
-                "choose a ticket type again.",
-                view=view,
-                ephemeral=True,
-            )
-            return
-
         class TicketModal(discord.ui.Modal, title=f"{selection}"):
             def __init__(self, author, selection):
                 super().__init__()
@@ -838,16 +883,6 @@ class TicketView(discord.ui.View):
 
                 await modal_interaction.response.defer(ephemeral=True)
 
-                # A completed web verification is single-use and is consumed
-                # only when the user actually submits this ticket form.
-                if not consume_ticket_ad_verification(user.id):
-                    await modal_interaction.followup.send(
-                        "❌ Your ticket verification expired. Please choose a ticket "
-                        "type again and complete the browser verification.",
-                        ephemeral=True,
-                    )
-                    return
-
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(
                         read_messages=False
@@ -884,32 +919,6 @@ class TicketView(discord.ui.View):
                                 embed_links=True,
                                 attach_files=True,
                             )
-                except Exception:
-                    pass
-
-                try:
-                    # Roles granted Pin Message Access get Discord's actual
-                    # Pin Messages permission inside this ticket channel —
-                    # Discord split this out from Manage Messages, so this
-                    # grants pinning only, nothing else. Falls back to
-                    # Manage Messages only if the installed discord.py
-                    # version predates the dedicated Pin Messages flag.
-                    from utils.access import get_pin_message_role_ids
-
-                    for rid in get_pin_message_role_ids():
-                        pin_role = guild.get_role(int(rid))
-                        if not pin_role:
-                            continue
-                        existing = overwrites.get(pin_role)
-                        if existing is None:
-                            existing = discord.PermissionOverwrite(
-                                read_messages=True, send_messages=True
-                            )
-                        if hasattr(existing, "pin_messages"):
-                            existing.pin_messages = True
-                        else:
-                            existing.manage_messages = True
-                        overwrites[pin_role] = existing
                 except Exception:
                     pass
 
@@ -1170,74 +1179,31 @@ class TicketView(discord.ui.View):
 
         modal = TicketModal(interaction.user, selection)
 
-        af_settings = get_settings()
-        if af_settings.get("april_fools_enabled", False):
-            gate_view = AdGateView(modal, interaction.user.id)
-            ad_embed = discord.Embed(
-                title="📺 A Message From Our Totally Real Sponsors",
+        if get_april_fools_enabled():
+            async def _after_ad(ad_interaction: discord.Interaction):
+                # Fresh modal instance - a modal can only be sent once, and
+                # this interaction is the button click, not the original.
+                await ad_interaction.response.send_modal(
+                    TicketModal(interaction.user, selection)
+                )
+
+            ad_view = AprilFoolsAdView(_after_ad, invoker_id=interaction.user.id)
+            embed = discord.Embed(
+                title="📺 Advertisement",
                 description=(
-                    "Before you can open your ticket, please enjoy this brief, "
-                    "completely unskippable advertisement:\n\n"
-                    "**[▶️ Watch the ad here](https://youtu.be/y0y1AM9zpnI)**\n\n"
-                    "*(April Fools! ...mostly. That button really is timed.)*"
+                    "Your ticket will open after this short message from our sponsor.\n\n"
+                    f"*Continue unlocks in {APRIL_FOOLS_COUNTDOWN_SECONDS} seconds.*"
                 ),
-                color=discord.Color.gold(),
+                color=discord.Color.from_rgb(255, 200, 60),
             )
-            ad_embed.set_footer(text="🃏 April Fools Mode is enabled on this server")
+            embed.set_footer(text="Tickety | Ad-free experience available for $0.00/mo")
             await interaction.response.send_message(
-                embed=ad_embed, view=gate_view, ephemeral=True
+                embed=embed, view=ad_view, ephemeral=True
             )
-            gate_view.message = await interaction.original_response()
-            asyncio.create_task(gate_view.run_countdown())
+            asyncio.create_task(ad_view.run_countdown(interaction))
             return
 
         await interaction.response.send_modal(modal)
-
-
-class AdGateView(discord.ui.View):
-    """April Fools mode: a goofy, genuinely-timed 15-second 'ad' gate shown
-    before the ticket modal opens, mimicking a YouTube skip-ad button."""
-    def __init__(self, modal, user_id):
-        super().__init__(timeout=120)
-        self.modal = modal
-        self.user_id = user_id
-        self.message = None
-
-        self.skip_button = discord.ui.Button(
-            label="⏳ Skip Ad (15)",
-            style=discord.ButtonStyle.secondary,
-            disabled=True,
-        )
-        self.skip_button.callback = self._on_skip
-        self.add_item(self.skip_button)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "❌ This ad is playing just for the person who clicked it.",
-                ephemeral=True,
-            )
-            return False
-        return True
-
-    async def _on_skip(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(self.modal)
-        self.stop()
-
-    async def run_countdown(self):
-        for remaining in (10, 5, 0):
-            await asyncio.sleep(5)
-            if remaining > 0:
-                self.skip_button.label = f"⏳ Skip Ad ({remaining})"
-            else:
-                self.skip_button.label = "✅ Skip Ad"
-                self.skip_button.style = discord.ButtonStyle.success
-                self.skip_button.disabled = False
-            try:
-                if self.message:
-                    await self.message.edit(view=self)
-            except Exception:
-                pass
 
 
 # --- TICKETS COG & SLASH COMMANDS ---
@@ -1251,25 +1217,11 @@ class TicketsCog(commands.Cog):
     def get_ticket_view(self):
         return TicketView(self.bot)
 
-    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
-    #
-    # NOTE: @app_commands.context_menu() cannot decorate a method defined
-    # inside a class body — discord.py raises "context menus cannot be
-    # defined inside a class" at import time if you try. The actual
-    # implementation lives in the module-level `_toggle_pin_message`
-    # function below and is manually attached to the bot's command tree in
-    # cog_load/cog_unload.
-
     async def cog_load(self):
         self.autoclose_watcher.start()
-        self.bot.tree.add_command(toggle_pin_message_context_menu)
 
     def cog_unload(self):
         self.autoclose_watcher.cancel()
-        self.bot.tree.remove_command(
-            toggle_pin_message_context_menu.name,
-            type=toggle_pin_message_context_menu.type,
-        )
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1500,31 +1452,6 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 "❌ You need either the **Manage Channels** permission or a role/user ID "
                 "granted in the Basic Command Access list to use this command.",
-                ephemeral=True,
-            )
-            return False
-        return True
-
-    async def _pin_command_check(self, interaction: discord.Interaction) -> bool:
-        """Guard for pinning/unpinning messages inside a ticket channel.
-
-        Strictly gated by Access Control's Pin Message Access list (roles
-        or user IDs explicitly added there), plus admins. Discord's native
-        Manage Messages / channel-level Pin Messages permission is
-        intentionally NOT a fallback here — access is controlled entirely
-        through the bot's own role list, so someone with Manage Messages
-        but no matching role still can't use this until they're added.
-        """
-        if not await self._require_ticket_channel(interaction):
-            return False
-
-        from utils.access import has_pin_message_access
-
-        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
-        if not has_pin_message_access(interaction.user.id, member_role_ids):
-            await interaction.response.send_message(
-                "❌ You need a role or user ID granted in the Pin Message Access "
-                "list (Access Control) to pin or unpin messages.",
                 ephemeral=True,
             )
             return False
@@ -1921,9 +1848,6 @@ class TicketsCog(commands.Cog):
         emb.add_field(name="Reason", value=reason, inline=False)
         emb.set_footer(text="Tickety | Tickety.top")
         await interaction.response.send_message(embed=emb, ephemeral=True)
-
-    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
-    # (actual implementation is the module-level toggle_pin_message_context_menu below)
 
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")
@@ -2672,42 +2596,6 @@ class TicketsCog(commands.Cog):
         except Exception as global_err:
             logger.exception(f"Error in do_close: {global_err}")
             return False
-
-
-@app_commands.context_menu(name="📌 Toggle Pin")
-async def toggle_pin_message_context_menu(interaction: discord.Interaction, message: discord.Message):
-    """Right-click a message -> Apps -> 📌 Toggle Pin.
-
-    Must live at module level, not inside TicketsCog — discord.py raises
-    "context menus cannot be defined inside a class" if you try to
-    decorate a method with @app_commands.context_menu directly. It's
-    manually attached to the bot's tree in TicketsCog.cog_load instead of
-    being auto-discovered like a normal @app_commands.command.
-    """
-    cog = interaction.client.get_cog("TicketsCog")
-    if cog is None or not await cog._pin_command_check(interaction):
-        return
-    try:
-        if message.pinned:
-            await message.unpin(reason=f"Unpinned by {interaction.user}")
-            await interaction.response.send_message(
-                f"📌 Unpinned [that message]({message.jump_url}).", ephemeral=True
-            )
-        else:
-            await message.pin(reason=f"Pinned by {interaction.user}")
-            await interaction.response.send_message(
-                f"📌 Pinned [that message]({message.jump_url}).", ephemeral=True
-            )
-    except discord.Forbidden:
-        await interaction.response.send_message(
-            "❌ I don't have permission to pin/unpin messages in this channel.",
-            ephemeral=True,
-        )
-    except discord.HTTPException as e:
-        await interaction.response.send_message(
-            f"❌ Failed to update the pin — {e.text if hasattr(e, 'text') else e}",
-            ephemeral=True,
-        )
 
 
 async def setup(bot):
