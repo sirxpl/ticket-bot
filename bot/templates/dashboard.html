@@ -1048,91 +1048,6 @@
             gap: 6px;
         }
         .pb-toolbar button:hover{ border-color: var(--accent); }
-        /* --- April Fools mode: goofy fake side-ad banners --- */
-        .af-ad {
-            position: fixed;
-            top: 90px;
-            width: 160px;
-            z-index: 30;
-            background: linear-gradient(180deg, #14206b, #0c1547);
-            border: 2px solid #2f4bd6;
-            border-radius: 10px;
-            padding: 10px 8px 12px;
-            color: #eef1ff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-        }
-        .af-ad-1 { left: 12px; }
-        .af-ad-2 { right: 12px; }
-        .af-ad-badge {
-            position: absolute;
-            top: 6px;
-            right: 8px;
-            font-size: 0.6em;
-            color: #9aa5d1;
-            border: 1px solid #4a5aa8;
-            border-radius: 3px;
-            padding: 0 4px;
-        }
-        .af-ad-close {
-            position: absolute;
-            top: 4px;
-            left: 6px;
-            background: none;
-            border: none;
-            color: #9aa5d1;
-            font-size: 1em;
-            cursor: pointer;
-            line-height: 1;
-        }
-        .af-ad-title {
-            text-align: center;
-            font-weight: 700;
-            font-size: 0.85em;
-            margin: 14px 0 8px;
-        }
-        .af-ad-photo {
-            text-align: center;
-            font-size: 2.4em;
-            margin: 6px 0;
-        }
-        .af-ad-cta {
-            background: #0a1030;
-            border-radius: 6px;
-            padding: 8px 6px;
-            text-align: center;
-            margin-top: 8px;
-        }
-        .af-ad-pill {
-            display: inline-block;
-            background: #d4a017;
-            color: #1a1a1a;
-            font-size: 0.65em;
-            font-weight: 700;
-            padding: 2px 8px;
-            border-radius: 3px;
-            margin-bottom: 6px;
-        }
-        .af-ad-headline {
-            font-weight: 800;
-            font-size: 1.05em;
-            line-height: 1.15;
-        }
-        .af-ad-sub {
-            font-size: 0.72em;
-            color: #b7c0ee;
-            margin-top: 4px;
-        }
-        .af-ad-learnmore {
-            text-align: center;
-            font-size: 0.7em;
-            font-weight: 700;
-            color: #ffd76a;
-            margin-top: 10px;
-        }
-        @media (max-width: 1400px) {
-            .af-ad { display: none; }
-        }
     </style>
 </head>
 <body>
@@ -1288,37 +1203,6 @@
         <main class="content">
             <div class="content-inner">
 
-        {% if april_fools_enabled %}
-        <div class="af-ad af-ad-1">
-            <button type="button" class="af-ad-close" onclick="this.parentElement.remove()" aria-label="Close ad">×</button>
-            <div class="af-ad-badge">Ad</div>
-            <div class="af-ad-body">
-                <div class="af-ad-title">Tired of Waiting<br>for a Carry?</div>
-                <div class="af-ad-photo">🧙‍♂️</div>
-                <div class="af-ad-cta">
-                    <span class="af-ad-pill">Attention</span>
-                    <div class="af-ad-headline">BECOME A<br>CARRY LEGEND</div>
-                    <div class="af-ad-sub">at a Ticket Bot near you</div>
-                </div>
-                <div class="af-ad-learnmore">LEARN MORE <span>→</span></div>
-            </div>
-        </div>
-        <div class="af-ad af-ad-2">
-            <button type="button" class="af-ad-close" onclick="this.parentElement.remove()" aria-label="Close ad">×</button>
-            <div class="af-ad-badge">Ad</div>
-            <div class="af-ad-body">
-                <div class="af-ad-title">You Won't Believe<br>This One Ticket Trick</div>
-                <div class="af-ad-photo">🎟️✨</div>
-                <div class="af-ad-cta">
-                    <span class="af-ad-pill" style="background:#c0392b;">Warning</span>
-                    <div class="af-ad-headline">STAFF HATE<br>HIM!!</div>
-                    <div class="af-ad-sub">Click here to close 1 ticket instantly</div>
-                </div>
-                <div class="af-ad-learnmore">LEARN MORE <span>→</span></div>
-            </div>
-        </div>
-        {% endif %}
-
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% for category, message in messages %}
             <div class="flash flash-{{ 'success' if category == 'success' else ('warning' if category == 'warning' else 'danger') }}">
@@ -1467,22 +1351,21 @@
                     </span>
                 </label>
             </form>
-        </div>
 
-        <div class="card">
-            <h3><span class="card-icon">🃏</span> April Fools Mode</h3>
+            <hr style="border: 0; border-top: 1px solid var(--border); margin: 18px 0;">
+
             <form action="/dashboard/toggle-april-fools" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
-                    <strong>Enable April Fools Mode:</strong>
+                    <strong>📺 April Fools Ad Gag:</strong>
                     <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
-                        When on, everyone must "watch" a 15-second unskippable ad before their ticket modal opens, and goofy fake ad banners show up on this dashboard plus public pages (Docs, Status, Rules, Guidelines, Privacy, Terms, Carry Agreement). Clearly labeled joke ads — not a real ad network. Flip it off any time.
+                        Shows a joke "advertisement" with a 15-second countdown before the ticket form opens. The linked video is optional — it's never embedded or autoplayed.
                     </p>
                 </div>
 
                 <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 10px;">
                     <input type="checkbox" name="april_fools_enabled" value="true" onchange="this.form.submit()" {% if april_fools_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);">
-                    <span style="font-weight: bold; color: {% if april_fools_enabled %}var(--success){% else %}var(--danger){% endif %};">
-                        {% if april_fools_enabled %}ENABLED{% else %}DISABLED{% endif %}
+                    <span style="font-weight: bold; color: {% if april_fools_enabled %}var(--success){% else %}var(--text-dim){% endif %};">
+                        {% if april_fools_enabled %}ON{% else %}OFF{% endif %}
                     </span>
                 </label>
             </form>
@@ -2430,51 +2313,6 @@
                 <div class="list-item">
                     <span><strong>User ID:</strong> {{ uid }}</span>
                     <form action="/dashboard/access/remove-basic-command-user/{{ uid }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No user IDs added yet.</p>
-            {% endfor %}
-
-            <h4 style="margin-top: 20px;">Pin Message Access</h4>
-            <p class="card-subtitle">
-                Controls who can use <code>/pin</code> and <code>/unpin</code> inside ticket channels — on top of the native Manage Messages permission. Anyone with Manage Messages can already pin; add roles or user IDs here to also let staff without that permission (e.g. Trial Staff) pin important messages.
-            </p>
-            <form action="/dashboard/access/add-pin-message-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in pin_message_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-pin-message-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet — only members with Manage Messages (or admins) can pin.</p>
-            {% endfor %}
-
-            <form action="/dashboard/access/add-pin-message-user" method="POST" class="access-form" style="margin-top: 10px;">
-                <div>
-                    <label>User ID:</label>
-                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for uid in pin_message_users %}
-                <div class="list-item">
-                    <span><strong>User ID:</strong> {{ uid }}</span>
-                    <form action="/dashboard/access/remove-pin-message-user/{{ uid }}" method="POST" style="margin:0;">
                         <button type="submit" class="btn-danger">Remove</button>
                     </form>
                 </div>
