@@ -34,8 +34,9 @@ from utils.storage import (
     set_tickets_enabled,
     get_april_fools_enabled,
     set_april_fools_enabled,
-    get_april_fools_ad_settings,
-    save_april_fools_ad_settings,
+    get_april_fools_ad_config,
+    save_april_fools_ad_config,
+    pick_april_fools_ad,
     get_ticket_logs,
     get_logs_for_ticket,
     get_transcript_info,
@@ -1155,7 +1156,7 @@ def _ad_page_guard(token):
         return None, render_template(
             "ticket_ad_verification.html",
             invalid=True,
-            ad=get_april_fools_ad_settings(),
+            ad=pick_april_fools_ad(token),
         )
 
     user_data = session.get("user")
@@ -1168,7 +1169,7 @@ def _ad_page_guard(token):
             "ticket_ad_verification.html",
             mismatch=True,
             user=user_data,
-            ad=get_april_fools_ad_settings(),
+            ad=pick_april_fools_ad(token),
         )
 
     return entry, None
@@ -1180,17 +1181,20 @@ def ticket_ad_page(token):
     if error:
         return error
 
-    ad = get_april_fools_ad_settings()
+    cfg = get_april_fools_ad_config()
+    ad = pick_april_fools_ad(token)
+    countdown = cfg["countdown_seconds"]
     mark_ticket_ad_viewed(token)
-    remaining = ticket_ad_seconds_remaining(token, ad["countdown_seconds"])
+    remaining = ticket_ad_seconds_remaining(token, countdown)
 
     return render_template(
         "ticket_ad_verification.html",
         user=session.get("user"),
         ad=ad,
         verification_token=token,
+        countdown_seconds=countdown,
         completed=bool(entry.get("completed")),
-        seconds_remaining=remaining if remaining is not None else ad["countdown_seconds"],
+        seconds_remaining=remaining if remaining is not None else countdown,
     )
 
 
@@ -1200,27 +1204,31 @@ def ticket_ad_complete(token):
     if error:
         return error
 
-    ad = get_april_fools_ad_settings()
-    if complete_ticket_ad_verification(token, min_watch_seconds=ad["countdown_seconds"]):
+    cfg = get_april_fools_ad_config()
+    ad = pick_april_fools_ad(token)
+    countdown = cfg["countdown_seconds"]
+    if complete_ticket_ad_verification(token, min_watch_seconds=countdown):
         return render_template(
             "ticket_ad_verification.html",
             user=session.get("user"),
             ad=ad,
             verification_token=token,
+            countdown_seconds=countdown,
             completed=True,
             ready_to_return=True,
             seconds_remaining=0,
         )
 
-    remaining = ticket_ad_seconds_remaining(token, ad["countdown_seconds"])
+    remaining = ticket_ad_seconds_remaining(token, countdown)
     return render_template(
         "ticket_ad_verification.html",
         user=session.get("user"),
         ad=ad,
         verification_token=token,
+        countdown_seconds=countdown,
         completed=False,
         too_early=True,
-        seconds_remaining=remaining if remaining is not None else ad["countdown_seconds"],
+        seconds_remaining=remaining if remaining is not None else countdown,
     )
 
 
@@ -1232,7 +1240,7 @@ def admin_panel():
         user=session.get("user"),
         admin_ids=get_admin_ids(),
         april_fools_enabled=get_april_fools_enabled(),
-        ad=get_april_fools_ad_settings(),
+        ad_config=get_april_fools_ad_config(),
     )
 
 
@@ -1244,16 +1252,34 @@ def admin_save_april_fools():
     except (TypeError, ValueError):
         countdown = 15
 
-    save_april_fools_ad_settings({
-        "headline": request.form.get("headline", "").strip(),
-        "body": request.form.get("body", "").strip(),
-        "image_url": request.form.get("image_url", "").strip(),
-        "link_url": request.form.get("link_url", "").strip(),
-        "link_label": request.form.get("link_label", "").strip() or "Learn more",
-        "sponsor": request.form.get("sponsor", "").strip(),
-        "countdown_seconds": max(1, min(countdown, 120)),
-    })
-    flash("📺 April Fools ad settings saved.", "success")
+    # The ad list is built client-side (add/remove rows) and posted as JSON,
+    # same pattern the panel builder uses.
+    try:
+        ads = json.loads(request.form.get("ads_json") or "[]")
+    except Exception:
+        ads = []
+    if not isinstance(ads, list):
+        ads = []
+
+    # Drop rows the admin left completely blank rather than saving empties.
+    ads = [
+        a for a in ads
+        if isinstance(a, dict) and any(
+            str(a.get(k, "")).strip()
+            for k in ("headline", "body", "image_url", "link_url")
+        )
+    ]
+
+    if not ads:
+        flash("❌ Add at least one ad with some content before saving.", "danger")
+        return redirect(url_for("admin_panel"))
+
+    save_april_fools_ad_config(
+        ads=ads,
+        countdown_seconds=max(1, min(countdown, 120)),
+        randomize=request.form.get("randomize") in ("on", "true", "True"),
+    )
+    flash(f"📺 Saved {len(ads)} April Fools ad(s).", "success")
     return redirect(url_for("admin_panel"))
 
 
