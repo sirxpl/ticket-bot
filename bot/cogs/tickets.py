@@ -554,86 +554,72 @@ class CloseConfirmView(discord.ui.View):
 
 
 # --- MAIN TICKET CREATION SELECT MENU ---
-APRIL_FOOLS_AD_URL = "https://youtu.be/y0y1AM9zpnI"
-APRIL_FOOLS_COUNTDOWN_SECONDS = 15
 
 
-class AprilFoolsAdView(discord.ui.View):
-    """Joke 'ad' gate shown before the ticket modal when April Fools mode is
-    on. The video is deliberately NOT embedded or autoplayed - it's just an
-    optional link, so this is a gag about ad UX rather than anything that
-    forces views. The Continue button stays disabled until the countdown
-    finishes, and on_continue only fires once it's actually been clicked."""
+class TicketAdGateView(discord.ui.View):
+    """April Fools gate. Sends the member to the web ad page, then lets them
+    come back and confirm.
 
-    def __init__(self, on_continue, invoker_id: int):
-        super().__init__(timeout=180)
-        self.on_continue = on_continue
+    The countdown is enforced server-side on the web page (see
+    utils.access.complete_ticket_ad_verification), so the "I've watched it"
+    button here is only a re-check - clicking it early just tells them it
+    isn't done yet rather than letting anything through.
+    """
+
+    def __init__(self, bot, ad_url: str, invoker_id: int, on_verified):
+        super().__init__(timeout=900)
+        self.bot = bot
         self.invoker_id = invoker_id
-        self.continued = False
+        self.on_verified = on_verified
+        self.finished = False
 
         self.add_item(
             discord.ui.Button(
-                label="Watch the ad (optional)",
-                emoji="📺",
-                url=APRIL_FOOLS_AD_URL,
+                label="Open the ad",
+                emoji="\U0001F4FA",
+                url=ad_url,
                 style=discord.ButtonStyle.link,
             )
         )
 
-        self.continue_btn = discord.ui.Button(
-            label=f"Continue in {APRIL_FOOLS_COUNTDOWN_SECONDS}s...",
-            emoji="⏳",
-            style=discord.ButtonStyle.secondary,
-            disabled=True,
+        self.check_btn = discord.ui.Button(
+            label="I've watched it",
+            emoji="\u2705",
+            style=discord.ButtonStyle.success,
         )
-        self.continue_btn.callback = self._continue_callback
-        self.add_item(self.continue_btn)
+        self.check_btn.callback = self._check_callback
+        self.add_item(self.check_btn)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message(
-                "❌ This isn't your ad to skip.", ephemeral=True
+                "\u274c This isn't your verification link.", ephemeral=True
             )
             return False
         return True
 
-    async def _continue_callback(self, interaction: discord.Interaction):
+    async def _check_callback(self, interaction: discord.Interaction):
+        from utils.access import (
+            consume_ticket_ad_verification,
+            user_has_completed_ticket_ad_verification,
+        )
+
         # Guard against double-clicks racing two modals open
-        if self.continued:
+        if self.finished:
             return
-        self.continued = True
+
+        if not user_has_completed_ticket_ad_verification(interaction.user.id):
+            await interaction.response.send_message(
+                "\u23f3 You haven't finished the ad yet. Open the link, wait for the "
+                "countdown, press **Continue**, then come back and try again.",
+                ephemeral=True,
+            )
+            return
+
+        consume_ticket_ad_verification(interaction.user.id)
+        self.finished = True
         self.stop()
-        await self.on_continue(interaction)
-
-    async def run_countdown(self, interaction: discord.Interaction):
-        """Ticks the button label down, then enables it after exactly
-        APRIL_FOOLS_COUNTDOWN_SECONDS. Edits are spaced a few seconds apart
-        rather than every second - a per-second edit loop would be a
-        pointless way to burn Discord rate limits."""
-        # (seconds to wait before this update, label to show after waiting)
-        steps = [(5, "Continue in 10s..."), (5, "Continue in 5s...")]
-        for wait_for, label in steps:
-            await asyncio.sleep(wait_for)
-            if self.continued:
-                return
-            self.continue_btn.label = label
-            try:
-                await interaction.edit_original_response(view=self)
-            except Exception:
-                return
-
-        # final stretch: 5 + 5 + 5 == APRIL_FOOLS_COUNTDOWN_SECONDS
-        await asyncio.sleep(5)
-        if self.continued:
-            return
-        self.continue_btn.label = "Continue"
-        self.continue_btn.emoji = "✅"
-        self.continue_btn.style = discord.ButtonStyle.success
-        self.continue_btn.disabled = False
-        try:
-            await interaction.edit_original_response(view=self)
-        except Exception:
-            pass
+        await self.on_verified(interaction)
 
 
 class TicketView(discord.ui.View):
@@ -1180,6 +1166,44 @@ class TicketView(discord.ui.View):
         modal = TicketModal(interaction.user, selection)
 
         if get_april_fools_enabled():
+            from utils.access import (
+                consume_ticket_ad_verification,
+                create_ticket_ad_verification,
+                user_has_completed_ticket_ad_verification,
+            )
+            from utils.storage import (
+                get_april_fools_ad_settings,
+                get_dashboard_base_url,
+            )
+
+            # Already verified within the TTL? Spend it and go straight in,
+            # so they aren't sent round the loop twice.
+            if user_has_completed_ticket_ad_verification(interaction.user.id):
+                consume_ticket_ad_verification(interaction.user.id)
+                await interaction.response.send_modal(modal)
+                return
+
+            base_url = get_dashboard_base_url()
+            if not base_url.startswith("http"):
+                # No public URL configured, so there's nowhere to send them.
+                # Never let the gag block a real ticket — fail open.
+                logger.warning(
+                    "April Fools gate skipped: no public base URL configured "
+                    "(set PUBLIC_BASE_URL or DASHBOARD_URL)."
+                )
+                await interaction.response.send_modal(modal)
+                return
+
+            try:
+                token = create_ticket_ad_verification(str(interaction.user.id))
+                ad_url = f"{base_url}/ticket-ad/{token}"
+            except Exception:
+                logger.exception("Failed to create ticket ad verification session")
+                await interaction.response.send_modal(modal)
+                return
+
+            ad_cfg = get_april_fools_ad_settings()
+
             async def _after_ad(ad_interaction: discord.Interaction):
                 # Fresh modal instance - a modal can only be sent once, and
                 # this interaction is the button click, not the original.
@@ -1187,20 +1211,26 @@ class TicketView(discord.ui.View):
                     TicketModal(interaction.user, selection)
                 )
 
-            ad_view = AprilFoolsAdView(_after_ad, invoker_id=interaction.user.id)
+            gate = TicketAdGateView(
+                self.bot,
+                ad_url=ad_url,
+                invoker_id=interaction.user.id,
+                on_verified=_after_ad,
+            )
             embed = discord.Embed(
                 title="📺 Advertisement",
                 description=(
-                    "Your ticket will open after this short message from our sponsor.\n\n"
-                    f"*Continue unlocks in {APRIL_FOOLS_COUNTDOWN_SECONDS} seconds.*"
+                    "Before your ticket opens, a quick word from our sponsor.\n\n"
+                    f"**1.** Press **Open the ad** and sign in with Discord\n"
+                    f"**2.** Wait {ad_cfg['countdown_seconds']} seconds, then press **Continue**\n"
+                    "**3.** Come back here and press **I've watched it**"
                 ),
                 color=discord.Color.from_rgb(255, 200, 60),
             )
             embed.set_footer(text="Tickety | Ad-free experience available for $0.00/mo")
             await interaction.response.send_message(
-                embed=embed, view=ad_view, ephemeral=True
+                embed=embed, view=gate, ephemeral=True
             )
-            asyncio.create_task(ad_view.run_countdown(interaction))
             return
 
         await interaction.response.send_modal(modal)
