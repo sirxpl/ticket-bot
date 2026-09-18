@@ -1187,10 +1187,13 @@ def ticket_ad_page(token):
     mark_ticket_ad_viewed(token)
     remaining = ticket_ad_seconds_remaining(token, countdown)
 
+    from utils.storage import youtube_embed_url
+
     return render_template(
         "ticket_ad_verification.html",
         user=session.get("user"),
         ad=ad,
+        youtube_embed_url=youtube_embed_url(ad.get("link_url")) if ad.get("type") == "video" else None,
         verification_token=token,
         countdown_seconds=countdown,
         completed=bool(entry.get("completed")),
@@ -1220,10 +1223,12 @@ def ticket_ad_complete(token):
         )
 
     remaining = ticket_ad_seconds_remaining(token, countdown)
+    from utils.storage import youtube_embed_url
     return render_template(
         "ticket_ad_verification.html",
         user=session.get("user"),
         ad=ad,
+        youtube_embed_url=youtube_embed_url(ad.get("link_url")) if ad.get("type") == "video" else None,
         verification_token=token,
         countdown_seconds=countdown,
         completed=False,
