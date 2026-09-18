@@ -17,7 +17,7 @@
   body{background:var(--bg); color:var(--text); font-family:'Inter',sans-serif;
        line-height:1.65; margin:0; padding:32px 20px 80px;}
   h1,h2,h3,.brand{font-family:'Space Grotesk',sans-serif;}
-  .wrap{max-width:820px; margin:0 auto;}
+  .wrap{max-width:860px; margin:0 auto;}
   .topline{display:flex; justify-content:space-between; align-items:center;
            margin-bottom:22px; font-size:14px;}
   .topline a{color:var(--muted); text-decoration:none;}
@@ -32,21 +32,31 @@
         padding:24px; margin-bottom:20px;}
   .card h2{font-size:19px; margin:0 0 4px 0;}
   .card .card-sub{color:var(--muted); font-size:13.5px; margin:0 0 18px 0;}
-  label{display:block; font-weight:600; font-size:13px; margin:14px 0 5px;
+  label{display:block; font-weight:600; font-size:12px; margin:12px 0 5px;
         text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
-  label .hint{text-transform:none; letter-spacing:0; font-weight:400; color:var(--muted);}
-  input[type=text], input[type=url], input[type=number], textarea{
+  label .hint{text-transform:none; letter-spacing:0; font-weight:400;}
+  input[type=text], input[type=url], input[type=number], textarea, select{
     width:100%; padding:10px 12px; background:var(--surface-2); color:var(--text);
     border:1px solid var(--border); border-radius:7px; font-size:14px;
     font-family:'Inter',sans-serif;}
-  textarea{resize:vertical; min-height:74px;}
+  textarea{resize:vertical; min-height:64px;}
   .row{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
   .btn{background:var(--indigo); border:0; border-radius:8px; color:white; cursor:pointer;
-       font-weight:700; font-size:14px; padding:11px 22px; margin-top:20px;
+       font-weight:700; font-size:14px; padding:11px 22px;
        font-family:'Inter',sans-serif;}
   .btn:hover{opacity:.92;}
+  .btn-add{background:var(--surface-2); border:1px dashed var(--border); color:var(--text);
+           width:100%; padding:12px; margin-bottom:16px;}
+  .btn-add:hover{border-color:var(--indigo); color:var(--indigo);}
+  .btn-rm{background:transparent; border:1px solid var(--border); color:var(--red);
+          font-size:12px; font-weight:600; padding:5px 11px; border-radius:6px; cursor:pointer;}
+  .btn-rm:hover{border-color:var(--red);}
+  .ad-row{background:var(--surface-2); border:1px solid var(--border);
+          border-radius:10px; padding:16px 18px; margin-bottom:14px;}
+  .ad-head{display:flex; justify-content:space-between; align-items:center;}
+  .ad-head strong{font-family:'Space Grotesk',sans-serif; font-size:14.5px;}
   .status{display:inline-flex; align-items:center; gap:8px; font-size:13.5px;
-          background:var(--surface-2); border-radius:8px; padding:10px 14px;}
+          background:var(--surface-2); border-radius:8px; padding:10px 14px; margin-bottom:6px;}
   .dot{width:9px; height:9px; border-radius:50%;}
   .dot.on{background:var(--green);} .dot.off{background:var(--muted);}
   .flash{border-left:2px dashed var(--yellow); background:var(--surface);
@@ -55,8 +65,12 @@
   .flash.danger{border-left-color:var(--red);}
   code{background:var(--surface-2); border-radius:4px; padding:3px 7px; font-size:13px;}
   .ids code{display:inline-block; margin:4px 6px 0 0;}
-  .preview-link{color:var(--yellow); text-decoration:none; font-size:13.5px; font-weight:600;}
+  .preview-link{color:var(--yellow); text-decoration:none; font-weight:600;}
   .preview-link:hover{text-decoration:underline;}
+  .toggle-line{display:flex; align-items:flex-start; gap:10px; margin:16px 0 4px;
+               font-size:14px; color:#c7c9db; cursor:pointer;}
+  .toggle-line input{width:17px; height:17px; margin-top:3px; accent-color:var(--indigo); cursor:pointer;}
+  .save-bar{display:flex; align-items:center; gap:14px; margin-top:22px;}
 </style>
 </head>
 <body>
@@ -79,7 +93,7 @@
     <h2>📺 April Fools Settings</h2>
     <p class="card-sub">
       Controls the joke "ad" page members see before the ticket form opens.
-      Everything here is optional except the countdown.
+      Add as many ads as you like — one is picked per ticket.
     </p>
 
     <div class="status">
@@ -89,46 +103,43 @@
       <a class="preview-link" href="/">toggle it on the dashboard</a>
     </div>
 
-    <form action="{{ url_for('admin_save_april_fools') }}" method="POST">
-      <label>Headline</label>
-      <input type="text" name="headline" maxlength="120"
-             value="{{ ad.headline }}" placeholder="A word from our sponsor">
-
-      <label>Body text <span class="hint">(optional)</span></label>
-      <textarea name="body" maxlength="600"
-                placeholder="Your ticket will open right after this short message.">{{ ad.body }}</textarea>
-
-      <label>Image URL <span class="hint">(optional — shown above the link)</span></label>
-      <input type="url" name="image_url" value="{{ ad.image_url }}"
-             placeholder="https://example.com/banner.png">
-
+    <form action="{{ url_for('admin_save_april_fools') }}" method="POST" id="afForm">
       <div class="row">
-        <div>
-          <label>Link URL <span class="hint">(optional)</span></label>
-          <input type="url" name="link_url" value="{{ ad.link_url }}"
-                 placeholder="https://youtu.be/...">
-        </div>
-        <div>
-          <label>Link button text</label>
-          <input type="text" name="link_label" maxlength="60"
-                 value="{{ ad.link_label }}" placeholder="Learn more">
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Sponsor name <span class="hint">(footer)</span></label>
-          <input type="text" name="sponsor" maxlength="80"
-                 value="{{ ad.sponsor }}" placeholder="Tickety Ad Network">
-        </div>
         <div>
           <label>Countdown seconds <span class="hint">(1–120)</span></label>
           <input type="number" name="countdown_seconds" min="1" max="120"
-                 value="{{ ad.countdown_seconds }}">
+                 value="{{ ad_config.countdown_seconds }}">
+        </div>
+        <div>
+          <label>Ads configured</label>
+          <input type="text" id="adCount" value="" readonly
+                 style="color:var(--muted); background:var(--bg);">
         </div>
       </div>
 
-      <button class="btn" type="submit">💾 Save Ad Settings</button>
+      <label class="toggle-line">
+        <input type="checkbox" name="randomize" value="true"
+               {% if ad_config.randomize %}checked{% endif %}>
+        <span>
+          <strong>Shuffle ads</strong> — pick a random ad for each ticket.
+          Turn this off to always show the first one.
+          <br><span style="color:var(--muted); font-size:13px;">
+            The chosen ad stays fixed for that member's countdown, so reloading
+            the page won't swap it mid-view.
+          </span>
+        </span>
+      </label>
+
+      <hr style="border:0; border-top:1px solid var(--border); margin:20px 0 16px;">
+
+      <div id="adList"></div>
+      <button type="button" class="btn btn-add" onclick="addAd()">＋ Add Ad</button>
+
+      <input type="hidden" name="ads_json" id="adsJson">
+      <div class="save-bar">
+        <button class="btn" type="submit">💾 Save Ad Settings</button>
+        <span style="color:var(--muted); font-size:13px;">Blank rows are dropped on save.</span>
+      </div>
     </form>
   </div>
 
@@ -141,5 +152,96 @@
     </div>
   </div>
 </div>
+
+<script>
+(function () {
+  var ads = {{ ad_config.ads | tojson }};
+  var list = document.getElementById('adList');
+  var counter = 0;
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renumber() {
+    var rows = list.querySelectorAll('.ad-row');
+    rows.forEach(function (row, i) {
+      row.querySelector('.ad-index').textContent = 'Ad #' + (i + 1);
+    });
+    document.getElementById('adCount').value =
+      rows.length + (rows.length === 1 ? ' ad' : ' ads');
+  }
+
+  window.removeAd = function (id) {
+    var el = document.getElementById(id);
+    if (el) el.remove();
+    renumber();
+  };
+
+  window.addAd = function (data) {
+    data = data || {};
+    counter += 1;
+    var id = 'ad_' + counter;
+    var isImage = data.type === 'image';
+
+    var row = document.createElement('div');
+    row.className = 'ad-row';
+    row.id = id;
+    row.innerHTML =
+      '<div class="ad-head">' +
+        '<strong class="ad-index">Ad</strong>' +
+        '<button type="button" class="btn-rm" onclick="removeAd(\'' + id + '\')">Remove</button>' +
+      '</div>' +
+      '<label>Ad type</label>' +
+      '<select class="f-type">' +
+        '<option value="video"' + (isImage ? '' : ' selected') + '>Video link</option>' +
+        '<option value="image"' + (isImage ? ' selected' : '') + '>Picture + text (no video)</option>' +
+      '</select>' +
+      '<label>Headline</label>' +
+      '<input type="text" class="f-headline" maxlength="120" value="' + esc(data.headline) + '" placeholder="A word from our sponsor">' +
+      '<label>Body text <span class="hint">(optional)</span></label>' +
+      '<textarea class="f-body" maxlength="600" placeholder="Your ticket will open right after this short message.">' + esc(data.body) + '</textarea>' +
+      '<label>Image URL <span class="hint">(optional)</span></label>' +
+      '<input type="url" class="f-image" value="' + esc(data.image_url) + '" placeholder="https://example.com/banner.png">' +
+      '<div class="row">' +
+        '<div>' +
+          '<label>Link URL <span class="hint">(optional)</span></label>' +
+          '<input type="url" class="f-link" value="' + esc(data.link_url) + '" placeholder="https://youtu.be/...">' +
+        '</div>' +
+        '<div>' +
+          '<label>Link button text</label>' +
+          '<input type="text" class="f-linklabel" maxlength="60" value="' + esc(data.link_label) + '" placeholder="Learn more">' +
+        '</div>' +
+      '</div>' +
+      '<label>Sponsor name <span class="hint">(footer)</span></label>' +
+      '<input type="text" class="f-sponsor" maxlength="80" value="' + esc(data.sponsor) + '" placeholder="Tickety Ad Network">';
+
+    list.appendChild(row);
+    renumber();
+  };
+
+  document.getElementById('afForm').addEventListener('submit', function () {
+    var out = [];
+    list.querySelectorAll('.ad-row').forEach(function (row) {
+      function v(sel) { return (row.querySelector(sel).value || '').trim(); }
+      out.push({
+        type: v('.f-type'),
+        headline: v('.f-headline'),
+        body: v('.f-body'),
+        image_url: v('.f-image'),
+        link_url: v('.f-link'),
+        link_label: v('.f-linklabel'),
+        sponsor: v('.f-sponsor')
+      });
+    });
+    document.getElementById('adsJson').value = JSON.stringify(out);
+  });
+
+  if (ads.length) { ads.forEach(function (a) { addAd(a); }); }
+  else { addAd(); }
+})();
+</script>
 </body>
 </html>
