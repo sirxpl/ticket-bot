@@ -63,34 +63,94 @@ def get_april_fools_enabled():
 def set_april_fools_enabled(status):
     s=get_settings();s["april_fools_enabled"]=bool(status);save_settings(s)
 
-APRIL_FOOLS_AD_DEFAULTS = {
-    "headline": "A word from our sponsor",
-    "body": "Your ticket will open right after this short message.",
+APRIL_FOOLS_AD_FIELDS = {
+    "type": "video",
+    "headline": "",
+    "body": "",
     "image_url": "",
     "link_url": "",
     "link_label": "Learn more",
     "sponsor": "Tickety Ad Network",
-    "countdown_seconds": 15,
 }
 
-def get_april_fools_ad_settings():
-    """Admin-configurable content for the joke ad page shown before a ticket
-    form opens. Every field is optional except the countdown."""
-    saved = get_settings().get("april_fools_ad") or {}
-    merged = {**APRIL_FOOLS_AD_DEFAULTS, **saved}
-    try:
-        merged["countdown_seconds"] = max(1, min(int(merged["countdown_seconds"]), 120))
-    except (TypeError, ValueError):
-        merged["countdown_seconds"] = APRIL_FOOLS_AD_DEFAULTS["countdown_seconds"]
-    return merged
+APRIL_FOOLS_STARTER_AD = {
+    **APRIL_FOOLS_AD_FIELDS,
+    "headline": "A word from our sponsor",
+    "body": "Your ticket will open right after this short message.",
+}
 
-def save_april_fools_ad_settings(data):
+def _clean_april_fools_ad(raw):
+    """Normalise one ad dict, dropping unknown keys and bad types."""
+    ad = {**APRIL_FOOLS_AD_FIELDS}
+    for key in APRIL_FOOLS_AD_FIELDS:
+        if isinstance(raw, dict) and raw.get(key) is not None:
+            ad[key] = str(raw[key]).strip()
+    # Only two kinds exist: a video link, or a picture + text panel.
+    if ad["type"] not in ("video", "image"):
+        ad["type"] = "video"
+    if not ad["link_label"]:
+        ad["link_label"] = "Learn more"
+    return ad
+
+def get_april_fools_ad_config():
+    """Ad rotation config for the joke pre-ticket page.
+
+    Returns {"ads": [...], "countdown_seconds": int, "randomize": bool}.
+    Transparently migrates the older single-ad format so existing setups
+    keep working.
+    """
     s = get_settings()
-    current = s.get("april_fools_ad") or {}
-    current.update(data or {})
-    s["april_fools_ad"] = current
+    raw = s.get("april_fools_ads")
+
+    if not isinstance(raw, list) or not raw:
+        legacy = s.get("april_fools_ad")
+        raw = [legacy] if isinstance(legacy, dict) and legacy else [APRIL_FOOLS_STARTER_AD]
+
+    ads = [_clean_april_fools_ad(a) for a in raw if isinstance(a, dict)]
+    if not ads:
+        ads = [_clean_april_fools_ad(APRIL_FOOLS_STARTER_AD)]
+
+    try:
+        countdown = int(s.get("april_fools_countdown_seconds", 15))
+    except (TypeError, ValueError):
+        countdown = 15
+
+    return {
+        "ads": ads,
+        "countdown_seconds": max(1, min(countdown, 120)),
+        "randomize": bool(s.get("april_fools_randomize", True)),
+    }
+
+def save_april_fools_ad_config(ads, countdown_seconds=15, randomize=True):
+    s = get_settings()
+    cleaned = [_clean_april_fools_ad(a) for a in (ads or []) if isinstance(a, dict)]
+    if not cleaned:
+        cleaned = [_clean_april_fools_ad(APRIL_FOOLS_STARTER_AD)]
+    try:
+        countdown = int(countdown_seconds)
+    except (TypeError, ValueError):
+        countdown = 15
+    s["april_fools_ads"] = cleaned
+    s["april_fools_countdown_seconds"] = max(1, min(countdown, 120))
+    s["april_fools_randomize"] = bool(randomize)
+    s.pop("april_fools_ad", None)  # retire the legacy single-ad key
     save_settings(s)
-    return get_april_fools_ad_settings()
+    return get_april_fools_ad_config()
+
+def pick_april_fools_ad(seed=""):
+    """Choose which ad to show.
+
+    Keyed off the verification token so one member gets a stable ad for
+    the whole countdown (reloading won't reshuffle mid-view), while
+    different tickets get different ads.
+    """
+    cfg = get_april_fools_ad_config()
+    ads = cfg["ads"]
+    if len(ads) == 1 or not cfg["randomize"]:
+        return ads[0]
+    import hashlib
+    idx = int(hashlib.sha256(str(seed).encode()).hexdigest(), 16) % len(ads)
+    return ads[idx]
 
 # --- Trial schedule settings ---
 def get_trial_schedule_settings():
