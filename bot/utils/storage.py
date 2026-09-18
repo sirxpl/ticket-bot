@@ -53,6 +53,13 @@ def save_settings(settings):
 def set_tickets_enabled(status):
     s=get_settings();s["tickets_enabled"]=bool(status);save_settings(s)
 
+# --- April Fools gag ---
+def get_april_fools_enabled():
+    """When on, opening a ticket first shows a joke 'ad' screen with a 15s
+    countdown and a Continue button. Purely a gag - the linked video is
+    optional to watch, never embedded or autoplayed."""
+    return bool(get_settings().get("april_fools_enabled", False))
+
 def set_april_fools_enabled(status):
     s=get_settings();s["april_fools_enabled"]=bool(status);save_settings(s)
 
