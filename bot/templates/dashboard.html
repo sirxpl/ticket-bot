@@ -2773,7 +2773,42 @@ function addCatBlacklistChip(row, roleId, roleName) {
     list.appendChild(chip);
 }
 
-function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables, badgeMode) {
+function addCatBadge(button, badgeIdOverride) {
+    const row = button.closest('.embed-field-row');
+    if (!row) return;
+    const input = row.querySelector('.cat-badge-input');
+    const hidden = row.querySelector('.cat-badge-hidden');
+    const list = row.querySelector('.cat-badge-list');
+    const value = String(badgeIdOverride || input.value || '').trim();
+    if (!/^\d+$/.test(value)) {
+        if (!badgeIdOverride) alert('Please enter a numeric Roblox Badge ID.');
+        return;
+    }
+    const ids = hidden.value ? hidden.value.split(',').filter(Boolean) : [];
+    if (ids.includes(value)) {
+        if (!badgeIdOverride) input.value = '';
+        return;
+    }
+    ids.push(value);
+    hidden.value = ids.join(',');
+    const chip = document.createElement('div');
+    chip.style.cssText = "display:flex;justify-content:space-between;align-items:center;background:var(--raised-2);padding:6px 10px;border-radius:4px;margin-top:6px;";
+    chip.innerHTML = `<span>🎖️ ${value}</span>`;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.cssText = "background:var(--danger);color:white;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;";
+    removeBtn.onclick = function() {
+        hidden.value = hidden.value.split(',').filter(id => id !== value).join(',');
+        chip.remove();
+        saveCategoriesNow();
+    };
+    chip.appendChild(removeBtn);
+    list.appendChild(chip);
+    if (!badgeIdOverride) input.value = '';
+}
+
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables, badgeMode, badgeIds) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -2820,6 +2855,16 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
                 <option value="block_badge">Block tickets if they have the badge</option>
             </select>
             <p style="color:var(--text-dim);font-size:.82em;margin:5px 0 0;">The first ticket in this category is unaffected. Starting with the second, the member must verify through RoVer before the ticket form opens.</p>
+            <div style="margin-top:10px;">
+                <strong style="font-size:.9em;">🎖️ Roblox Badge IDs for this ticket type</strong>
+                <p style="color:var(--text-dim);font-size:.82em;margin:4px 0;">Add badge IDs used by this category. In <strong>Enable</strong> mode, the member must own at least one. In <strong>Block</strong> mode, owning any listed badge blocks the ticket.</p>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" class="cat-badge-input" inputmode="numeric" pattern="[0-9]*" placeholder="Roblox Badge ID" style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+                    <button type="button" onclick="addCatBadge(this)" style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">+ Add</button>
+                </div>
+                <div class="cat-badge-list" style="margin-top:6px;"></div>
+                <input type="hidden" name="cat_badge_ids" class="cat-badge-hidden" value="">
+            </div>
         </div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
             <strong style="font-size:.9em;">Ticket Naming</strong>
@@ -2836,6 +2881,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
     if (openNote) row.querySelector('[name="cat_open_note"]').value = openNote;
     if (discordCategoryId) row.querySelector('[name="cat_discord_category_id"]').value = discordCategoryId;
     row.querySelector('[name="cat_badge_mode"]').value = badgeMode || 'off';
+    (badgeIds || []).forEach(badgeId => addCatBadge(row.querySelector('.cat-badge-input').nextElementSibling, badgeId));
 
     const varText = Object.entries(variables || {}).map(([k,v]) => `${k}=${v}`).join('\\n');
     row.querySelector('.cat-variables').value = varText;
@@ -2846,7 +2892,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
 }
 
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables, c.badge_mode));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables, c.badge_mode, c.badge_ids));
 if (existingCategories.length === 0) addCategoryRow();
 
 document.getElementById('categoriesForm')?.addEventListener('submit', function() {
