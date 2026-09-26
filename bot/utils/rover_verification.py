@@ -20,61 +20,103 @@ def _extract_roblox_id(data):
     return None
 
 
-def check_badge_for_discord_user(discord_id, badge_id):
-    """Return (allowed, reason, details). Requires the RoVer API key server-side.
+def _get_linked_roblox_id(guild_id, discord_id):
+    """Resolve a Discord user's linked Roblox ID through RoVer for one guild.
 
-    RoVer maps the Discord account to Roblox; Roblox's public badge endpoint then
-    confirms whether the configured badge has ever been awarded to that account.
+    RoVer's real API is scoped per-guild: GET /guilds/{guild_id}/discord-to-roblox/{user_id}.
+    A previous version of this file called /discord-to-roblox/{user_id} with no
+    guild segment at all, which RoVer always answers with 404 (route doesn't
+    exist). That 404 was being read as "this account isn't linked", which in
+    the blocked-badge flow gets treated as "no blocked badge found" — i.e. the
+    endpoint being wrong was silently letting every user through the gate.
+
+    Returns (roblox_id_or_None, reason, data, ok). `ok` is False only when the
+    lookup itself could not be completed (bad config, network error, RoVer
+    outage, etc.) — callers should treat ok=False as "verification could not
+    be confirmed" and block rather than silently allow the ticket.
     """
-    badge_id=str(badge_id or "").strip()
-    if not badge_id.isdigit(): return False, "The badge ID is not configured correctly.", {}
+    if not guild_id:
+        return None, "This check requires a server (guild) context and none was available.", {}, False
     headers=_headers()
-    if not headers: return False, "RoVer API is not configured yet. Add ROVER_API_KEY in Render.", {}
+    if not headers:
+        return None, "RoVer API is not configured yet. Add ROVER_API_KEY in Render.", {}, False
     try:
-        r=requests.get(f"{ROVER_API_BASE}/discord-to-roblox/{int(discord_id)}", headers=headers, timeout=10)
-        if r.status_code == 404: return False, "This Discord account is not linked through RoVer.", {}
+        r=requests.get(
+            f"{ROVER_API_BASE}/guilds/{int(guild_id)}/discord-to-roblox/{int(discord_id)}",
+            headers=headers, timeout=10,
+        )
+        if r.status_code == 404:
+            return None, "This Discord account is not linked through RoVer.", {}, True
+        if r.status_code == 401:
+            return None, "RoVer rejected the API key. Check ROVER_API_KEY in Render.", {}, False
+        if r.status_code == 403:
+            return None, "RoVer API key does not have access to this server. Make sure RoVer and this bot are both in the server and the key was created for it.", {}, False
         r.raise_for_status()
         data=r.json()
         if data.get("verified") is False:
-            return False, "This Discord account is not verified through RoVer.", data
+            return None, "This Discord account is not verified through RoVer.", data, True
         roblox_id=_extract_roblox_id(data)
-        if not roblox_id: return False, "RoVer did not return a linked Roblox account for this Discord user.", data
+        if not roblox_id:
+            return None, "RoVer did not return a linked Roblox account for this Discord user.", data, True
+        return roblox_id, "Linked.", data, True
+    except requests.RequestException as exc:
+        return None, f"Verification service could not be reached: {exc}", {}, False
+    except ValueError:
+        return None, "Verification service returned an invalid response.", {}, False
 
+
+def check_badge_for_discord_user(guild_id, discord_id, badge_id):
+    """Return (allowed, reason, details, ok). Requires the RoVer API key server-side.
+
+    RoVer maps the Discord account to Roblox; Roblox's public badge endpoint then
+    confirms whether the configured badge has ever been awarded to that account.
+    ok=False means the check could not be completed and the result should not
+    be trusted either way.
+    """
+    badge_id=str(badge_id or "").strip()
+    if not badge_id.isdigit(): return False, "The badge ID is not configured correctly.", {}, False
+
+    roblox_id, reason, data, ok = _get_linked_roblox_id(guild_id, discord_id)
+    if not ok:
+        return False, reason, data, False
+    if not roblox_id:
+        return False, reason, data, True
+
+    try:
         br=requests.get(ROBLOX_BADGE_URL.format(user_id=roblox_id), params={"badgeIds":badge_id}, timeout=10)
         br.raise_for_status()
         badge_data=br.json()
         owned=bool(badge_data.get("data"))
-        return owned, ("Badge verified." if owned else "The linked Roblox account does not have the required badge."), {"roblox_id":roblox_id,"rover":data,"badge":badge_data}
+        return owned, ("Badge verified." if owned else "The linked Roblox account does not have the required badge."), {"roblox_id":roblox_id,"rover":data,"badge":badge_data}, True
     except requests.RequestException as exc:
-        return False, f"Verification service could not be reached: {exc}", {}
+        return False, f"Verification service could not be reached: {exc}", {}, False
     except ValueError:
-        return False, "Verification service returned an invalid response.", {}
+        return False, "Verification service returned an invalid response.", {}, False
 
 
-def check_blocked_badges_for_discord_user(discord_id, badge_ids):
-    """Return (owned_badges, reason, details) for a list of blocked badges."""
+def check_blocked_badges_for_discord_user(guild_id, discord_id, badge_ids):
+    """Return (owned_badges, reason, details, ok) for a list of blocked badges.
+
+    ok=False means the check could not be completed (bad API key/config,
+    network failure, RoVer/Roblox outage). Callers must treat ok=False as
+    "verification failed" and block the ticket — never as "no blocked badge
+    was found" — otherwise a broken check silently passes everyone.
+    """
     ids=[]
     for badge_id in badge_ids or []:
         badge_id=str(badge_id).strip()
         if badge_id.isdigit() and badge_id not in ids:
             ids.append(badge_id)
     if not ids:
-        return [], "No blocked badges are configured.", {}
-    headers=_headers()
-    if not headers:
-        return [], "RoVer API is not configured yet. Add ROVER_API_KEY in Render.", {}
-    try:
-        r=requests.get(f"{ROVER_API_BASE}/discord-to-roblox/{int(discord_id)}", headers=headers, timeout=10)
-        if r.status_code == 404:
-            return [], "This Discord account is not linked through RoVer.", {}
-        r.raise_for_status()
-        data=r.json()
-        if data.get("verified") is False:
-            return [], "This Discord account is not verified through RoVer.", data
-        roblox_id=_extract_roblox_id(data)
-        if not roblox_id:
-            return [], "RoVer did not return a linked Roblox account for this Discord user.", data
+        return [], "No blocked badges are configured.", {}, True
 
+    roblox_id, reason, data, ok = _get_linked_roblox_id(guild_id, discord_id)
+    if not ok:
+        return [], reason, data, False
+    if not roblox_id:
+        return [], reason, data, True
+
+    try:
         owned=[]
         # Roblox's awarded-dates endpoint accepts badgeIds; keep requests bounded
         # so a long admin list cannot cause an excessive request burst.
@@ -91,18 +133,17 @@ def check_blocked_badges_for_discord_user(discord_id, badge_ids):
                 value=item.get("badgeId") if isinstance(item, dict) else None
                 if value is not None and str(value) in batch and str(value) not in owned:
                     owned.append(str(value))
-        return owned, ("Blocked badge found." if owned else "None of the blocked badges were found."), {"roblox_id":roblox_id,"rover":data,"owned_badges":owned}
+        return owned, ("Blocked badge found." if owned else "None of the blocked badges were found."), {"roblox_id":roblox_id,"rover":data,"owned_badges":owned}, True
     except requests.RequestException as exc:
-        return [], f"Verification service could not be reached: {exc}", {}
+        return [], f"Verification service could not be reached: {exc}", {}, False
     except ValueError:
-        return [], "Verification service returned an invalid response.", {}
+        return [], "Verification service returned an invalid response.", {}, False
 
 
-
-def check_required_badges_for_discord_user(discord_id, badge_ids):
-    """Return (owned_badges, reason, details) for required badges.
+def check_required_badges_for_discord_user(guild_id, discord_id, badge_ids):
+    """Return (owned_badges, reason, details, ok) for required badges.
 
     A user passes when they own at least one configured required badge.
     RoVer supplies the Discord -> Roblox mapping; Roblox confirms badge ownership.
     """
-    return check_blocked_badges_for_discord_user(discord_id, badge_ids)
+    return check_blocked_badges_for_discord_user(guild_id, discord_id, badge_ids)
