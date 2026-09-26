@@ -49,3 +49,50 @@ def check_badge_for_discord_user(discord_id, badge_id):
         return False, f"Verification service could not be reached: {exc}", {}
     except ValueError:
         return False, "Verification service returned an invalid response.", {}
+
+
+def check_blocked_badges_for_discord_user(discord_id, badge_ids):
+    """Return (owned_badges, reason, details) for a list of blocked badges."""
+    ids=[]
+    for badge_id in badge_ids or []:
+        badge_id=str(badge_id).strip()
+        if badge_id.isdigit() and badge_id not in ids:
+            ids.append(badge_id)
+    if not ids:
+        return [], "No blocked badges are configured.", {}
+    headers=_headers()
+    if not headers:
+        return [], "RoVer API is not configured yet. Add ROVER_API_KEY in Render.", {}
+    try:
+        r=requests.get(f"{ROVER_API_BASE}/discord-to-roblox/{int(discord_id)}", headers=headers, timeout=10)
+        if r.status_code == 404:
+            return [], "This Discord account is not linked through RoVer.", {}
+        r.raise_for_status()
+        data=r.json()
+        if data.get("verified") is False:
+            return [], "This Discord account is not verified through RoVer.", data
+        roblox_id=_extract_roblox_id(data)
+        if not roblox_id:
+            return [], "RoVer did not return a linked Roblox account for this Discord user.", data
+
+        owned=[]
+        # Roblox's awarded-dates endpoint accepts badgeIds; keep requests bounded
+        # so a long admin list cannot cause an excessive request burst.
+        for start in range(0, len(ids), 25):
+            batch=ids[start:start+25]
+            br=requests.get(
+                ROBLOX_BADGE_URL.format(user_id=roblox_id),
+                params={"badgeIds": ",".join(batch)},
+                timeout=10,
+            )
+            br.raise_for_status()
+            badge_data=br.json()
+            for item in badge_data.get("data", []) if isinstance(badge_data, dict) else []:
+                value=item.get("badgeId") if isinstance(item, dict) else None
+                if value is not None and str(value) in batch and str(value) not in owned:
+                    owned.append(str(value))
+        return owned, ("Blocked badge found." if owned else "None of the blocked badges were found."), {"roblox_id":roblox_id,"rover":data,"owned_badges":owned}
+    except requests.RequestException as exc:
+        return [], f"Verification service could not be reached: {exc}", {}
+    except ValueError:
+        return [], "Verification service returned an invalid response.", {}
