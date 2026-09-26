@@ -44,6 +44,8 @@ from utils.storage import (
     list_transcript_filenames,
     get_ticket_categories,
     save_ticket_categories,
+    get_ticket_badge_config,
+    save_ticket_badge_config,
     get_ticket_panel_draft,
     get_carry_rules_agreement,
     save_carry_rules_agreement,
@@ -943,6 +945,7 @@ def home():
         analytics=analytics,
         analytics_period=analytics_period,
         ticket_categories=get_ticket_categories(),
+        ticket_badge_config=get_ticket_badge_config(),
         panel_draft=get_ticket_panel_draft(),
         redirect_message=get_redirect_message(),
         welcome_message=get_welcome_message(),
@@ -1763,6 +1766,18 @@ def access_remove_basic_command_user(user_id):
     return redirect(url_for("home"))
 
 
+@app.route("/dashboard/ticket-badge/save", methods=["POST"])
+@carry_manager_required
+def save_ticket_badge_route():
+    badge_id=request.form.get("ticket_badge_id", "").strip()
+    if badge_id and not badge_id.isdigit():
+        flash("❌ Badge ID must contain numbers only.", "danger")
+        return redirect(url_for("home"))
+    save_ticket_badge_config(badge_id)
+    flash("✅ Ticket badge verification settings saved.", "success")
+    return redirect(url_for("home"))
+
+
 @app.route("/dashboard/ticket-categories/save", methods=["POST"])
 @carry_manager_required
 def save_ticket_categories_route():
@@ -1775,19 +1790,20 @@ def save_ticket_categories_route():
     discord_category_ids = request.form.getlist("cat_discord_category_id")
     dropdown_enabled_raw = request.form.getlist("cat_dropdown_enabled")
     variables_raw = request.form.getlist("cat_variables")
+    badge_mode_raw = request.form.getlist("cat_badge_mode")
 
     # these lists aren't guaranteed to line up 1:1 with the other lists
     # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw):
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw):
         while len(lst) < len(labels):
             lst.append("")
 
     from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw in zip(
+    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw, badge_mode in zip(
         labels, descriptions, emojis, blacklist_roles_raw,
-        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw,
+        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw,
     ):
         label = label.strip()
         if not label:
@@ -1809,6 +1825,7 @@ def save_ticket_categories_route():
             "description": desc.strip()[:100],
             "emoji": emoji.strip() or None,
             "blacklist_roles": blacklist_roles,
+            "badge_mode": badge_mode if badge_mode in {"off", "require_badge", "block_badge"} else "off",
             "name_prefix": prefix,
             "open_note": note_raw.strip()[:200],
             "discord_category_id": disc_cat_raw.strip() or None,
