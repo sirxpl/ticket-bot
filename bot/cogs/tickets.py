@@ -614,7 +614,16 @@ class TicketView(discord.ui.View):
         except Exception:
             badge_mode, open_count, badge_cfg = "off", 0, {"badge_id": "", "verification_url": "https://rover.link/verify/"}
 
-        badge_gate_required = badge_mode in {"require_badge", "block_badge"} and open_count >= 1 and bool(badge_cfg.get("badge_id"))
+        blocked_badges = badge_cfg.get("blocked_badges") or []
+        block_badges = [str(b).strip() for b in blocked_badges if str(b).strip().isdigit()]
+        if badge_mode == "block_badge" and not block_badges and badge_cfg.get("badge_id"):
+            block_badges = [str(badge_cfg.get("badge_id"))]
+        badge_to_require = str(badge_cfg.get("badge_id") or "").strip()
+        badge_gate_required = (
+            open_count >= 1
+            and ((badge_mode == "require_badge" and bool(badge_to_require)) or
+                 (badge_mode == "block_badge" and bool(block_badges)))
+        )
 
         async def show_badge_gate():
             from utils.storage import get_dashboard_base_url
@@ -628,21 +637,34 @@ class TicketView(discord.ui.View):
                     await check_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
                     return
                 await check_interaction.response.defer(ephemeral=True)
-                from utils.rover_verification import check_badge_for_discord_user
-                has_badge, reason, _details = await asyncio.to_thread(
-                    check_badge_for_discord_user, check_interaction.user.id, badge_cfg.get("badge_id")
-                )
-                allowed = has_badge if badge_mode == "require_badge" else not has_badge
-                if allowed:
-                    await check_interaction.followup.send("✅ Verification passed. You can continue to the ticket form.", ephemeral=True)
-                    await check_interaction.followup.send_modal(modal)
-                else:
-                    action = "have" if has_badge else "do not have"
-                    if badge_mode == "require_badge":
-                        msg = f"❌ Ticket blocked. You need the configured Roblox badge. {reason}"
+                if badge_mode == "require_badge":
+                    from utils.rover_verification import check_badge_for_discord_user
+                    has_badge, reason, _details = await asyncio.to_thread(
+                        check_badge_for_discord_user, check_interaction.user.id, badge_to_require
+                    )
+                    allowed = has_badge
+                    if allowed:
+                        await check_interaction.followup.send("✅ Verification passed. You can continue to the ticket form.", ephemeral=True)
+                        await check_interaction.followup.send_modal(modal)
                     else:
-                        msg = f"❌ Ticket blocked. This ticket is unavailable to users who have the configured Roblox badge. {reason}"
-                    await check_interaction.followup.send(msg, ephemeral=True)
+                        await check_interaction.followup.send(
+                            f"❌ Ticket blocked. You need the configured Roblox badge. {reason}",
+                            ephemeral=True,
+                        )
+                else:
+                    from utils.rover_verification import check_blocked_badges_for_discord_user
+                    owned_badges, reason, _details = await asyncio.to_thread(
+                        check_blocked_badges_for_discord_user, check_interaction.user.id, block_badges
+                    )
+                    if not owned_badges:
+                        await check_interaction.followup.send("✅ Verification passed. You can continue to the ticket form.", ephemeral=True)
+                        await check_interaction.followup.send_modal(modal)
+                    else:
+                        owned_text = ", ".join(owned_badges)
+                        await check_interaction.followup.send(
+                            f"❌ Ticket blocked. Your linked Roblox account has a blocked badge: **{owned_text}**.",
+                            ephemeral=True,
+                        )
 
             check.callback = check_callback
             view.add_item(check)
@@ -650,9 +672,15 @@ class TicketView(discord.ui.View):
             if badge_mode == "require_badge":
                 desc = "This is your second or later ticket in this category. You must verify with RoVer and have the configured Roblox badge before continuing."
             else:
-                desc = "This is your second or later ticket in this category. You must verify with RoVer so the bot can confirm that you do not have the configured Roblox badge."
+                desc = "This is your second or later ticket in this category. You must verify with RoVer so the bot can confirm that you do not have any badge from the blocked badge list."
             embed = discord.Embed(title=title, description=desc, color=discord.Color.blurple())
-            embed.add_field(name="Badge ID", value=str(badge_cfg.get("badge_id")), inline=True)
+            if badge_mode == "require_badge":
+                embed.add_field(name="Required Badge ID", value=badge_to_require, inline=True)
+            else:
+                display_badges = ", ".join(block_badges)
+                if len(display_badges) > 1024:
+                    display_badges = display_badges[:1010] + "…"
+                embed.add_field(name="Blocked Badge IDs", value=display_badges or "None configured", inline=False)
             embed.set_footer(text="Press ‘I've verified’ only after completing RoVer verification.")
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
