@@ -601,10 +601,10 @@ class TicketView(discord.ui.View):
         selection = select.values[0] if select.values else "General Support"
         outer_view = self
 
-        # Badge verification gate: the first ticket for a category is normal.
-        # Starting with the second ticket, a category can require the configured
-        # Roblox badge or block users who have that badge. The final decision is
-        # made server-side through RoVer + Roblox, never by the browser button.
+        # Badge verification gate: a category can require the configured Roblox
+        # badge, or block users who have it, starting from the member's very
+        # first ticket in that category. The final decision is made server-side
+        # through RoVer + Roblox, never by the browser button.
         #
         # Every one of these variables is set up-front with a safe "gate off"
         # default before the try block runs. Previously gate_category was only
@@ -617,20 +617,18 @@ class TicketView(discord.ui.View):
         # unhandled crash. This is likely exactly what's been happening.
         gate_category = None
         badge_mode = "off"
-        open_count = 0
         badge_cfg = {"badge_id": "", "verification_url": "https://rover.link/verify/"}
         try:
             categories_for_gate = get_ticket_categories()
             gate_category = next((c for c in categories_for_gate if c.get("label") == selection), None)
             badge_mode = (gate_category or {}).get("badge_mode", "off")
-            open_count = get_ticket_open_count(interaction.user.id, selection)
             badge_cfg = get_ticket_badge_config()
         except Exception:
             logger.exception(
                 "ticket_select: badge-gate lookup failed, opening the ticket "
                 "without the badge gate rather than failing the interaction"
             )
-            gate_category, badge_mode, open_count = None, "off", 0
+            gate_category, badge_mode = None, "off"
             badge_cfg = {"badge_id": "", "verification_url": "https://rover.link/verify/"}
 
         category_badges = (gate_category or {}).get("badge_ids") or []
