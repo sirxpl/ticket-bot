@@ -22,6 +22,9 @@ from utils.storage import (
     get_category_counter,
     get_redirect_message,
     get_settings,
+    get_ticket_open_count,
+    increment_ticket_open_count,
+    get_ticket_badge_config,
     get_tickets_data,
     get_welcome_message,
     increment_category_counter,
@@ -598,6 +601,63 @@ class TicketView(discord.ui.View):
         selection = select.values[0] if select.values else "General Support"
         outer_view = self
 
+        # Badge verification gate: the first ticket for a category is normal.
+        # Starting with the second ticket, a category can require the configured
+        # Roblox badge or block users who have that badge. The final decision is
+        # made server-side through RoVer + Roblox, never by the browser button.
+        try:
+            categories_for_gate = get_ticket_categories()
+            gate_category = next((c for c in categories_for_gate if c.get("label") == selection), None)
+            badge_mode = (gate_category or {}).get("badge_mode", "off")
+            open_count = get_ticket_open_count(interaction.user.id, selection)
+            badge_cfg = get_ticket_badge_config()
+        except Exception:
+            badge_mode, open_count, badge_cfg = "off", 0, {"badge_id": "", "verification_url": "https://rover.link/verify/"}
+
+        badge_gate_required = badge_mode in {"require_badge", "block_badge"} and open_count >= 1 and bool(badge_cfg.get("badge_id"))
+
+        async def show_badge_gate():
+            from utils.storage import get_dashboard_base_url
+            verification_url = badge_cfg.get("verification_url") or "https://rover.link/verify/"
+            view = discord.ui.View(timeout=600)
+            view.add_item(discord.ui.Button(label="🔗 Verify with RoVer", style=discord.ButtonStyle.link, url=verification_url))
+            check = discord.ui.Button(label="✅ I've verified", style=discord.ButtonStyle.success)
+
+            async def check_callback(check_interaction: discord.Interaction):
+                if check_interaction.user.id != interaction.user.id:
+                    await check_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
+                    return
+                await check_interaction.response.defer(ephemeral=True)
+                from utils.rover_verification import check_badge_for_discord_user
+                has_badge, reason, _details = await asyncio.to_thread(
+                    check_badge_for_discord_user, check_interaction.user.id, badge_cfg.get("badge_id")
+                )
+                allowed = has_badge if badge_mode == "require_badge" else not has_badge
+                if allowed:
+                    await check_interaction.followup.send("✅ Verification passed. You can continue to the ticket form.", ephemeral=True)
+                    await check_interaction.followup.send_modal(modal)
+                else:
+                    action = "have" if has_badge else "do not have"
+                    if badge_mode == "require_badge":
+                        msg = f"❌ Ticket blocked. You need the configured Roblox badge. {reason}"
+                    else:
+                        msg = f"❌ Ticket blocked. This ticket is unavailable to users who have the configured Roblox badge. {reason}"
+                    await check_interaction.followup.send(msg, ephemeral=True)
+
+            check.callback = check_callback
+            view.add_item(check)
+            title = "🔐 Ticket Verification Required"
+            if badge_mode == "require_badge":
+                desc = "This is your second or later ticket in this category. You must verify with RoVer and have the configured Roblox badge before continuing."
+            else:
+                desc = "This is your second or later ticket in this category. You must verify with RoVer so the bot can confirm that you do not have the configured Roblox badge."
+            embed = discord.Embed(title=title, description=desc, color=discord.Color.blurple())
+            embed.add_field(name="Badge ID", value=str(badge_cfg.get("badge_id")), inline=True)
+            embed.set_footer(text="Press ‘I've verified’ only after completing RoVer verification.")
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+        # Modal is constructed below; delay the gate until after modal creation.
+
         # check blacklist (individually-blacklisted user IDs) — only
         # "regular" type blocks ALL ticket categories outright. "voidcore"
         # type intentionally does NOT block here; it instead relies on the
@@ -1092,6 +1152,8 @@ class TicketView(discord.ui.View):
                             f"Failed to append ticket creation log for channel={ticket_channel.id}: {e}"
                         )
 
+                    increment_ticket_open_count(user.id, self.selection)
+
                     await modal_interaction.followup.send(
                         render_ticket_template(
                             get_redirect_message().get("content")
@@ -1121,6 +1183,10 @@ class TicketView(discord.ui.View):
                     )
 
         modal = TicketModal(interaction.user, selection)
+
+        if badge_gate_required:
+            await show_badge_gate()
+            return
 
         from utils.storage import get_april_fools_enabled, get_dashboard_base_url
 
