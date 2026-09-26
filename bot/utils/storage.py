@@ -245,18 +245,59 @@ def save_ticket_categories(categories):s=get_settings();s["ticket_categories"]=c
 
 def get_ticket_badge_config():
     cfg = get_settings().get("ticket_badge_verification") or {}
+    blocked_key_present = "blocked_badges" in cfg
+    blocked = cfg.get("blocked_badges") or []
+    if not isinstance(blocked, list):
+        blocked = []
+    blocked = [str(b).strip() for b in blocked if str(b).strip().isdigit()]
+    # Migrate the old single badge ID into the block list only for old configs
+    # that do not yet have an explicit blocked_badges list.
+    legacy_badge = str(cfg.get("badge_id") or "").strip()
+    if not blocked_key_present and legacy_badge.isdigit() and legacy_badge not in blocked:
+        blocked.append(legacy_badge)
     return {
-        "badge_id": str(cfg.get("badge_id") or "").strip(),
+        "badge_id": legacy_badge,
+        "blocked_badges": blocked,
         "verification_url": str(cfg.get("verification_url") or "https://rover.link/verify/").strip(),
     }
 
-def save_ticket_badge_config(badge_id, verification_url=None):
+def save_ticket_badge_config(badge_id, verification_url=None, blocked_badges=None):
     s=get_settings()
+    existing=s.get("ticket_badge_verification") or {}
+    if blocked_badges is None:
+        blocked_badges = existing.get("blocked_badges") or []
+    blocked=[]
+    for value in blocked_badges:
+        value=str(value).strip()
+        if value.isdigit() and value not in blocked:
+            blocked.append(value)
     s["ticket_badge_verification"]={
         "badge_id": str(badge_id or "").strip(),
-        "verification_url": str(verification_url or "https://rover.link/verify/").strip(),
+        "blocked_badges": blocked,
+        "verification_url": str(verification_url or existing.get("verification_url") or "https://rover.link/verify/").strip(),
     }
     save_settings(s)
+
+def add_blocked_ticket_badge(badge_id):
+    badge_id=str(badge_id or "").strip()
+    if not badge_id.isdigit():
+        return False
+    cfg=get_ticket_badge_config()
+    blocked=cfg.get("blocked_badges", [])
+    if badge_id in blocked:
+        return False
+    blocked.append(badge_id)
+    save_ticket_badge_config(cfg.get("badge_id"), blocked_badges=blocked)
+    return True
+
+def remove_blocked_ticket_badge(badge_id):
+    badge_id=str(badge_id or "").strip()
+    cfg=get_ticket_badge_config()
+    blocked=[b for b in cfg.get("blocked_badges", []) if str(b) != badge_id]
+    if len(blocked) == len(cfg.get("blocked_badges", [])):
+        return False
+    save_ticket_badge_config(cfg.get("badge_id"), blocked_badges=blocked)
+    return True
 
 def get_ticket_open_count(user_id, category_label):
     counts = get_settings().get("ticket_open_counts") or {}
