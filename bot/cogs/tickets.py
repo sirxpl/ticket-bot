@@ -687,11 +687,18 @@ class TicketView(discord.ui.View):
                     await check_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
                     return
                 await check_interaction.response.defer(ephemeral=True)
+                guild_id = check_interaction.guild.id if check_interaction.guild else None
                 if badge_mode == "require_badge":
                     from utils.rover_verification import check_required_badges_for_discord_user
-                    owned_badges, reason, _details = await asyncio.to_thread(
-                        check_required_badges_for_discord_user, check_interaction.user.id, required_badges
+                    owned_badges, reason, _details, ok = await asyncio.to_thread(
+                        check_required_badges_for_discord_user, guild_id, check_interaction.user.id, required_badges
                     )
+                    if not ok:
+                        await check_interaction.followup.send(
+                            f"⚠️ Verification could not be completed: {reason} Please try again in a moment or contact staff.",
+                            ephemeral=True,
+                        )
+                        return
                     allowed = bool(owned_badges)
                     if allowed:
                         await _send_continue_button(check_interaction)
@@ -703,9 +710,15 @@ class TicketView(discord.ui.View):
                         )
                 else:
                     from utils.rover_verification import check_blocked_badges_for_discord_user
-                    owned_badges, reason, _details = await asyncio.to_thread(
-                        check_blocked_badges_for_discord_user, check_interaction.user.id, block_badges
+                    owned_badges, reason, _details, ok = await asyncio.to_thread(
+                        check_blocked_badges_for_discord_user, guild_id, check_interaction.user.id, block_badges
                     )
+                    if not ok:
+                        await check_interaction.followup.send(
+                            f"⚠️ Verification could not be completed: {reason} Please try again in a moment or contact staff.",
+                            ephemeral=True,
+                        )
+                        return
                     if not owned_badges:
                         await _send_continue_button(check_interaction)
                     else:
