@@ -242,6 +242,35 @@ def get_ticket_categories():
     for x in c:x.setdefault("blacklist_roles",[]);x.setdefault("name_prefix",slugify(x.get("label","ticket")));x.setdefault("open_note","");x.setdefault("discord_category_id",None);x.setdefault("dropdown_enabled",True);x.setdefault("variables",{})
     return c
 def save_ticket_categories(categories):s=get_settings();s["ticket_categories"]=categories;save_settings(s)
+
+def get_ticket_badge_config():
+    cfg = get_settings().get("ticket_badge_verification") or {}
+    return {
+        "badge_id": str(cfg.get("badge_id") or "").strip(),
+        "verification_url": str(cfg.get("verification_url") or "https://rover.link/verify/").strip(),
+    }
+
+def save_ticket_badge_config(badge_id, verification_url=None):
+    s=get_settings()
+    s["ticket_badge_verification"]={
+        "badge_id": str(badge_id or "").strip(),
+        "verification_url": str(verification_url or "https://rover.link/verify/").strip(),
+    }
+    save_settings(s)
+
+def get_ticket_open_count(user_id, category_label):
+    counts = get_settings().get("ticket_open_counts") or {}
+    key = f"{user_id}:{str(category_label or '').strip().lower()}"
+    try:return int(counts.get(key, 0))
+    except (TypeError, ValueError):return 0
+
+def increment_ticket_open_count(user_id, category_label):
+    s=get_settings()
+    counts=s.setdefault("ticket_open_counts",{})
+    key=f"{user_id}:{str(category_label or '').strip().lower()}"
+    counts[key]=int(counts.get(key,0))+1
+    save_settings(s)
+    return counts[key]
 def get_ticket_panel_draft():return get_settings().get("ticket_panel_draft") or {}
 def save_ticket_panel_draft(draft):s=get_settings();s["ticket_panel_draft"]=draft;save_settings(s)
 
