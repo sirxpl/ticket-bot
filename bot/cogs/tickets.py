@@ -22,6 +22,7 @@ from utils.storage import (
     get_category_counter,
     get_redirect_message,
     get_settings,
+    get_ticket_categories,
     get_ticket_open_count,
     increment_ticket_open_count,
     get_ticket_badge_config,
@@ -777,8 +778,6 @@ class TicketView(discord.ui.View):
 
         # check per-category blacklist roles (set per dropdown option)
         try:
-            from utils.storage import get_ticket_categories
-
             categories = get_ticket_categories()
             matched_category = next(
                 (c for c in categories if c.get("label") == selection), None
