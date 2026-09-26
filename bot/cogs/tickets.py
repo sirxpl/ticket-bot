@@ -682,6 +682,23 @@ class TicketView(discord.ui.View):
                     ephemeral=True,
                 )
 
+            async def _send_needs_consent(target_interaction, reason):
+                # RoVer confirms the account is verified but the user hasn't
+                # granted this server (or this bot's API key) permission to
+                # reveal it yet. Being "verified" no longer implies that
+                # permission — see https://rover.link/help/username-privacy-and-consent.
+                # Give them the exact place to grant it and let them retry
+                # the same "I've verified" button afterward.
+                from utils.rover_verification import ROVER_CONSENT_URL
+                view = discord.ui.View(timeout=600)
+                view.add_item(discord.ui.Button(label="🔓 Grant RoVer Access", style=discord.ButtonStyle.link, url=ROVER_CONSENT_URL))
+                await target_interaction.followup.send(
+                    f"🔒 You're verified with RoVer, but you haven't granted this server permission to see your linked Roblox account yet. "
+                    f"{reason}\n\nClick **Grant RoVer Access** above, allow this server, then press **✅ I've verified** again.",
+                    view=view,
+                    ephemeral=True,
+                )
+
             async def check_callback(check_interaction: discord.Interaction):
                 if check_interaction.user.id != interaction.user.id:
                     await check_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
@@ -690,9 +707,12 @@ class TicketView(discord.ui.View):
                 guild_id = check_interaction.guild.id if check_interaction.guild else None
                 if badge_mode == "require_badge":
                     from utils.rover_verification import check_required_badges_for_discord_user
-                    owned_badges, reason, _details, ok = await asyncio.to_thread(
+                    owned_badges, reason, _details, ok, needs_consent = await asyncio.to_thread(
                         check_required_badges_for_discord_user, guild_id, check_interaction.user.id, required_badges
                     )
+                    if needs_consent:
+                        await _send_needs_consent(check_interaction, reason)
+                        return
                     if not ok:
                         await check_interaction.followup.send(
                             f"⚠️ Verification could not be completed: {reason} Please try again in a moment or contact staff.",
@@ -710,9 +730,12 @@ class TicketView(discord.ui.View):
                         )
                 else:
                     from utils.rover_verification import check_blocked_badges_for_discord_user
-                    owned_badges, reason, _details, ok = await asyncio.to_thread(
+                    owned_badges, reason, _details, ok, needs_consent = await asyncio.to_thread(
                         check_blocked_badges_for_discord_user, guild_id, check_interaction.user.id, block_badges
                     )
+                    if needs_consent:
+                        await _send_needs_consent(check_interaction, reason)
+                        return
                     if not ok:
                         await check_interaction.followup.send(
                             f"⚠️ Verification could not be completed: {reason} Please try again in a moment or contact staff.",
