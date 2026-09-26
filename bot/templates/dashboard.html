@@ -1396,17 +1396,40 @@
             <summary>
                 <div class="card-head-text">
                 <h3><span class="card-icon">🛡️</span> RoVer Badge Ticket Verification</h3>
-                <p class="card-subtitle">Configure the Roblox badge checked on the second and later ticket attempt for categories below.</p>
+                <p class="card-subtitle">Configure the Roblox badges checked on the second and later ticket attempt for categories below.</p>
                 </div>
                 <span class="card-chevron">▾</span>
             </summary>
             <div class="card-body">
             <form action="/dashboard/ticket-badge/save" method="POST">
-                <label>Roblox Badge ID:</label>
+                <label>Required Roblox Badge ID:</label>
                 <input type="text" name="ticket_badge_id" inputmode="numeric" pattern="[0-9]*" value="{{ ticket_badge_config.badge_id or '' }}" placeholder="e.g. 123456789">
-                <p class="card-subtitle" style="margin-top:8px;">This is the Roblox badge ID RoVer/Roblox will check. Leave blank to disable badge verification.</p>
-                <button type="submit" class="btn-submit" style="width:auto;margin-top:12px;">💾 Save Badge ID</button>
+                <p class="card-subtitle" style="margin-top:8px;">Used when a category is set to <strong>Enable tickets only if they have the badge</strong>.</p>
+                <button type="submit" class="btn-submit" style="width:auto;margin-top:12px;">💾 Save Required Badge</button>
             </form>
+
+            <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+                <strong style="font-size:.95em;">🚫 Badges blocked from tickets</strong>
+                <p class="card-subtitle" style="margin:5px 0 10px;">When a category uses <strong>Block tickets if they have the badge</strong>, the member is blocked if they own <strong>any</strong> badge in this list. You can add multiple badge IDs.</p>
+                <form action="/dashboard/ticket-badge/add" method="POST" style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" name="blocked_badge_id" inputmode="numeric" pattern="[0-9]*" placeholder="Enter Roblox badge ID" required style="flex:1;">
+                    <button type="submit" class="btn-submit" style="width:auto;white-space:nowrap;">+ Add</button>
+                </form>
+                <div style="margin-top:10px;">
+                    {% if ticket_badge_config.blocked_badges %}
+                        {% for badge_id in ticket_badge_config.blocked_badges %}
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--raised-2);border:1px solid var(--border);padding:9px 10px;border-radius:6px;margin-top:6px;">
+                            <span><strong>Badge ID:</strong> {{ badge_id }}</span>
+                            <form action="/dashboard/ticket-badge/remove/{{ badge_id }}" method="POST" style="margin:0;">
+                                <button type="submit" style="background:var(--danger);color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;">Remove</button>
+                            </form>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div style="color:var(--text-dim);padding:9px 0;">No blocked badges have been added yet.</div>
+                    {% endif %}
+                </div>
+            </div>
             </div>
         </details>
 
