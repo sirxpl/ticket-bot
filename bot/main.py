@@ -1817,10 +1817,11 @@ def save_ticket_categories_route():
     dropdown_enabled_raw = request.form.getlist("cat_dropdown_enabled")
     variables_raw = request.form.getlist("cat_variables")
     badge_mode_raw = request.form.getlist("cat_badge_mode")
+    badge_ids_raw = request.form.getlist("cat_badge_ids")
 
     # these lists aren't guaranteed to line up 1:1 with the other lists
     # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw):
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw):
         while len(lst) < len(labels):
             lst.append("")
 
@@ -1829,12 +1830,17 @@ def save_ticket_categories_route():
     categories = []
     for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw, badge_mode in zip(
         labels, descriptions, emojis, blacklist_roles_raw,
-        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw,
+        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw,
     ):
         label = label.strip()
         if not label:
             continue
         blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
+        badge_ids = []
+        for badge_id in str(badge_ids_raw or "").split(","):
+            badge_id = badge_id.strip()
+            if badge_id.isdigit() and badge_id not in badge_ids:
+                badge_ids.append(badge_id)
         prefix = slugify(prefix_raw.strip() or label)
         variables = {}
         try:
@@ -1852,6 +1858,7 @@ def save_ticket_categories_route():
             "emoji": emoji.strip() or None,
             "blacklist_roles": blacklist_roles,
             "badge_mode": badge_mode if badge_mode in {"off", "require_badge", "block_badge"} else "off",
+            "badge_ids": badge_ids,
             "name_prefix": prefix,
             "open_note": note_raw.strip()[:200],
             "discord_category_id": disc_cat_raw.strip() or None,
