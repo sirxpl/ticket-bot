@@ -96,3 +96,13 @@ def check_blocked_badges_for_discord_user(discord_id, badge_ids):
         return [], f"Verification service could not be reached: {exc}", {}
     except ValueError:
         return [], "Verification service returned an invalid response.", {}
+
+
+
+def check_required_badges_for_discord_user(discord_id, badge_ids):
+    """Return (owned_badges, reason, details) for required badges.
+
+    A user passes when they own at least one configured required badge.
+    RoVer supplies the Discord -> Roblox mapping; Roblox confirms badge ownership.
+    """
+    return check_blocked_badges_for_discord_user(discord_id, badge_ids)
