@@ -239,7 +239,7 @@ def slugify(text):return re.sub(r"[^a-z0-9]+","-",(text or "").lower().strip()).
 _DEFAULT_TICKET_CATEGORIES=[{"label":"General Support","description":"General help or questions","emoji":"❓"},{"label":"Report a User","description":"Report another user","emoji":"⚠️"},{"label":"Appeal / Ban Review","description":"Appeal moderation action","emoji":"📝"}]
 def get_ticket_categories():
     c=get_settings().get("ticket_categories") or list(_DEFAULT_TICKET_CATEGORIES)
-    for x in c:x.setdefault("blacklist_roles",[]);x.setdefault("name_prefix",slugify(x.get("label","ticket")));x.setdefault("open_note","");x.setdefault("discord_category_id",None);x.setdefault("dropdown_enabled",True);x.setdefault("variables",{})
+    for x in c:x.setdefault("blacklist_roles",[]);x.setdefault("badge_mode","off");x.setdefault("badge_ids",[]);x.setdefault("name_prefix",slugify(x.get("label","ticket")));x.setdefault("open_note","");x.setdefault("discord_category_id",None);x.setdefault("dropdown_enabled",True);x.setdefault("variables",{})
     return c
 def save_ticket_categories(categories):s=get_settings();s["ticket_categories"]=categories;save_settings(s)
 
