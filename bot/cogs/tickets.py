@@ -614,14 +614,20 @@ class TicketView(discord.ui.View):
         except Exception:
             badge_mode, open_count, badge_cfg = "off", 0, {"badge_id": "", "verification_url": "https://rover.link/verify/"}
 
+        category_badges = (gate_category or {}).get("badge_ids") or []
+        category_badges = [str(b).strip() for b in category_badges if str(b).strip().isdigit()]
         blocked_badges = badge_cfg.get("blocked_badges") or []
-        block_badges = [str(b).strip() for b in blocked_badges if str(b).strip().isdigit()]
-        if badge_mode == "block_badge" and not block_badges and badge_cfg.get("badge_id"):
-            block_badges = [str(badge_cfg.get("badge_id"))]
-        badge_to_require = str(badge_cfg.get("badge_id") or "").strip()
+        global_block_badges = [str(b).strip() for b in blocked_badges if str(b).strip().isdigit()]
+        if badge_mode == "block_badge":
+            block_badges = category_badges or global_block_badges
+            if not block_badges and badge_cfg.get("badge_id"):
+                block_badges = [str(badge_cfg.get("badge_id"))]
+        else:
+            block_badges = []
+        required_badges = category_badges or ([str(badge_cfg.get("badge_id")).strip()] if str(badge_cfg.get("badge_id") or "").strip().isdigit() else [])
         badge_gate_required = (
             open_count >= 1
-            and ((badge_mode == "require_badge" and bool(badge_to_require)) or
+            and ((badge_mode == "require_badge" and bool(required_badges)) or
                  (badge_mode == "block_badge" and bool(block_badges)))
         )
 
@@ -638,17 +644,18 @@ class TicketView(discord.ui.View):
                     return
                 await check_interaction.response.defer(ephemeral=True)
                 if badge_mode == "require_badge":
-                    from utils.rover_verification import check_badge_for_discord_user
-                    has_badge, reason, _details = await asyncio.to_thread(
-                        check_badge_for_discord_user, check_interaction.user.id, badge_to_require
+                    from utils.rover_verification import check_required_badges_for_discord_user
+                    owned_badges, reason, _details = await asyncio.to_thread(
+                        check_required_badges_for_discord_user, check_interaction.user.id, required_badges
                     )
-                    allowed = has_badge
+                    allowed = bool(owned_badges)
                     if allowed:
                         await check_interaction.followup.send("✅ Verification passed. You can continue to the ticket form.", ephemeral=True)
                         await check_interaction.followup.send_modal(modal)
                     else:
+                        badge_text = ", ".join(required_badges)
                         await check_interaction.followup.send(
-                            f"❌ Ticket blocked. You need the configured Roblox badge. {reason}",
+                            f"❌ Ticket blocked. You need at least one of the configured Roblox badges: **{badge_text}**. {reason}",
                             ephemeral=True,
                         )
                 else:
@@ -670,12 +677,15 @@ class TicketView(discord.ui.View):
             view.add_item(check)
             title = "🔐 Ticket Verification Required"
             if badge_mode == "require_badge":
-                desc = "This is your second or later ticket in this category. You must verify with RoVer and have the configured Roblox badge before continuing."
+                desc = "This is your second or later ticket in this category. You must verify with RoVer and own at least one configured Roblox badge before continuing."
             else:
-                desc = "This is your second or later ticket in this category. You must verify with RoVer so the bot can confirm that you do not have any badge from the blocked badge list."
+                desc = "This is your second or later ticket in this category. You must verify with RoVer so the bot can confirm that you do not own any badge from this category's blocked list."
             embed = discord.Embed(title=title, description=desc, color=discord.Color.blurple())
             if badge_mode == "require_badge":
-                embed.add_field(name="Required Badge ID", value=badge_to_require, inline=True)
+                display_badges = ", ".join(required_badges)
+                if len(display_badges) > 1024:
+                    display_badges = display_badges[:1010] + "…"
+                embed.add_field(name="Required Roblox Badge IDs", value=display_badges or "None configured", inline=False)
             else:
                 display_badges = ", ".join(block_badges)
                 if len(display_badges) > 1024:
