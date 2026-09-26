@@ -46,6 +46,8 @@ from utils.storage import (
     save_ticket_categories,
     get_ticket_badge_config,
     save_ticket_badge_config,
+    add_blocked_ticket_badge,
+    remove_blocked_ticket_badge,
     get_ticket_panel_draft,
     get_carry_rules_agreement,
     save_carry_rules_agreement,
@@ -1775,6 +1777,30 @@ def save_ticket_badge_route():
         return redirect(url_for("home"))
     save_ticket_badge_config(badge_id)
     flash("✅ Ticket badge verification settings saved.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-badge/add", methods=["POST"])
+@carry_manager_required
+def add_ticket_blocked_badge_route():
+    badge_id=request.form.get("blocked_badge_id", "").strip()
+    if not badge_id.isdigit():
+        flash("❌ Blocked badge ID must contain numbers only.", "danger")
+        return redirect(url_for("home"))
+    if add_blocked_ticket_badge(badge_id):
+        flash(f"✅ Badge {badge_id} added to the blocked badge list.", "success")
+    else:
+        flash("ℹ️ That badge is already in the blocked badge list.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-badge/remove/<badge_id>", methods=["POST"])
+@carry_manager_required
+def remove_ticket_blocked_badge_route(badge_id):
+    if remove_blocked_ticket_badge(badge_id):
+        flash(f"🗑️ Badge {badge_id} removed from the blocked badge list.", "info")
+    else:
+        flash("❌ That badge was not found in the blocked badge list.", "danger")
     return redirect(url_for("home"))
 
 
