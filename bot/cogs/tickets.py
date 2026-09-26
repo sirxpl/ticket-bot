@@ -655,6 +655,33 @@ class TicketView(discord.ui.View):
             view.add_item(discord.ui.Button(label="🔗 Verify with RoVer", style=discord.ButtonStyle.link, url=verification_url))
             check = discord.ui.Button(label="✅ I've verified", style=discord.ButtonStyle.success)
 
+            async def _send_continue_button(target_interaction: discord.Interaction):
+                # A modal can only ever be shown as the FIRST response to an
+                # interaction — never through a followup/webhook, and never
+                # after response.defer() has already been used. Since the
+                # badge check above needs to defer (it makes network calls
+                # that can take longer than Discord's 3-second ack window),
+                # this same interaction can no longer show a modal. Instead,
+                # hand the user a fresh button; that button's own interaction
+                # is un-deferred, so its callback can call send_modal() on it
+                # directly and it will actually open.
+                continue_view = discord.ui.View(timeout=300)
+                continue_button = discord.ui.Button(label="🎫 Continue to Ticket Form", style=discord.ButtonStyle.success)
+
+                async def continue_callback(continue_interaction: discord.Interaction):
+                    if continue_interaction.user.id != interaction.user.id:
+                        await continue_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
+                        return
+                    await continue_interaction.response.send_modal(modal)
+
+                continue_button.callback = continue_callback
+                continue_view.add_item(continue_button)
+                await target_interaction.followup.send(
+                    "✅ Verification passed. Click below to continue to the ticket form.",
+                    view=continue_view,
+                    ephemeral=True,
+                )
+
             async def check_callback(check_interaction: discord.Interaction):
                 if check_interaction.user.id != interaction.user.id:
                     await check_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
@@ -667,12 +694,11 @@ class TicketView(discord.ui.View):
                     )
                     allowed = bool(owned_badges)
                     if allowed:
-                        await check_interaction.followup.send("✅ Verification passed. You can continue to the ticket form.", ephemeral=True)
-                        await check_interaction.followup.send_modal(modal)
+                        await _send_continue_button(check_interaction)
                     else:
                         badge_text = ", ".join(required_badges)
                         await check_interaction.followup.send(
-                            f"❌ Ticket blocked. You need at least one of the configured Roblox badges: **{badge_text}**. {reason}",
+                            f"❌ You do not have access to open this ticket. You need at least one of the configured Roblox badges: **{badge_text}**. {reason}",
                             ephemeral=True,
                         )
                 else:
@@ -681,12 +707,11 @@ class TicketView(discord.ui.View):
                         check_blocked_badges_for_discord_user, check_interaction.user.id, block_badges
                     )
                     if not owned_badges:
-                        await check_interaction.followup.send("✅ Verification passed. You can continue to the ticket form.", ephemeral=True)
-                        await check_interaction.followup.send_modal(modal)
+                        await _send_continue_button(check_interaction)
                     else:
                         owned_text = ", ".join(owned_badges)
                         await check_interaction.followup.send(
-                            f"❌ Ticket blocked. Your linked Roblox account has a blocked badge: **{owned_text}**.",
+                            f"❌ You do not have access to open this ticket. Your linked Roblox account has a blocked badge: **{owned_text}**.",
                             ephemeral=True,
                         )
 
