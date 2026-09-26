@@ -605,6 +605,20 @@ class TicketView(discord.ui.View):
         # Starting with the second ticket, a category can require the configured
         # Roblox badge or block users who have that badge. The final decision is
         # made server-side through RoVer + Roblox, never by the browser button.
+        #
+        # Every one of these variables is set up-front with a safe "gate off"
+        # default before the try block runs. Previously gate_category was only
+        # ever assigned inside the try, so if get_ticket_categories() (or
+        # anything before it finished) raised, the except clause below did NOT
+        # backfill gate_category — the very next line then hit a bare
+        # NameError, which happened before any interaction.response call had
+        # been made. Discord has nothing to show for that but "the application
+        # did not respond", since the 3-second ack window just ran out on an
+        # unhandled crash. This is likely exactly what's been happening.
+        gate_category = None
+        badge_mode = "off"
+        open_count = 0
+        badge_cfg = {"badge_id": "", "verification_url": "https://rover.link/verify/"}
         try:
             categories_for_gate = get_ticket_categories()
             gate_category = next((c for c in categories_for_gate if c.get("label") == selection), None)
@@ -612,7 +626,12 @@ class TicketView(discord.ui.View):
             open_count = get_ticket_open_count(interaction.user.id, selection)
             badge_cfg = get_ticket_badge_config()
         except Exception:
-            badge_mode, open_count, badge_cfg = "off", 0, {"badge_id": "", "verification_url": "https://rover.link/verify/"}
+            logger.exception(
+                "ticket_select: badge-gate lookup failed, opening the ticket "
+                "without the badge gate rather than failing the interaction"
+            )
+            gate_category, badge_mode, open_count = None, "off", 0
+            badge_cfg = {"badge_id": "", "verification_url": "https://rover.link/verify/"}
 
         category_badges = (gate_category or {}).get("badge_ids") or []
         category_badges = [str(b).strip() for b in category_badges if str(b).strip().isdigit()]
