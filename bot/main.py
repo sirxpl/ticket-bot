@@ -1828,7 +1828,7 @@ def save_ticket_categories_route():
     from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw, badge_mode in zip(
+    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw, badge_mode, badge_ids_item in zip(
         labels, descriptions, emojis, blacklist_roles_raw,
         name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw,
     ):
@@ -1837,7 +1837,7 @@ def save_ticket_categories_route():
             continue
         blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
         badge_ids = []
-        for badge_id in str(badge_ids_raw or "").split(","):
+        for badge_id in str(badge_ids_item or "").split(","):
             badge_id = badge_id.strip()
             if badge_id.isdigit() and badge_id not in badge_ids:
                 badge_ids.append(badge_id)
