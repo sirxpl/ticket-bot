@@ -645,9 +645,8 @@ class TicketView(discord.ui.View):
             block_badges = []
         required_badges = category_badges or ([str(badge_cfg.get("badge_id")).strip()] if str(badge_cfg.get("badge_id") or "").strip().isdigit() else [])
         badge_gate_required = (
-            open_count >= 1
-            and ((badge_mode == "require_badge" and bool(required_badges)) or
-                 (badge_mode == "block_badge" and bool(block_badges)))
+            (badge_mode == "require_badge" and bool(required_badges)) or
+            (badge_mode == "block_badge" and bool(block_badges))
         )
 
         async def show_badge_gate():
@@ -696,9 +695,9 @@ class TicketView(discord.ui.View):
             view.add_item(check)
             title = "🔐 Ticket Verification Required"
             if badge_mode == "require_badge":
-                desc = "This is your second or later ticket in this category. You must verify with RoVer and own at least one configured Roblox badge before continuing."
+                desc = "This ticket category requires verification. You must verify with RoVer and own at least one configured Roblox badge before continuing."
             else:
-                desc = "This is your second or later ticket in this category. You must verify with RoVer so the bot can confirm that you do not own any badge from this category's blocked list."
+                desc = "This ticket category requires verification. You must verify with RoVer so the bot can confirm that you do not own any badge from this category's blocked list."
             embed = discord.Embed(title=title, description=desc, color=discord.Color.blurple())
             if badge_mode == "require_badge":
                 display_badges = ", ".join(required_badges)
