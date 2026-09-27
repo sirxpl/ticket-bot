@@ -1,7 +1,21 @@
 import os
+import time
+import random
 import requests
 
 ROVER_API_BASE = os.getenv("ROVER_API_BASE_URL", "https://registry.rover.link/api").rstrip("/")
+
+# Retry/backoff tuning for both RoVer and Roblox calls. These only help with
+# transient failures (rate limits, brief outages, a flaky connection) — a
+# persistent IP-level block will still fail after retrying, just slower, so
+# the retry count is kept small rather than hammering a blocked endpoint.
+_MAX_RETRIES = 3
+_BASE_DELAY_SECONDS = 0.6
+# Retrying these is worthwhile: 429 (rate limited) and 5xx (server-side/
+# transient) can clear up on their own within a couple seconds. 403/401/404
+# are NOT retried here — those are answers ("not found", "not authorized"),
+# not glitches, and retrying them just delays a result we already have.
+_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 # Roblox's docs mark the bulk /badges/awarded-dates endpoint "Not Recommended"
 # and it has also started 403ing requests from cloud/datacenter IPs (like
 # Render's) that don't look like a real browser. The single-badge
@@ -23,6 +37,43 @@ _ROBLOX_HEADERS = {
 # granted this server (or this bot's API key) permission to see their linked
 # Roblox account. See: https://rover.link/help/username-privacy-and-consent
 _CONSENT_HINT_WORDS = ("consent", "access", "grant", "permission", "reveal")
+
+
+def _get_with_retry(url, headers=None, params=None, timeout=10):
+    """requests.get with retry-with-backoff for transient failures only.
+
+    Retries on 429/5xx and on network-level exceptions (timeouts, connection
+    errors). Non-retryable statuses (200, 403, 404, 401, etc.) are returned
+    immediately on the first attempt — those are real answers, not glitches.
+    A 429 response's Retry-After header is respected when present.
+    """
+    last_exc = None
+    last_resp = None
+    for attempt in range(_MAX_RETRIES):
+        delay = _BASE_DELAY_SECONDS * (2 ** attempt)
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=timeout)
+        except requests.RequestException as exc:
+            last_exc = exc
+            last_resp = None
+        else:
+            if resp.status_code not in _RETRYABLE_STATUSES:
+                return resp
+            last_exc = None
+            last_resp = resp
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after is not None:
+                try:
+                    delay = float(retry_after)
+                except ValueError:
+                    pass
+        if attempt == _MAX_RETRIES - 1:
+            break
+        # small jitter so multiple simultaneous checks don't retry in lockstep
+        time.sleep(delay + random.uniform(0, 0.25))
+    if last_exc is not None:
+        raise last_exc
+    return last_resp
 
 
 def _headers():
@@ -77,7 +128,7 @@ def _get_linked_roblox_id(guild_id, discord_id):
     if not headers:
         return None, "RoVer API is not configured yet. Add ROVER_API_KEY in Render.", {}, False, False
     try:
-        r=requests.get(
+        r=_get_with_retry(
             f"{ROVER_API_BASE}/guilds/{int(guild_id)}/discord-to-roblox/{int(discord_id)}",
             headers=headers, timeout=10,
         )
@@ -124,7 +175,7 @@ def _roblox_user_has_badge(roblox_id, badge_id):
     not be trusted.
     """
     try:
-        br = requests.get(
+        br = _get_with_retry(
             ROBLOX_SINGLE_BADGE_URL.format(user_id=roblox_id, badge_id=badge_id),
             headers=_ROBLOX_HEADERS,
             timeout=10,
