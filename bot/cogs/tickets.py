@@ -714,10 +714,15 @@ class TicketView(discord.ui.View):
                         await _send_needs_consent(check_interaction, reason)
                         return
                     if not ok:
+                        # The check itself couldn't run (RoVer/Roblox unreachable
+                        # or blocked) — let the ticket through rather than stall
+                        # the user indefinitely, but make the failure visible so
+                        # staff know this badge check did not actually run.
                         await check_interaction.followup.send(
-                            f"⚠️ Verification could not be completed: {reason} Please try again in a moment or contact staff.",
+                            f"⚠️ There was an issue verifying: {reason} Continuing without a completed badge check — a staff member may want to double check this ticket.",
                             ephemeral=True,
                         )
+                        await _send_continue_button(check_interaction)
                         return
                     allowed = bool(owned_badges)
                     if allowed:
@@ -737,10 +742,14 @@ class TicketView(discord.ui.View):
                         await _send_needs_consent(check_interaction, reason)
                         return
                     if not ok:
+                        # Same reasoning as the require_badge path above: don't
+                        # stall the ticket on an unreachable/blocked check, but
+                        # flag it clearly so staff know verification didn't run.
                         await check_interaction.followup.send(
-                            f"⚠️ Verification could not be completed: {reason} Please try again in a moment or contact staff.",
+                            f"⚠️ There was an issue verifying: {reason} Continuing without a completed badge check — a staff member may want to double check this ticket.",
                             ephemeral=True,
                         )
+                        await _send_continue_button(check_interaction)
                         return
                     if not owned_badges:
                         await _send_continue_button(check_interaction)
