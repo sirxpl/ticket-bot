@@ -28,7 +28,7 @@ a{color:inherit}.wrap{width:min(980px,calc(100% - 36px));margin:0 auto;padding:3
   <div class="grid">
     <section class="card">
       <h2>Current Status</h2>
-      <div class="state" id="bot-state">
+      <div class="state" id="bot-state" data-api-block-until="{{ api_retry_at or 0 }}">
         <span class="dot {% if api_blocked %}offline{% elif bot_active and not schedule_active and not bot_sleeping %}online{% else %}offline{% endif %}" id="bot-state-dot"></span>
         <span id="bot-state-text">{% if api_blocked %}API Limited{% elif bot_active and not schedule_active and not bot_sleeping %}Active{% else %}Inactive{% endif %}</span>
       </div>
