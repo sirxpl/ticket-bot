@@ -175,7 +175,22 @@ _BOT_STATUS_SECTION_HTML = """<section class="ctb-status-section" aria-label="Bo
 .ctb-status-section{position:fixed;right:18px;bottom:18px;z-index:9999;display:flex;align-items:center;gap:16px;max-width:min(560px,calc(100vw - 36px));padding:12px 14px;border:1px solid #25273a;border-radius:12px;background:rgba(20,21,31,.96);box-shadow:0 12px 40px #0008;backdrop-filter:blur(12px);font:13px/1.35 Inter,system-ui,sans-serif;color:#eef0f7}
 .ctb-status-copy{display:flex;align-items:center;gap:9px;min-width:110px}.ctb-status-copy strong{display:block}.ctb-status-state{display:block;color:#8d90a8;font-size:12px;margin-top:2px}.ctb-status-countdown{color:#ffb454;font-size:12px;font-weight:700;min-width:115px}.ctb-status-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:0 0 9px}.ctb-online{background:#3fd68c;box-shadow:0 0 10px #3fd68c88}.ctb-offline{background:#f1556c;box-shadow:0 0 10px #f1556c66}.ctb-status-link{color:#ffc93c;text-decoration:none;font-weight:700;white-space:nowrap}.ctb-status-link:hover{text-decoration:underline}
 @media(max-width:600px){.ctb-status-section{left:12px;right:12px;bottom:12px;max-width:none;justify-content:space-between;gap:10px}.ctb-status-link{white-space:normal;text-align:right}}
-</style>"""
+</style>
+<script>
+(function(){
+  const box=document.querySelector(".ctb-status-countdown");
+  if(!box) return;
+  const until=Number(box.dataset.apiBlockUntil||0);
+  if(!until) return;
+  const fmt=s=>{s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;return h?String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"):String(m).padStart(2,"0")+":"+String(x).padStart(2,"0");};
+  const tick=()=>{
+    const left=Math.max(0,until-Math.floor(Date.now()/1000));
+    if(left>0){box.textContent="Discord API blocked — retrying in "+fmt(left);}
+    else{box.textContent="Retry window reached — checking Discord…"; location.reload();}
+  };
+  tick(); setInterval(tick,1000);
+})();
+</script>"""
     
 @app.after_request
 def _inject_public_bot_status(response):
