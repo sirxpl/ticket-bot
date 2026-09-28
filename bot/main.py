@@ -2167,40 +2167,52 @@ def access_save_offline_schedule():
 @bot.event
 async def setup_hook():
     """Load Discord cogs relative to this file, regardless of Render's cwd."""
+    print("🔧 setup_hook started.", flush=True)
     cogs_dir = Path(__file__).resolve().parent / "cogs"
+    print(f"🔧 Cog directory: {cogs_dir}", flush=True)
     if not cogs_dir.is_dir():
-        print(f"❌ Cog directory not found: {cogs_dir}")
+        print(f"❌ Cog directory not found: {cogs_dir}", flush=True)
         return
 
+    cog_paths = sorted(cogs_dir.glob("*.py"))
+    print(f"🔧 Found {len(cog_paths)} cog files.", flush=True)
     loaded = 0
     failed = 0
-    for cog_path in sorted(cogs_dir.glob("*.py")):
+    for cog_path in cog_paths:
+        name = cog_path.stem
+        print(f"🔧 Loading cog: {name}", flush=True)
         try:
-            await bot.load_extension(f"cogs.{cog_path.stem}")
+            await bot.load_extension(f"cogs.{name}")
             loaded += 1
-            print(f"✅ Loaded cog: {cog_path.stem}")
+            print(f"✅ Loaded cog: {name}", flush=True)
         except Exception as exc:
             failed += 1
-            print(f"❌ Failed to load cog {cog_path.stem}: {type(exc).__name__}: {exc}")
+            print(
+                f"❌ Failed to load cog {name}: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
 
-    print(f"📦 Cog loading complete: {loaded} loaded, {failed} failed.")
+    print(f"📦 Cog loading complete: {loaded} loaded, {failed} failed.", flush=True)
 
 @bot.event
 async def on_ready():
     global bot_ready_since
+    print("🔧 on_ready started.", flush=True)
     bot_ready_since = time.time()
     # If this process was started by the cooldown/watchdog restart, tell the
     # owner the bot is back (once), then reset the retry counter.
     if int(os.getenv("BOT_START_ATTEMPT", "0") or 0) > 0:
+        print("🔧 Processing restart recovery alert.", flush=True)
         os.environ["BOT_START_ATTEMPT"] = "0"
         import threading as _t
         _t.Thread(target=_send_alert, args=("✅ Carry Ticket Bot is back online.",), daemon=True).start()
+    print("🔧 Starting slash-command sync.", flush=True)
     try:
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands.")
+        print(f"✅ Slash-command sync complete: {len(synced)} commands.", flush=True)
     except Exception as e:
-        print(f"Failed to sync commands: {e}")
-    print(f"✅ Bot logged in as {bot.user}")
+        print(f"❌ Slash-command sync failed: {type(e).__name__}: {e}", flush=True)
+    print(f"✅ Bot logged in as {bot.user}", flush=True)
 
 
 def run_flask():
