@@ -309,7 +309,7 @@ _waking = False
 # these call Discord's API (they render static templates / a local file), so
 # they're safe to keep serving while the dashboard is switched off.
 LOCKDOWN_ALLOWED_PATHS = {
-    "/status", "/api/status", "/api/status-history",
+    "/status", "/downtime", "/api/status", "/api/status-history",
     "/docs", "/rules", "/guidelines", "/privacy", "/terms",
 }
 
@@ -867,6 +867,31 @@ def api_status_history():
         "overall_uptime_pct": get_overall_uptime_pct(90),
         "months": get_incidents_by_month(3),
     })
+
+
+@app.route("/downtime")
+def downtime_page():
+    schedule = get_offline_schedule()
+    try:
+        schedule_timezone = schedule.get("timezone") or "America/New_York"
+        ZoneInfo(schedule_timezone)
+    except Exception:
+        schedule_timezone = "America/New_York"
+    day_names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    schedule_days = [
+        {"name": day, "entries": schedule.get("days", {}).get(day, []) or []}
+        for day in day_names
+    ]
+    schedule_active = _offline_schedule_is_active()
+    bot_active = bool(bot.is_ready()) and not bot.is_closed()
+    return render_template(
+        "downtime.html",
+        schedule_days=schedule_days,
+        schedule_timezone=schedule_timezone,
+        schedule_active=schedule_active,
+        bot_active=bot_active,
+        bot_sleeping=bot_sleeping,
+    )
 
 
 @app.route("/status")
