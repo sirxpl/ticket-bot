@@ -1087,10 +1087,22 @@
         (function(){
             const dot = document.getElementById('dashBotDot');
             const label = document.getElementById('dashBotStatus');
+            let wasOffline = false;
+            let wasWebDisabled = false;
+            let hasReceivedStatus = false;
+
             async function refresh(){
                 try{
                     const res = await fetch('/api/status', {cache: 'no-store'});
                     const data = await res.json();
+                    const cameBackOnline = hasReceivedStatus && wasOffline && data.online;
+                    const lockdownEnded = hasReceivedStatus && wasWebDisabled && !data.web_disabled;
+
+                    if (cameBackOnline || lockdownEnded){
+                        window.location.reload();
+                        return;
+                    }
+
                     if (data.online){
                         dot.style.background = 'var(--success)';
                         label.textContent = 'Bot Online';
@@ -1100,6 +1112,10 @@
                         label.textContent = 'Bot Offline';
                         label.style.color = 'var(--danger)';
                     }
+
+                    wasOffline = !data.online;
+                    wasWebDisabled = !!data.web_disabled;
+                    hasReceivedStatus = true;
                 } catch(e){
                     dot.style.background = 'var(--danger)';
                     label.textContent = 'Status unknown';
