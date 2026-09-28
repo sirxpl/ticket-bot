@@ -2100,6 +2100,12 @@ async def setup_hook():
 async def on_ready():
     global bot_ready_since
     bot_ready_since = time.time()
+    # If this process was started by the cooldown/watchdog restart, tell the
+    # owner the bot is back (once), then reset the retry counter.
+    if int(os.getenv("BOT_START_ATTEMPT", "0") or 0) > 0:
+        os.environ["BOT_START_ATTEMPT"] = "0"
+        import threading as _t
+        _t.Thread(target=_send_alert, args=("✅ Carry Ticket Bot is back online.",), daemon=True).start()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands.")
@@ -2127,6 +2133,13 @@ def run_status_checker():
         time.sleep(60)
 
 
+import threading
+
+_cooldown_lock = threading.Lock()
+_cooldown_active = False
+last_online_at = None  # updated by the watchdog whenever the bot is connected
+
+
 def _retry_after_from(exc):
     """Seconds Discord asked us to wait (Retry-After header), if any."""
     try:
@@ -2136,40 +2149,125 @@ def _retry_after_from(exc):
         return 0
 
 
-def run_bot_with_cooldown():
-    """Run the bot; if startup/login fails, keep the process (and status pages)
-    alive, switch the dashboard off, wait with growing backoff, then restart
-    the process cleanly. Never exits on a Discord login failure, so the host
-    isn't tempted into an instant restart loop that keeps the API block alive."""
+def _send_alert(text):
+    """Optional owner alert through a service that does NOT depend on Discord
+    (a Discord message would likely be blocked by the same IP block we're
+    reporting). Does nothing unless ALERT_WEBHOOK_URL is set. Works with
+    ntfy.sh topics (plain text body) or any webhook taking JSON with a
+    "content"/"text" field (Discord/Slack style)."""
+    url = os.getenv("ALERT_WEBHOOK_URL", "").strip()
+    if not url:
+        return
+    try:
+        import requests
+        if "ntfy" in url:
+            requests.post(url, data=text.encode("utf-8"), headers={"Title": "Carry Ticket Bot"}, timeout=10)
+        else:
+            requests.post(url, json={"content": text, "text": text}, timeout=10)
+    except Exception as e:
+        print(f"Alert failed to send: {e}")
+
+
+def _current_attempt():
+    # If this process has ever been connected, a fresh failure starts the
+    # backoff over; otherwise carry on from the count passed through restarts.
+    if last_online_at or bot_ready_since:
+        return 0
+    return int(os.getenv("BOT_START_ATTEMPT", "0") or 0)
+
+
+def _cooldown_and_restart(reason, exc=None, can_recover=False):
+    """Switch the dashboard off (status pages stay up), alert the owner, wait
+    with growing backoff, then restart the process to retry the Discord login.
+
+    Shared by the startup-failure path and the watchdog; only one caller can
+    run it at a time (returns False if another is already handling it).
+    With can_recover=True, if the bot reconnects by itself during the wait the
+    cooldown is cancelled instead of restarting. Returns True in that case."""
     import sys
-    global web_lockdown_until, last_start_error
-    attempt = int(os.getenv("BOT_START_ATTEMPT", "0") or 0)
+    global web_lockdown_until, last_start_error, _cooldown_active
+    with _cooldown_lock:
+        if _cooldown_active:
+            return False
+        _cooldown_active = True
+    attempt = _current_attempt()
+    base = int(os.getenv("BOT_RETRY_BASE_SECONDS", "120"))
+    cap = int(os.getenv("BOT_RETRY_MAX_SECONDS", "3600"))
+    delay = max(min(base * (2 ** attempt), cap), _retry_after_from(exc) if exc else 0)
+    last_start_error = reason
+    web_lockdown_until = time.time() + delay
+    print(f"❌ {reason}")
+    print(f"⏸️ Dashboard disabled, status stays up. Retrying Discord login in {delay}s (attempt {attempt + 1}).")
+    _send_alert(f"⚠️ Carry Ticket Bot is down: {reason}. Dashboard is off; retrying in about {max(1, round(delay / 60))} min.")
+    deadline = time.time() + delay
+    while time.time() < deadline:
+        time.sleep(min(15, max(0, deadline - time.time())))
+        if can_recover and bot.is_ready() and not bot.is_closed():
+            web_lockdown_until = 0.0
+            with _cooldown_lock:
+                _cooldown_active = False
+            print("✅ Bot reconnected on its own; cooldown cancelled, dashboard back on.")
+            _send_alert("✅ Carry Ticket Bot reconnected on its own.")
+            return True
+    os.environ["BOT_START_ATTEMPT"] = str(attempt + 1)
+    print("🔄 Restarting process to retry Discord login...")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def run_bot_with_cooldown():
+    """Run the bot. If startup/login fails, keep the process (and status
+    pages) alive and retry after a backoff instead of exiting, so the host
+    isn't tempted into an instant restart loop that keeps the API block alive."""
     try:
         bot.run(TOKEN)
     except Exception as exc:
-        last_start_error = f"{type(exc).__name__}: {exc}"
-        print(f"❌ Bot stopped: {last_start_error}")
-        if bot_ready_since:
-            attempt = 0  # it was healthy for a while, so start the backoff over
-        base = int(os.getenv("BOT_RETRY_BASE_SECONDS", "120"))
-        cap = int(os.getenv("BOT_RETRY_MAX_SECONDS", "3600"))
-        delay = max(min(base * (2 ** attempt), cap), _retry_after_from(exc))
-        web_lockdown_until = time.time() + delay
-        print(f"⏸️ Dashboard disabled, status stays up. Retrying Discord login in {delay}s (attempt {attempt + 1}).")
-        time.sleep(delay)
-        os.environ["BOT_START_ATTEMPT"] = str(attempt + 1)
-        print("🔄 Restarting process to retry Discord login...")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        handled = _cooldown_and_restart(f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc)
+        if handled is False:
+            # The watchdog is already running the cooldown; just stay alive
+            # (keeping the web/status threads running) until it restarts us.
+            while True:
+                time.sleep(3600)
     # bot.run() returned normally (e.g. Ctrl+C locally): a deliberate stop.
 
 
+def run_watchdog():
+    """Background check for a bot that is running but stuck offline (e.g. a
+    Discord block that starts mid-run, where discord.py just keeps retrying
+    forever). If the bot stays offline past a grace period, run the same
+    cooldown + restart as a failed startup. Short drops are ignored, and if
+    the bot reconnects by itself the cooldown is cancelled."""
+    global last_online_at
+    grace = int(os.getenv("WATCHDOG_OFFLINE_SECONDS", "300"))
+    offline_since = time.time()  # process start counts as offline until ready
+    while True:
+        time.sleep(30)
+        try:
+            now = time.time()
+            if bool(bot.is_ready()) and not bot.is_closed():
+                last_online_at = now
+                offline_since = None
+                continue
+            if offline_since is None:
+                offline_since = now
+            if now - offline_since >= grace and not _cooldown_active:
+                minutes = max(1, round((now - offline_since) / 60))
+                if _cooldown_and_restart(f"Bot offline for {minutes} min", can_recover=True):
+                    offline_since = None  # recovered without a restart
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"Watchdog error: {e}")
+
+
 if __name__ == "__main__":
-    import threading
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
     status_thread = threading.Thread(target=run_status_checker, daemon=True)
     status_thread.start()
+
+    watchdog_thread = threading.Thread(target=run_watchdog, daemon=True)
+    watchdog_thread.start()
 
     if TOKEN:
         run_bot_with_cooldown()
