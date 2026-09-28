@@ -2166,10 +2166,24 @@ def access_save_offline_schedule():
 # --- BOT EVENT HANDLERS & RUNNER ---
 @bot.event
 async def setup_hook():
-    if os.path.exists("cogs"):
-        for filename in os.listdir("cogs"):
-            if filename.endswith(".py"):
-                await bot.load_extension(f"cogs.{filename[:-3]}")
+    """Load Discord cogs relative to this file, regardless of Render's cwd."""
+    cogs_dir = Path(__file__).resolve().parent / "cogs"
+    if not cogs_dir.is_dir():
+        print(f"❌ Cog directory not found: {cogs_dir}")
+        return
+
+    loaded = 0
+    failed = 0
+    for cog_path in sorted(cogs_dir.glob("*.py")):
+        try:
+            await bot.load_extension(f"cogs.{cog_path.stem}")
+            loaded += 1
+            print(f"✅ Loaded cog: {cog_path.stem}")
+        except Exception as exc:
+            failed += 1
+            print(f"❌ Failed to load cog {cog_path.stem}: {type(exc).__name__}: {exc}")
+
+    print(f"📦 Cog loading complete: {loaded} loaded, {failed} failed.")
 
 @bot.event
 async def on_ready():
