@@ -218,7 +218,7 @@ class GlobalCommandTree(discord.app_commands.CommandTree):
 
 
 class DiagnosticBot(commands.Bot):
-    """Bot subclass with a startup timeout around Discord HTTP login."""
+    """Bot subclass with startup timeout and Discord 429 diagnostics."""
     async def login(self, token: str) -> None:
         print("🔧 Discord HTTP login starting.", flush=True)
         print("🔧 Starting Discord HTTP stage probe.", flush=True)
@@ -226,6 +226,15 @@ class DiagnosticBot(commands.Bot):
             await asyncio.wait_for(super().login(token), timeout=60)
         except asyncio.TimeoutError:
             print("❌ Discord HTTP login timed out after 60 seconds.", flush=True)
+            raise
+        except discord.HTTPException as exc:
+            retry_after = _retry_after_from(exc)
+            if getattr(exc, "status", None) == 429:
+                print(
+                    f"⏸️ Discord login was rate-limited (HTTP 429); "
+                    f"Retry-After={retry_after}s.",
+                    flush=True,
+                )
             raise
         print("🔧 Discord HTTP login finished; continuing to gateway/setup.", flush=True)
 
@@ -2457,6 +2466,18 @@ def run_bot_with_cooldown():
     isn't tempted into an instant restart loop that keeps the API block alive."""
     try:
         bot.run(TOKEN)
+    except discord.HTTPException as exc:
+        if getattr(exc, "status", None) == 429:
+            retry_after = _retry_after_from(exc)
+            reason = (
+                f"Discord login rate-limited (HTTP 429; "
+                f"Retry-After={retry_after}s)"
+            )
+            handled = _cooldown_and_restart(reason, exc=exc)
+        else:
+            handled = _cooldown_and_restart(
+                f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc
+            )
     except Exception as exc:
         handled = _cooldown_and_restart(f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc)
         if handled is False:
