@@ -40,6 +40,13 @@
   }
   .status-icon.online{background:rgba(63,214,140,0.15); color:var(--green);}
   .status-icon.offline{background:rgba(241,85,108,0.15); color:var(--red);}
+  .status-icon.sleeping{background:rgba(124,140,255,0.15); color:#7c8cff;}
+  .wake-btn{
+    margin-top:14px; padding:10px 18px; border-radius:10px; border:1px solid rgba(124,140,255,0.5);
+    background:rgba(124,140,255,0.15); color:#c9d0ff; font:600 14px 'Inter',sans-serif; cursor:pointer;
+  }
+  .wake-btn:hover:not(:disabled){background:rgba(124,140,255,0.28);}
+  .wake-btn:disabled{opacity:.6; cursor:default;}
   .dot{display:none;}
   .status-label{font-size:24px; font-weight:700; font-family:'Space Grotesk',sans-serif;}
   .status-sub{color:var(--muted); font-size:14px; margin-top:8px;}
@@ -127,6 +134,7 @@
   <div class="status-card">
     <div><span class="status-icon" id="statusIcon">●</span><span class="status-label" id="statusLabel">Checking...</span></div>
     <div class="status-sub" id="statusSub">Loading current status</div>
+    <button class="wake-btn" id="wakeBtn" style="display:none;" onclick="wakeBot()">☀️ Wake bot</button>
   </div>
 
   <div class="grid">
@@ -257,6 +265,23 @@ async function refreshHistory(){
   }
 }
 
+async function wakeBot(){
+  const btn = document.getElementById('wakeBtn');
+  const sub = document.getElementById('statusSub');
+  btn.disabled = true;
+  btn.dataset.waking = '1';
+  btn.textContent = 'Waking up…';
+  try{
+    await fetch('/api/wake', {method: 'POST'});
+    sub.textContent = 'Waking the bot up — this takes about 30 seconds. This page will update on its own.';
+  } catch(e){
+    btn.disabled = false;
+    delete btn.dataset.waking;
+    btn.textContent = '☀️ Wake bot';
+    sub.textContent = 'Could not send the wake request. Please try again.';
+  }
+}
+
 async function refresh(){
   const icon = document.getElementById('statusIcon');
   const label = document.getElementById('statusLabel');
@@ -264,12 +289,22 @@ async function refresh(){
   try{
     const res = await fetch('/api/status', {cache: 'no-store'});
     const data = await res.json();
-    if (data.online){
+    const wakeBtn = document.getElementById('wakeBtn');
+    if (data.sleeping){
+      icon.className = 'status-icon sleeping';
+      icon.textContent = '💤';
+      label.textContent = 'Bot Sleeping';
+      sub.textContent = 'The bot went to sleep after a long period of inactivity. Tickets can\'t be opened until it is woken up.';
+      if (!wakeBtn.dataset.waking){ wakeBtn.style.display = ''; }
+    } else if (data.online){
+      wakeBtn.style.display = 'none';
+      delete wakeBtn.dataset.waking;
       icon.className = 'status-icon online';
       icon.textContent = '✓';
       label.textContent = 'All Systems Operational';
       sub.textContent = 'The bot is online and connected to Discord.';
     } else {
+      wakeBtn.style.display = 'none';
       icon.className = 'status-icon offline';
       icon.textContent = '✕';
       label.textContent = 'Bot Offline';
