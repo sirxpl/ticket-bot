@@ -4,6 +4,8 @@ import json
 import re
 import asyncio
 import time
+import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
 from dotenv import load_dotenv
@@ -125,6 +127,8 @@ from utils.access import (
     consume_terms_unblock_token,
     get_active_terms_unblock_tokens,
     revoke_terms_unblock_token,
+    get_offline_schedule,
+    save_offline_schedule,
 )
 
 # Environment & OAuth Setup
@@ -958,6 +962,7 @@ def home():
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
+        offline_schedule=get_offline_schedule(),
         globally_blocked_users=get_globally_blocked_users(),
         generated_unblock_link=generated_unblock_link,
         active_unblock_links=active_unblock_links,
@@ -2019,6 +2024,42 @@ def access_set_warning_log_channel():
     return redirect(url_for("home"))
 
 
+@app.route("/dashboard/access/save-offline-schedule", methods=["POST"])
+@admin_required
+def access_save_offline_schedule():
+    """Save the per-day Discord offline schedule from Access Control."""
+    raw = request.form.get("offline_schedule_json", "").strip()
+    try:
+        schedule = json.loads(raw) if raw else {}
+        if not isinstance(schedule, dict):
+            raise ValueError("Schedule must be an object.")
+        timezone = str(schedule.get("timezone", "America/New_York")).strip() or "America/New_York"
+        ZoneInfo(timezone)
+        schedule["timezone"] = timezone
+        schedule["enabled"] = bool(schedule.get("enabled", False))
+        days = schedule.setdefault("days", {})
+        for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
+            entries = days.get(day, [])
+            if not isinstance(entries, list):
+                raise ValueError(f"{day.title()} schedule is invalid.")
+            clean = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                start = str(entry.get("start", "")).strip()
+                end = str(entry.get("end", "")).strip()
+                if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", start) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", end):
+                    raise ValueError(f"{day.title()} contains an invalid time.")
+                clean.append({"enabled": bool(entry.get("enabled", True)), "start": start, "end": end})
+            days[day] = clean
+        save_offline_schedule(schedule)
+        flash("✅ Bot offline schedule saved.", "success")
+    except Exception as exc:
+        app.logger.exception("Failed to save bot offline schedule")
+        flash(f"❌ Could not save the offline schedule: {exc}", "danger")
+    return redirect(url_for("home"))
+
+
 # --- BOT EVENT HANDLERS & RUNNER ---
 @bot.event
 async def setup_hook():
@@ -2044,6 +2085,83 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 
+_offline_schedule_active = False
+
+
+def _offline_schedule_is_active(now=None):
+    """Return True when the current local time falls inside a configured window."""
+    schedule = get_offline_schedule()
+    if not schedule.get("enabled"):
+        return False
+    try:
+        tz = ZoneInfo(schedule.get("timezone") or "America/New_York")
+    except Exception:
+        tz = datetime.timezone.utc
+    now = now.astimezone(tz) if now else datetime.datetime.now(tz)
+    day_names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    current_day = now.weekday()
+    current_minutes = now.hour * 60 + now.minute
+
+    def in_entry(entry):
+        if not entry.get("enabled", True):
+            return False
+        try:
+            sh, sm = map(int, str(entry.get("start", "00:00")).split(":"))
+            eh, em = map(int, str(entry.get("end", "00:00")).split(":"))
+        except Exception:
+            return False
+        start = sh * 60 + sm
+        end = eh * 60 + em
+        if start == end:
+            return True
+        if end > start:
+            return start <= current_minutes < end
+        return current_minutes >= start
+
+    days = schedule.get("days", {})
+    for idx in (current_day, (current_day - 1) % 7):
+        for entry in days.get(day_names[idx], []) or []:
+            if not entry.get("enabled", True):
+                continue
+            try:
+                sh, sm = map(int, str(entry.get("start", "00:00")).split(":"))
+                eh, em = map(int, str(entry.get("end", "00:00")).split(":"))
+            except Exception:
+                continue
+            start = sh * 60 + sm
+            end = eh * 60 + em
+            if idx == current_day and in_entry(entry):
+                return True
+            if idx != current_day and end < start and current_minutes < end:
+                return True
+    return False
+
+
+def run_offline_schedule_watcher():
+    """Disconnect Discord during scheduled windows while leaving Flask/status alive."""
+    global bot_sleeping, _offline_schedule_active
+    while True:
+        time.sleep(15)
+        try:
+            active = _offline_schedule_is_active()
+            if active and not _offline_schedule_active and not bot_sleeping:
+                _offline_schedule_active = True
+                bot_sleeping = True
+                print("🕒 Offline schedule active — disconnecting Discord bot; web/status remain online.")
+                try:
+                    if bot.loop and not bot.loop.is_closed():
+                        asyncio.run_coroutine_threadsafe(bot.close(), bot.loop).result(timeout=30)
+                except Exception as exc:
+                    print(f"Offline schedule disconnect failed: {exc}")
+                    bot_sleeping = False
+                    _offline_schedule_active = False
+            elif not active and _offline_schedule_active:
+                print("🕒 Offline schedule ended — restarting process to reconnect Discord bot.")
+                os.environ["BOT_START_ATTEMPT"] = "0"
+                import sys
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 def run_status_checker():
     """Runs forever in its own daemon thread, sampling bot connectivity
     roughly once a minute so the /status page has real uptime history and
@@ -2059,6 +2177,10 @@ def run_status_checker():
 
 
 if __name__ == "__main__":
+    offline_schedule_thread = threading.Thread(target=run_offline_schedule_watcher, daemon=True)
+    offline_schedule_thread.start()
+
+
     import threading
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
