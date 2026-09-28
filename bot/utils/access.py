@@ -35,6 +35,11 @@ _DEFAULTS = {
     "globally_blocked_users": [],
     "terms_unblock_tokens": [],
     "ticket_ad_verifications": [],
+    "offline_schedule": {
+        "enabled": False,
+        "timezone": "America/New_York",
+        "days": {day: [] for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")},
+    },
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
@@ -54,6 +59,58 @@ def is_admin(user_id) -> bool:
     """True for admins: always have full dashboard access, and are the only
     ones who can view or edit the Access Control page."""
     return str(user_id) in get_admin_ids()
+
+
+def _default_offline_schedule():
+    return {
+        "enabled": False,
+        "timezone": "America/New_York",
+        "days": {
+            day: []
+            for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+        },
+    }
+
+
+def _normalize_offline_schedule(schedule):
+    """Normalize the persisted schedule without changing its meaning."""
+    if not isinstance(schedule, dict):
+        return _default_offline_schedule()
+    schedule.setdefault("enabled", False)
+    schedule.setdefault("timezone", "America/New_York")
+    days = schedule.setdefault("days", {})
+    for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
+        entries = days.get(day, [])
+        if isinstance(entries, dict):
+            entries = [entries]
+        if not isinstance(entries, list):
+            entries = []
+        clean = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            start = str(entry.get("start", "00:00"))[:5]
+            end = str(entry.get("end", "00:00"))[:5]
+            clean.append({
+                "enabled": bool(entry.get("enabled", True)),
+                "start": start,
+                "end": end,
+            })
+        days[day] = clean
+    return schedule
+
+
+def get_offline_schedule():
+    schedule = get_access_settings().get("offline_schedule")
+    return _normalize_offline_schedule(schedule)
+
+
+def save_offline_schedule(schedule: dict):
+    schedule = _normalize_offline_schedule(dict(schedule or {}))
+    data = get_access_settings()
+    data["offline_schedule"] = schedule
+    _save(data)
+    return schedule
 
 
 def get_access_settings():
@@ -88,6 +145,8 @@ def get_access_settings():
         doc.setdefault("globally_blocked_users", [])
         doc.setdefault("terms_unblock_tokens", [])
         doc.setdefault("ticket_ad_verifications", [])
+        doc.setdefault("offline_schedule", _default_offline_schedule())
+        _normalize_offline_schedule(doc["offline_schedule"])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -117,6 +176,8 @@ def get_access_settings():
         data.setdefault("globally_blocked_users", [])
         data.setdefault("terms_unblock_tokens", [])
         data.setdefault("ticket_ad_verifications", [])
+        data.setdefault("offline_schedule", _default_offline_schedule())
+        _normalize_offline_schedule(data["offline_schedule"])
         return data
     except Exception:
         return dict(_DEFAULTS)
