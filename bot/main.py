@@ -216,7 +216,19 @@ class GlobalCommandTree(discord.app_commands.CommandTree):
         return True
 
 
-bot = commands.Bot(
+class DiagnosticBot(commands.Bot):
+    """Bot subclass with a startup timeout around Discord HTTP login."""
+    async def login(self, token: str) -> None:
+        print("🔧 Discord HTTP login starting.", flush=True)
+        try:
+            await asyncio.wait_for(super().login(token), timeout=60)
+        except asyncio.TimeoutError:
+            print("❌ Discord HTTP login timed out after 60 seconds.", flush=True)
+            raise
+        print("🔧 Discord HTTP login finished; continuing to gateway/setup.", flush=True)
+
+
+bot = DiagnosticBot(
     command_prefix="!",
     intents=intents,
     tree_cls=GlobalCommandTree,
