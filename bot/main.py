@@ -2620,6 +2620,29 @@ if __name__ == "__main__":
     offline_schedule_thread.start()
 
     if TOKEN:
+        # Give Render and the web/status threads a short head start after every
+        # deploy before opening a Discord connection. This keeps the bot
+        # visibly offline for a minute while the deployment settles and avoids
+        # an immediate burst of Discord API traffic on process startup.
+        try:
+            startup_delay = max(0, int(os.getenv("BOT_DEPLOY_START_DELAY_SECONDS", "60") or 60))
+        except ValueError:
+            startup_delay = 60
+
+        if startup_delay:
+            print(
+                f"⏸️ Deployment startup delay: Discord bot will stay offline "
+                f"for {startup_delay}s before connecting.",
+                flush=True,
+            )
+            deadline = time.monotonic() + startup_delay
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(1, remaining))
+            print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
+
         run_bot_with_cooldown()
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
