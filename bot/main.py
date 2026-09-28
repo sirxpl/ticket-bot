@@ -2269,6 +2269,10 @@ def run_offline_schedule_watcher():
                 os.environ["BOT_START_ATTEMPT"] = "0"
                 import sys
                 os.execv(sys.executable, [sys.executable] + sys.argv)
+        except SystemExit:
+            raise
+        except Exception as exc:
+            print(f"Offline schedule watcher error: {exc}")
 
 
 def run_status_checker():
