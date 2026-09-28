@@ -4,6 +4,7 @@ import json
 import re
 import asyncio
 import time
+import aiohttp
 import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -229,10 +230,46 @@ class DiagnosticBot(commands.Bot):
         print("🔧 Discord HTTP login finished; continuing to gateway/setup.", flush=True)
 
 
+# discord.py exposes aiohttp's TraceConfig for tracing the HTTP requests it
+# makes internally. This lets us see exactly where startup stalls without
+# making an extra Discord API request or logging the bot token.
+async def _discord_http_request_start(session, trace_config_ctx, params):
+    trace_config_ctx.start_time = time.monotonic()
+    print(
+        f"🔎 Discord HTTP request started: {params.method} {params.url}",
+        flush=True,
+    )
+
+
+async def _discord_http_request_end(session, trace_config_ctx, params):
+    elapsed = time.monotonic() - getattr(trace_config_ctx, "start_time", time.monotonic())
+    print(
+        f"🔎 Discord HTTP request finished: {params.method} {params.url} "
+        f"-> HTTP {params.response.status} in {elapsed:.2f}s",
+        flush=True,
+    )
+
+
+async def _discord_http_request_exception(session, trace_config_ctx, params):
+    elapsed = time.monotonic() - getattr(trace_config_ctx, "start_time", time.monotonic())
+    print(
+        f"❌ Discord HTTP request failed: {params.method} {params.url} "
+        f"after {elapsed:.2f}s: {params.exception!r}",
+        flush=True,
+    )
+
+
+discord_http_trace = aiohttp.TraceConfig()
+discord_http_trace.on_request_start.append(_discord_http_request_start)
+discord_http_trace.on_request_end.append(_discord_http_request_end)
+discord_http_trace.on_request_exception.append(_discord_http_request_exception)
+
+
 bot = DiagnosticBot(
     command_prefix="!",
     intents=intents,
     tree_cls=GlobalCommandTree,
+    http_trace=discord_http_trace,
 )
 
 # Tracks when the bot last became ready, used by the public /status page and
