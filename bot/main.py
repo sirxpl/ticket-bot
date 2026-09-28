@@ -220,6 +220,7 @@ class DiagnosticBot(commands.Bot):
     """Bot subclass with a startup timeout around Discord HTTP login."""
     async def login(self, token: str) -> None:
         print("🔧 Discord HTTP login starting.", flush=True)
+        print("🔧 Starting Discord HTTP stage probe.", flush=True)
         try:
             await asyncio.wait_for(super().login(token), timeout=60)
         except asyncio.TimeoutError:
