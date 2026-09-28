@@ -19,7 +19,8 @@ from flask import (
     session, 
     url_for, 
     jsonify, 
-    send_from_directory
+    send_from_directory,
+    Response
 )
 from requests_oauthlib import OAuth2Session
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -221,6 +222,66 @@ bot = commands.Bot(
 # /api/status JSON endpoint below. None means it hasn't connected yet since
 # this process started.
 bot_ready_since = None
+
+# --- Discord API block cooldown -------------------------------------------
+# If the bot's Discord login is rejected (typically a temporary 429 / Cloudflare
+# block on the host's IP), the old behaviour was: bot.run() raised, the whole
+# process exited, the host restarted it instantly, and every restart hit
+# Discord's API again - which is what kept the block alive. Now the process
+# stays up during a cooldown, the dashboard (which also calls Discord's API
+# for login/guild lookups) is switched off, and only the status pages stay
+# reachable so uptime keeps being recorded and shown.
+web_lockdown_until = 0.0
+last_start_error = None
+
+LOCKDOWN_ALLOWED_PATHS = {"/status", "/api/status", "/api/status-history"}
+
+_LOCKDOWN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard temporarily unavailable</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0b0b0f;color:#e8e8ee;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+.card{max-width:460px;margin:24px;padding:32px;border:1px solid #2a2a35;border-radius:12px;background:#14141b;text-align:center}
+h1{font-size:1.3rem;margin:0 0 12px}p{color:#a5a5b5;line-height:1.5;margin:0 0 16px}
+a{color:#7c8cff;text-decoration:none;font-weight:600}
+</style></head><body><div class="card">
+<h1>&#128736;&#65039; Dashboard temporarily unavailable</h1>
+<p>The bot can't reach Discord right now, so the dashboard is switched off
+while it waits to reconnect. This page will work again automatically.</p>
+<p>Retrying in about <strong>__MINUTES__ min</strong>.</p>
+<a href="/status">View live status &rarr;</a>
+</div></body></html>"""
+
+
+def web_lockdown_seconds_left():
+    return max(0, int(web_lockdown_until - time.time()))
+
+
+@app.before_request
+def _lockdown_gate():
+    left = web_lockdown_seconds_left()
+    if left <= 0:
+        return None
+    path = request.path
+    if path in LOCKDOWN_ALLOWED_PATHS or path.startswith("/static/"):
+        return None
+    # Hosting health checks / uptime pingers hit "/" - keep answering 200 so
+    # the host doesn't decide the service is dead and restart it (which would
+    # just re-trigger the Discord block).
+    if path == "/":
+        if request.method == "HEAD":
+            return Response("", status=200)
+        return render_template("status.html")
+    retry_after = str(left)
+    if path.startswith("/api/"):
+        resp = jsonify({"error": "Dashboard temporarily unavailable", "retry_in_seconds": left})
+        resp.status_code = 503
+        resp.headers["Retry-After"] = retry_after
+        return resp
+    html = _LOCKDOWN_HTML.replace("__MINUTES__", str(max(1, round(left / 60))))
+    return Response(html, status=503, headers={"Retry-After": retry_after, "Content-Type": "text/html; charset=utf-8"})
+
 
 
 def make_oauth_session(state=None):
@@ -690,6 +751,8 @@ def api_status():
         "latency_ms": latency_ms,
         "uptime_seconds": uptime_seconds,
         "guild_count": guild_count,
+        "web_disabled": web_lockdown_seconds_left() > 0,
+        "retry_in_seconds": web_lockdown_seconds_left() or None,
     })
 
 
@@ -2058,6 +2121,42 @@ def run_status_checker():
         time.sleep(60)
 
 
+def _retry_after_from(exc):
+    """Seconds Discord asked us to wait (Retry-After header), if any."""
+    try:
+        value = exc.response.headers.get("Retry-After")
+        return int(float(value)) if value else 0
+    except Exception:
+        return 0
+
+
+def run_bot_with_cooldown():
+    """Run the bot; if startup/login fails, keep the process (and status pages)
+    alive, switch the dashboard off, wait with growing backoff, then restart
+    the process cleanly. Never exits on a Discord login failure, so the host
+    isn't tempted into an instant restart loop that keeps the API block alive."""
+    import sys
+    global web_lockdown_until, last_start_error
+    attempt = int(os.getenv("BOT_START_ATTEMPT", "0") or 0)
+    try:
+        bot.run(TOKEN)
+    except Exception as exc:
+        last_start_error = f"{type(exc).__name__}: {exc}"
+        print(f"❌ Bot stopped: {last_start_error}")
+        if bot_ready_since:
+            attempt = 0  # it was healthy for a while, so start the backoff over
+        base = int(os.getenv("BOT_RETRY_BASE_SECONDS", "120"))
+        cap = int(os.getenv("BOT_RETRY_MAX_SECONDS", "3600"))
+        delay = max(min(base * (2 ** attempt), cap), _retry_after_from(exc))
+        web_lockdown_until = time.time() + delay
+        print(f"⏸️ Dashboard disabled, status stays up. Retrying Discord login in {delay}s (attempt {attempt + 1}).")
+        time.sleep(delay)
+        os.environ["BOT_START_ATTEMPT"] = str(attempt + 1)
+        print("🔄 Restarting process to retry Discord login...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    # bot.run() returned normally (e.g. Ctrl+C locally): a deliberate stop.
+
+
 if __name__ == "__main__":
     import threading
     flask_thread = threading.Thread(target=run_flask, daemon=True)
@@ -2067,6 +2166,6 @@ if __name__ == "__main__":
     status_thread.start()
 
     if TOKEN:
-        bot.run(TOKEN)
+        run_bot_with_cooldown()
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
