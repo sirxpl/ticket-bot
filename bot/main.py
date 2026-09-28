@@ -234,7 +234,13 @@ bot_ready_since = None
 web_lockdown_until = 0.0
 last_start_error = None
 
-LOCKDOWN_ALLOWED_PATHS = {"/status", "/api/status", "/api/status-history"}
+# Status pages plus the public info pages linked from the site header. None of
+# these call Discord's API (they render static templates / a local file), so
+# they're safe to keep serving while the dashboard is switched off.
+LOCKDOWN_ALLOWED_PATHS = {
+    "/status", "/api/status", "/api/status-history",
+    "/docs", "/rules", "/guidelines", "/privacy", "/terms",
+}
 
 _LOCKDOWN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
