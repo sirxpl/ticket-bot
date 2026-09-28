@@ -1948,6 +1948,77 @@
                 Add a user ID or role below to let them view this dashboard. While this list is empty, anyone who logs in with Discord can see it — once you add someone, only matching users/roles get in.
             </p>
 
+            <h4 style="margin-top: 24px;">🕒 Bot Offline Schedule</h4>
+            <p class="card-subtitle">
+                Schedule when the Discord bot should appear offline. The dashboard and public status pages remain available. Each day can have multiple offline windows, and a window can cross midnight.
+            </p>
+            <form action="/dashboard/access/save-offline-schedule" method="POST" id="offlineScheduleForm">
+                <label style="display:flex;align-items:center;gap:8px;margin:12px 0;">
+                    <input type="checkbox" id="offlineScheduleEnabled" style="width:auto;">
+                    <strong>Enable offline schedule</strong>
+                </label>
+                <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;max-width:560px;">
+                    <label for="offlineScheduleTimezone" style="min-width:80px;">Timezone:</label>
+                    <input id="offlineScheduleTimezone" type="text" placeholder="America/New_York" style="flex:1;">
+                </div>
+                <div id="offlineScheduleDays"></div>
+                <input type="hidden" name="offline_schedule_json" id="offlineScheduleJson">
+                <button type="submit" class="btn-view" style="margin-top:12px;">💾 Save Offline Schedule</button>
+            </form>
+            <script>
+            (() => {
+                const saved = {{ (offline_schedule | default({})) | tojson }};
+                const dayNames = [
+                    ['monday','Monday'],['tuesday','Tuesday'],['wednesday','Wednesday'],['thursday','Thursday'],
+                    ['friday','Friday'],['saturday','Saturday'],['sunday','Sunday']
+                ];
+                const state = { enabled: !!saved.enabled, timezone: saved.timezone || 'America/New_York', days: {} };
+                dayNames.forEach(([key]) => { state.days[key] = Array.isArray(saved.days?.[key]) ? saved.days[key].map(x => ({enabled:x.enabled !== false,start:x.start || '23:00',end:x.end || '07:00'})) : []; });
+                const root = document.getElementById('offlineScheduleDays');
+                const form = document.getElementById('offlineScheduleForm');
+                const sync = () => {
+                    state.enabled = document.getElementById('offlineScheduleEnabled').checked;
+                    state.timezone = document.getElementById('offlineScheduleTimezone').value.trim() || 'America/New_York';
+                    document.getElementById('offlineScheduleJson').value = JSON.stringify(state);
+                };
+                const render = () => {
+                    root.innerHTML = dayNames.map(([key,label]) => {
+                        const rows = state.days[key].map((entry,i) => (
+                            '<div class="list-item" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0;">' +
+                            '<label style="display:flex;align-items:center;gap:5px;"><input type="checkbox" data-day="' + key + '" data-index="' + i + '" data-field="enabled" ' + (entry.enabled ? 'checked' : '') + ' style="width:auto;"> On</label>' +
+                            '<label>Start <input type="time" data-day="' + key + '" data-index="' + i + '" data-field="start" value="' + entry.start + '"></label>' +
+                            '<label>End <input type="time" data-day="' + key + '" data-index="' + i + '" data-field="end" value="' + entry.end + '"></label>' +
+                            '<button type="button" class="btn-danger" data-remove="' + key + '" data-index="' + i + '">Remove</button></div>'
+                        )).join('');
+                        return '<div style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:8px;">' +
+                            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><strong>' + label + '</strong>' +
+                            '<button type="button" class="btn-view" data-add="' + key + '">+ Add offline window</button></div>' +
+                            '<div>' + (rows || '<p style="color:var(--text-dim);margin:8px 0 0;">No offline windows scheduled.</p>') + '</div></div>';
+                    }).join('');
+                    sync();
+                };
+                root.addEventListener('input', e => {
+                    const day=e.target.dataset.day, i=Number(e.target.dataset.index), field=e.target.dataset.field;
+                    if(day && Number.isInteger(i) && field) { state.days[day][i][field] = field === 'enabled' ? e.target.checked : e.target.value; sync(); }
+                });
+                root.addEventListener('change', e => {
+                    const day=e.target.dataset.day, i=Number(e.target.dataset.index), field=e.target.dataset.field;
+                    if(day && Number.isInteger(i) && field) { state.days[day][i][field] = field === 'enabled' ? e.target.checked : e.target.value; sync(); }
+                });
+                root.addEventListener('click', e => {
+                    const add=e.target.closest('[data-add]'), remove=e.target.closest('[data-remove]');
+                    if(add) { state.days[add.dataset.add].push({enabled:true,start:'23:00',end:'07:00'}); render(); }
+                    if(remove) { state.days[remove.dataset.remove].splice(Number(remove.dataset.index),1); render(); }
+                });
+                document.getElementById('offlineScheduleEnabled').checked = state.enabled;
+                document.getElementById('offlineScheduleTimezone').value = state.timezone;
+                document.getElementById('offlineScheduleEnabled').addEventListener('change', sync);
+                document.getElementById('offlineScheduleTimezone').addEventListener('input', sync);
+                form.addEventListener('submit', sync);
+                render();
+            })();
+            </script>
+
             <h4 style="margin-top: 24px;">Global Blocked Users</h4>
             <p class="card-subtitle">
                 These Discord user IDs cannot use slash commands or this dashboard. Use this for privacy-policy or platform-policy violations.
