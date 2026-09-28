@@ -234,6 +234,14 @@ bot_ready_since = None
 web_lockdown_until = 0.0
 last_start_error = None
 
+# --- Idle sleep -----------------------------------------------------------
+# Optional (IDLE_SLEEP_HOURS env var, off by default). After that many hours
+# with no bot interaction and no open tickets, the bot disconnects from Discord
+# but the web/status pages stay up. It can be woken from the status page.
+bot_sleeping = False
+last_panel_activity = None   # timestamp of the last interaction with the bot
+_waking = False
+
 # Status pages plus the public info pages linked from the site header. None of
 # these call Discord's API (they render static templates / a local file), so
 # they're safe to keep serving while the dashboard is switched off.
@@ -759,7 +767,33 @@ def api_status():
         "guild_count": guild_count,
         "web_disabled": web_lockdown_seconds_left() > 0,
         "retry_in_seconds": web_lockdown_seconds_left() or None,
+        "sleeping": bot_sleeping,
     })
+
+
+@app.route("/api/wake", methods=["POST"])
+def api_wake():
+    """Wake the bot from idle sleep. Public on purpose (a customer who finds
+    the bot asleep can wake it from the status page). It's a no-op unless the
+    bot is actually sleeping, and only one wake can be in flight, so it can't
+    be used to trigger repeated Discord logins."""
+    global _waking
+    if not bot_sleeping:
+        return jsonify({"ok": True, "already_awake": True})
+    if _waking:
+        return jsonify({"ok": True, "waking": True})
+    _waking = True
+    import threading as _th
+    _th.Timer(1.5, _wake_process).start()  # let this response go out first
+    return jsonify({"ok": True, "waking": True})
+
+
+def _wake_process():
+    import sys
+    print("☀️ Waking bot from idle sleep - restarting process to log in again...")
+    _send_alert("☀️ Carry Ticket Bot is waking up from idle sleep.")
+    os.environ["BOT_START_ATTEMPT"] = "0"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 @app.route("/api/status-history")
@@ -2126,6 +2160,11 @@ def run_status_checker():
     from utils.status_history import record_check
     while True:
         try:
+            if bot_sleeping:
+                # Deliberate idle sleep, not an outage: don't record a check,
+                # so uptime % and incidents aren't polluted.
+                time.sleep(60)
+                continue
             online = bool(bot.is_ready()) and not bot.is_closed()
             record_check(online)
         except Exception as e:
@@ -2227,7 +2266,13 @@ def run_bot_with_cooldown():
             # (keeping the web/status threads running) until it restarts us.
             while True:
                 time.sleep(3600)
-    # bot.run() returned normally (e.g. Ctrl+C locally): a deliberate stop.
+    if bot_sleeping:
+        # bot.run() returned because the idle sleeper closed the bot. Keep the
+        # process (and the web/status threads) alive until /api/wake restarts it.
+        print("💤 Bot is asleep; web and status stay up. Waiting for a wake request.")
+        while True:
+            time.sleep(3600)
+    # otherwise bot.run() returned normally (e.g. Ctrl+C locally): a deliberate stop.
 
 
 def run_watchdog():
@@ -2242,6 +2287,9 @@ def run_watchdog():
     while True:
         time.sleep(30)
         try:
+            if bot_sleeping:
+                offline_since = None  # deliberate idle sleep, not a failure
+                continue
             now = time.time()
             if bool(bot.is_ready()) and not bot.is_closed():
                 last_online_at = now
@@ -2259,6 +2307,84 @@ def run_watchdog():
             print(f"Watchdog error: {e}")
 
 
+async def _note_activity(interaction):
+    """Any interaction with the bot (panel dropdown/buttons, ticket buttons,
+    modals, slash commands) counts as activity for the idle-sleep timer."""
+    global last_panel_activity
+    last_panel_activity = time.time()
+
+
+bot.add_listener(_note_activity, "on_interaction")
+
+
+def _idle_sleep_hours():
+    try:
+        return float(os.getenv("IDLE_SLEEP_HOURS", "0") or 0)
+    except ValueError:
+        return 0.0
+
+
+_last_ticket_read_error_log = 0.0
+
+
+def _open_ticket_count():
+    """Number of open tickets, or None if it can't be determined."""
+    global _last_ticket_read_error_log
+    try:
+        from utils.storage import get_tickets_data
+        return len(get_tickets_data().get("active_tickets", []))
+    except Exception as e:
+        # Called every minute once the bot is idle long enough, so during a
+        # database outage only log this once an hour instead of every minute.
+        if time.time() - _last_ticket_read_error_log >= 3600:
+            _last_ticket_read_error_log = time.time()
+            print(f"Idle sleeper: couldn't read open tickets, staying awake: {e}")
+        return None
+
+
+def _go_to_sleep(idle_seconds):
+    global bot_sleeping
+    hours = round(idle_seconds / 3600, 1)
+    print(f"💤 No bot activity for {hours}h and no open tickets - going to sleep.")
+    bot_sleeping = True
+    try:
+        asyncio.run_coroutine_threadsafe(bot.close(), bot.loop).result(timeout=30)
+    except Exception as e:
+        print(f"Idle sleep failed, staying awake: {e}")
+        bot_sleeping = False
+        return
+    _send_alert(f"💤 Carry Ticket Bot went to sleep after {hours}h without activity. Wake it from the status page when needed.")
+
+
+def run_idle_sleeper():
+    """Disconnect the bot after IDLE_SLEEP_HOURS of no interactions, as long
+    as no tickets are open (close/claim buttons need the bot). Off unless the
+    IDLE_SLEEP_HOURS env var is set to a positive number."""
+    hours = _idle_sleep_hours()
+    if hours <= 0:
+        return
+    print(f"💤 Idle sleep enabled: bot will disconnect after {hours}h without activity (and no open tickets).")
+    while True:
+        time.sleep(60)
+        try:
+            if bot_sleeping or _cooldown_active:
+                continue
+            if not (bot.is_ready() and not bot.is_closed()):
+                continue
+            starts = [t for t in (last_panel_activity, bot_ready_since) if t]
+            if not starts:
+                continue
+            idle = time.time() - max(starts)
+            if idle < hours * 3600:
+                continue
+            open_tickets = _open_ticket_count()
+            if open_tickets != 0:  # open tickets, or unknown: stay awake
+                continue
+            _go_to_sleep(idle)
+        except Exception as e:
+            print(f"Idle sleeper error: {e}")
+
+
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
@@ -2268,6 +2394,9 @@ if __name__ == "__main__":
 
     watchdog_thread = threading.Thread(target=run_watchdog, daemon=True)
     watchdog_thread.start()
+
+    idle_thread = threading.Thread(target=run_idle_sleeper, daemon=True)
+    idle_thread.start()
 
     if TOKEN:
         run_bot_with_cooldown()
