@@ -28,10 +28,11 @@ a{color:inherit}.wrap{width:min(980px,calc(100% - 36px));margin:0 auto;padding:3
   <div class="grid">
     <section class="card">
       <h2>Current Status</h2>
-      <div class="state">
-        <span class="dot {% if bot_active and not schedule_active and not bot_sleeping %}online{% else %}offline{% endif %}"></span>
-        {% if bot_active and not schedule_active and not bot_sleeping %}Active{% else %}Inactive{% endif %}
+      <div class="state" id="bot-state">
+        <span class="dot {% if api_blocked %}offline{% elif bot_active and not schedule_active and not bot_sleeping %}online{% else %}offline{% endif %}" id="bot-state-dot"></span>
+        <span id="bot-state-text">{% if api_blocked %}API Limited{% elif bot_active and not schedule_active and not bot_sleeping %}Active{% else %}Inactive{% endif %}</span>
       </div>
+      <div class="meta" id="api-countdown">{% if api_blocked %}Discord API blocked — retrying in <strong id="api-countdown-value">loading…</strong>{% endif %}</div>
       <div class="meta">Schedule currently {% if schedule_active %}active{% else %}inactive{% endif %}.</div>
       <div class="meta">Configured timezone:<br><span class="tz">{{ schedule_timezone }}</span></div>
       <div class="meta">Your browser timezone:<br><span class="tz" id="browser-tz">Detecting…</span></div>
@@ -59,6 +60,33 @@ a{color:inherit}.wrap{width:min(980px,calc(100% - 36px));margin:0 auto;padding:3
   const el=document.getElementById("browser-tz");
   try{el.textContent=Intl.DateTimeFormat().resolvedOptions().timeZone||"Unknown";}catch(e){el.textContent="Unknown";}
 })();
+const apiCountdown=document.getElementById("api-countdown");
+const apiCountdownValue=document.getElementById("api-countdown-value");
+const stateText=document.getElementById("bot-state-text");
+const stateDot=document.getElementById("bot-state-dot");
+function fmt(s){s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return h?String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0"):String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0");}
+async function refreshStatus(){
+  try{
+    const r=await fetch("/api/status",{cache:"no-store"}); const d=await r.json();
+    const left=Number(d.api_retry_in_seconds||0);
+    if(left>0){
+      stateText.textContent="API Limited"; stateDot.className="dot offline";
+      apiCountdown.innerHTML='Discord API blocked — retrying in <strong id="api-countdown-value">'+fmt(left)+"</strong>";
+    }else{
+      const active=!!d.online && !d.sleeping;
+      stateText.textContent=active?"Active":"Inactive"; stateDot.className="dot "+(active?"online":"offline");
+      apiCountdown.textContent="";
+    }
+  }catch(e){}
+}
+function tick(){
+  const until=Number(document.querySelector("[data-api-block-until]")?.dataset.apiBlockUntil||0);
+  if(until>0){
+    const left=Math.max(0,until-Math.floor(Date.now()/1000));
+    if(left>0 && apiCountdownValue) apiCountdownValue.textContent=fmt(left);
+  }
+}
+setInterval(tick,1000); setInterval(refreshStatus,10000); tick();
 </script>
 </body>
 </html>
