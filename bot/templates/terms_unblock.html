@@ -43,5 +43,6 @@ const check=document.getElementById('terms-check');
 const submit=document.getElementById('terms-submit');
 check.addEventListener('change',()=>{submit.disabled=!check.checked;});
 </script>
+{% include "_bot_status_section.html" %}
 </body>
 </html>
