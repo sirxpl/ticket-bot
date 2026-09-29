@@ -1432,9 +1432,9 @@ class TicketsCog(commands.Cog):
                 f"Failed to update ticket activity for channel={message.channel.id}"
             )
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(hours=2)
     async def autoclose_watcher(self):
-        """Every 10 minutes: close any ticket whose opener has left the
+        """Every 2 hours: close any ticket whose opener has left the
         server, ping openers who've gone quiet for 12h with a heads-up,
         then close tickets that hit 24h of inactivity with nobody having
         disabled it via /autoclose disable.
@@ -1474,10 +1474,9 @@ class TicketsCog(commands.Cog):
             try:
                 member = guild.get_member(int(user_id))
                 if member is None:
-                    # This is a real, uncached HTTP call every time (Members
-                    # intent is disabled), so pace it - firing one of these
-                    # per active ticket back-to-back with zero delay is what
-                    # was triggering Discord's rate limiting.
+                    # Members intent is disabled, so uncached members require
+                    # a REST lookup. Pace those lookups so a large ticket
+                    # list cannot create a request burst.
                     try:
                         await guild.fetch_member(int(user_id))
                     except discord.NotFound:
@@ -1502,6 +1501,7 @@ class TicketsCog(commands.Cog):
                         # skip the rest of this tick's checks for this ticket
                         pass
                     finally:
+                        # Keep REST lookups sequential and deliberately paced.
                         await asyncio.sleep(1.2)
             except Exception:
                 logger.exception(
