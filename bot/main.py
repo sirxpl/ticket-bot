@@ -2380,6 +2380,16 @@ async def setup_hook():
 
     print(f"📦 Cog loading complete: {loaded} loaded, {failed} failed.", flush=True)
 
+    # Sync application commands once per process/login, rather than on every
+    # gateway reconnect. Repeated on_ready() syncs add unnecessary Discord API
+    # traffic and can amplify rate-limit pressure during reconnects.
+    print("🔧 Starting slash-command sync.", flush=True)
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Slash-command sync complete: {len(synced)} commands.", flush=True)
+    except Exception as exc:
+        print(f"❌ Slash-command sync failed: {type(exc).__name__}: {exc}", flush=True)
+
 @bot.event
 async def on_ready():
     global bot_ready_since
@@ -2392,12 +2402,6 @@ async def on_ready():
         os.environ["BOT_START_ATTEMPT"] = "0"
         import threading as _t
         _t.Thread(target=_send_alert, args=("✅ Carry Ticket Bot is back online.",), daemon=True).start()
-    print("🔧 Starting slash-command sync.", flush=True)
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ Slash-command sync complete: {len(synced)} commands.", flush=True)
-    except Exception as e:
-        print(f"❌ Slash-command sync failed: {type(e).__name__}: {e}", flush=True)
     print(f"✅ Bot logged in as {bot.user}", flush=True)
 
 
