@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Carry Team Application Rules</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0c12;--surface:#14151f;--border:#25273a;--text:#eef0f7;--muted:#b7b9ca;--yellow:#ffc93c}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 Inter,system-ui,sans-serif}
+    main{max-width:900px;margin:42px auto;padding:0 20px 60px}.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;margin-bottom:18px}
+    h1,h2{line-height:1.2}h1{font-size:30px;margin:0 0 8px}h2{font-size:20px;margin:26px 0 10px;color:var(--yellow)}p,li{color:var(--muted)}.requirements{padding:14px 18px;border-left:3px solid var(--yellow);background:#1a1b27;border-radius:6px}
+    label{display:flex;gap:12px;align-items:flex-start;cursor:pointer;color:var(--text)}input{margin-top:6px;width:18px;height:18px;accent-color:var(--yellow)}button{margin-top:20px;padding:12px 18px;background:var(--yellow);border:0;border-radius:7px;color:#171717;font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.error{color:#ff9c9c}.identity{color:var(--muted);font-size:14px}
+  </style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Carry Service Staff Application</h1>
+    <p class="identity">Signed in as <strong>{{ user.username }}</strong> (Discord ID {{ user.id }}).</p>
+    <p>Read the application policies and <a href="{{ url_for('carry_agreement') }}" target="_blank" rel="noopener">Carry Service System Rules</a> before continuing.</p>
+    <p>All answers must be honest and complete. Dishonesty, trolling, or a lack of seriousness may result in an infraction, a blacklist from future applications, or a ban.</p>
+
+    <h2>I. Agreement to the Rules and Policies</h2>
+    <p>By applying, you agree to follow all rules and community standards established by Aureolis. Violations of Discord's Terms of Service or Community Guidelines may result in a permanent ban.</p>
+    <h2>II. Server Compliance</h2>
+    <p>Members are expected to act in good faith, respect server regulations, and maintain an environment that supports fairness and safety for everyone.</p>
+    <h2>III. Prohibited Conduct</h2>
+    <p>Illegal content, exploits, automation, manipulative behavior, and third-party cheats are prohibited. This includes the use of third-party tools, cheats, or other compromises to server or user integrity.</p>
+    <h2>IV. Loopholes and Fairness</h2>
+    <p>Do not attempt to find or exploit loopholes in the rules. Staff may take appropriate action against harmful behavior even if it is not explicitly listed. Fairness is defined by server moderation standards, not by individual interpretation.</p>
+    <h2>V. Use of Common Sense</h2>
+    <p>Not every possible rule or scenario can be listed. Members are expected to use common sense and act responsibly at all times.</p>
+    <h2>VI. Rule Application</h2>
+    <p>These rules apply to the application process and, if accepted, to participation in the Carry Service Team.</p>
+
+    <div class="requirements">
+      <strong>Application requirements</strong>
+      <ul>
+        <li>Level 300 or higher in Tower Defense Simulator.</li>
+        <li>Level 10 (Radiant) or higher in the Aureolis Discord server.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card">
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <form method="post" action="{{ url_for('carry_application_accept_rules') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>
+        <input type="checkbox" id="agree" name="agree" value="yes" required>
+        <span>I have read and agree to follow the Carry Service System Rules and the application policies above. I will answer the application honestly.</span>
+      </label>
+      <button id="continue" type="submit" disabled>Continue to application</button>
+    </form>
+  </div>
+</main>
+<script>
+  const checkbox = document.getElementById("agree");
+  checkbox.addEventListener("change", () => {
+    document.getElementById("continue").disabled = !checkbox.checked;
+  });
+</script>
+</body>
+</html>

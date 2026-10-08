@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 
 from pymongo import MongoClient
 
@@ -13,27 +14,34 @@ if not logger.handlers:
 _client = None
 _db = None
 _attempted = False
+_last_attempt_at = 0.0
+_RETRY_INTERVAL_SECONDS = 30
 
 
 def get_db():
     """Return a MongoDB database handle if MONGODB_URI is configured and
-    reachable, otherwise None. The connection is only attempted once per
-    process; if it fails (or the env var is missing) every storage function
-    falls back to local JSON/HTML files instead, so the app keeps working
-    either way.
+    reachable, otherwise None. If MongoDB is configured but temporarily
+    unavailable, connection attempts are retried periodically so persisted
+    features can recover without a process restart. When it is not configured,
+    callers may fall back to local JSON/HTML files.
     """
-    global _client, _db, _attempted
+    global _client, _db, _attempted, _last_attempt_at
 
     if _db is not None:
         return _db
-    if _attempted:
-        return None
-    _attempted = True
-
     uri = os.getenv("MONGODB_URI")
     if not uri:
-        logger.info("MONGODB_URI not set — using local file storage.")
+        if not _attempted:
+            logger.info("MONGODB_URI not set — using local file storage.")
+        _attempted = True
         return None
+    if (
+        _attempted
+        and time.monotonic() - _last_attempt_at < _RETRY_INTERVAL_SECONDS
+    ):
+        return None
+    _attempted = True
+    _last_attempt_at = time.monotonic()
 
     try:
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)

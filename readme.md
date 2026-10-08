@@ -35,6 +35,8 @@ To run your own copy of this bot, fork the repository first rather than cloning 
 - **Blacklist system** — block specific users or entire roles from opening tickets, with a separate "Voidcore" role-based blacklist type that restricts specific ticket categories instead of everything
 - **Tiered Access Control** — three independent permission tiers (Basic, Powerful, Dangerous commands) each with their own role/user allow-list, on top of Discord's own Manage Channels permission
 - **Web dashboard** — manage categories, panels, blacklists, transcripts, and access control from a browser; login is gated by Discord OAuth2
+- **Carry Team applications** — a Discord OAuth2-gated application portal with required rules agreement, staff review links, role-restricted Accept/Deny verdicts, DM notifications, and a 14-day reapply cooldown after denial
+- **Application notifications** — choose bot delivery or a Discord webhook in Access Control; webhook delivery also creates a bot-owned review card so verdict buttons continue working
 - **Linked Roles verification** — optional Discord Connections integration so members can verify they've agreed to your rules without the bot needing any privileged intents
 - **MongoDB-backed persistence** — falls back to local JSON automatically if no database is configured, so it still works out of the box
 
@@ -122,12 +124,23 @@ If you don't want this feature, it's safe to leave unconfigured — nothing else
 
 This bot checks for `MONGODB_URI` on every read and write. If it's set, MongoDB is the source of truth and your settings survive redeploys and restarts. If it isn't set, everything falls back to local JSON files under `data/` — which **most hosts, including a typical Render web service without a persistent disk, wipe on every redeploy.** For anything beyond quick testing, connecting a free MongoDB Atlas cluster is strongly recommended.
 
+Carry Team application responses, verdicts, notification retry state, and denial cooldowns use the same MongoDB configuration. Set `MONGODB_URI` before accepting real applications if records must survive a host redeploy. Local JSON fallback only persists when the host preserves the `data/` directory.
+
+## 🧾 Carry Team Application Portal
+
+The public application portal is available at `/carry-application`. Applicants must authorize with Discord, belong to the bot's connected Carry server, agree to the application rules, and complete every required question. Staff review the complete response through an authenticated link.
+
+In **Dashboard → Access Control**, add the role(s) allowed to decide applications and choose Bot or Webhook notifications. Bot mode posts an interactive review card. Webhook mode posts the result through the saved webhook and adds a separate bot-owned review card. Accept and Deny both require a reason; the decision is sent to the applicant's DMs, review controls are disabled, and the application remains visible. Denied applicants can reapply 14 days after the recorded verdict. The application system does not assign team roles.
+
+The webhook URL is a secret: it is stored in the bot settings database and is never redisplayed in the dashboard. Anyone with access to that URL can post to its channel, so treat it like a credential.
+
 ---
 
 ## ⚠️ Privacy & Data
 
 This bot stores Discord user IDs and role IDs (for blacklists, access control, and ticket records) — in MongoDB if configured, otherwise in local JSON files. Keep in mind:
 
+- Carry Team applications also store the applicant's Discord identity, age range, country/time zone, Roblox username, questionnaire answers, rules-agreement time, and staff verdict/reason. Only users with configured application-verdict access (and admins) can open the full response link.
 - Never commit real `data/*.json` files, `.env` files, or tokens to a public repository — `.gitignore` already excludes the common ones, but double-check before pushing
 - If you fork this for your own server, review `utils/access.py` and swap out any example IDs left in the code
 - Treat your MongoDB connection string like a password — anyone with it has full read/write access to your stored data
