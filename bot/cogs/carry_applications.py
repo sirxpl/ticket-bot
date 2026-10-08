@@ -47,29 +47,14 @@ def _clip(value, limit=500):
     return text or "No response"
 
 
-def _application_embed(application, review_url, include_answers=True):
-    embed = discord.Embed(
-        title=f"Carry Team Application: {application.get('username', 'Applicant')}",
-        description=(
-            f"Application `{application['application_id']}` is awaiting review.\n"
-            f"[Open the complete response]({review_url})"
-        ),
-        color=discord.Color.gold(),
-        timestamp=datetime.datetime.fromisoformat(application["submitted_at"]),
-    )
-    embed.add_field(
-        name="Verified Discord account",
-        value=f"{application.get('username') or 'Unknown'} (`{application['user_id']}`)",
-        inline=False,
-    )
-    if include_answers:
-        for key, label in ANSWER_LABELS:
-            embed.add_field(
-                name=label,
-                value=_clip(application.get("answers", {}).get(key)),
-                inline=False,
-            )
-    return embed
+def _format_submitted_at(application):
+    submitted_at = application.get("submitted_at")
+    if not submitted_at:
+        return "Unknown"
+    submitted_at = datetime.datetime.fromisoformat(submitted_at)
+    if submitted_at.tzinfo is None:
+        submitted_at = submitted_at.replace(tzinfo=datetime.timezone.utc)
+    return discord.utils.format_dt(submitted_at, "R")
 
 
 class ApplicationDecisionModal(discord.ui.Modal):
@@ -102,38 +87,113 @@ class ApplicationDecisionModal(discord.ui.Modal):
         )
 
 
-class ApplicationReviewView(discord.ui.View):
-    def __init__(self, bot, application_id, review_url, disabled=False):
+class ApplicationReviewView(discord.ui.LayoutView):
+    def __init__(
+        self,
+        bot,
+        application_id,
+        review_url,
+        application=None,
+        disabled=False,
+        include_answers=True,
+        show_verdict_controls=True,
+        status="pending",
+        decision_reason=None,
+        applicant_name=None,
+    ):
         super().__init__(timeout=None)
         self.bot = bot
         self.application_id = str(application_id)
         self.review_url = review_url
+        application = application or {}
+        applicant_name = applicant_name or application.get("username")
 
-        accept = discord.ui.Button(
-            label="Accept",
-            style=discord.ButtonStyle.success,
-            custom_id=f"carry_app:{self.application_id}:accept",
-            disabled=disabled,
+        color = (
+            discord.Color.green()
+            if status == "accepted"
+            else discord.Color.red()
+            if status == "denied"
+            else discord.Color.gold()
         )
-        accept.callback = self.accept_application
-        self.add_item(accept)
+        container = discord.ui.Container(accent_color=color)
+        if status == "pending":
+            heading = "## Carry Team Application"
+            description = (
+                f"**Applicant:** {applicant_name or 'Carry Team applicant'}\n"
+                f"**Verified Discord ID:** `{application.get('user_id', 'Unknown')}`"
+            )
+        else:
+            heading = f"## Application {status.title()}"
+            description = (
+                f"**Applicant:** {applicant_name or 'Carry Team applicant'}\n"
+                f"**Verified Discord ID:** `{application.get('user_id', 'Unknown')}`"
+            )
+            if decision_reason:
+                description += f"\n**Verdict reason:** {_clip(decision_reason, 1000)}"
 
-        deny = discord.ui.Button(
-            label="Decline",
-            style=discord.ButtonStyle.danger,
-            custom_id=f"carry_app:{self.application_id}:deny",
-            disabled=disabled,
+        container.add_item(discord.ui.TextDisplay(heading))
+        container.add_item(discord.ui.Separator())
+        container.add_item(
+            discord.ui.TextDisplay(
+                f"{description}\n"
+                f"**Application ID:** `{self.application_id}`\n"
+                f"**Submitted:** {_format_submitted_at(application)}\n"
+                f"[Open the complete response]({review_url})"
+            )
         )
-        deny.callback = self.deny_application
-        self.add_item(deny)
+        container.add_item(discord.ui.Separator())
+        if include_answers:
+            answers = application.get("answers", {})
+            for index in range(0, len(ANSWER_LABELS), 2):
+                answer_group = ANSWER_LABELS[index : index + 2]
+                answer_text = "\n\n".join(
+                    f"**{label}**\n{_clip(answers.get(key), 500)}"
+                    for key, label in answer_group
+                )
+                container.add_item(discord.ui.TextDisplay(answer_text))
+        if status == "pending" and not disabled and show_verdict_controls:
+            row = discord.ui.ActionRow()
+            accept = discord.ui.Button(
+                label="Accept",
+                style=discord.ButtonStyle.success,
+                custom_id=f"carry_app:{self.application_id}:accept",
+            )
+            accept.callback = self.accept_application
+            row.add_item(accept)
 
-        self.add_item(
+            decline = discord.ui.Button(
+                label="Decline",
+                style=discord.ButtonStyle.danger,
+                custom_id=f"carry_app:{self.application_id}:deny",
+            )
+            decline.callback = self.deny_application
+            row.add_item(decline)
+            container.add_item(row)
+        elif status != "pending" or disabled:
+            row = discord.ui.ActionRow()
+            closed_label = (
+                "Verdict recorded" if status != "pending" else "Review disabled"
+            )
+            row.add_item(
+                discord.ui.Button(
+                    label=closed_label,
+                    style=discord.ButtonStyle.secondary,
+                    custom_id=f"carry_app:{self.application_id}:closed",
+                    disabled=True,
+                )
+            )
+            container.add_item(row)
+
+        link_row = discord.ui.ActionRow()
+        link_row.add_item(
             discord.ui.Button(
                 label="View full response",
                 style=discord.ButtonStyle.link,
                 url=review_url,
             )
         )
+        container.add_item(link_row)
+        self.add_item(container)
 
     def has_access(self, user):
         roles = [str(role.id) for role in getattr(user, "roles", [])]
@@ -211,18 +271,26 @@ class ApplicationReviewView(discord.ui.View):
                     "Your Carry Service Team application was not accepted. "
                     f"You may apply again after **{discord.utils.format_dt(available_at, 'F')}**."
                 )
-            embed = discord.Embed(
-                title="Carry Team Application Update",
-                description=description,
-                color=(
+            result_view = discord.ui.LayoutView(timeout=None)
+            result_container = discord.ui.Container(
+                accent_color=(
                     discord.Color.green()
                     if verdict == "accepted"
                     else discord.Color.red()
-                ),
+                )
             )
-            embed.add_field(name="Staff reason", value=_clip(reason, 1000), inline=False)
+            result_container.add_item(
+                discord.ui.TextDisplay("## Carry Team Application Update")
+            )
+            result_container.add_item(discord.ui.Separator())
+            result_container.add_item(
+                discord.ui.TextDisplay(
+                    f"{description}\n\n**Staff reason:**\n{_clip(reason, 1000)}"
+                )
+            )
+            result_view.add_item(result_container)
             await recipient.send(
-                embed=embed,
+                view=result_view,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
         except (discord.Forbidden, discord.HTTPException):
@@ -256,21 +324,13 @@ class ApplicationReviewView(discord.ui.View):
                 self.bot,
                 self.application_id,
                 review_url,
+                application=application,
                 disabled=True,
+                status=application.get("status", "pending"),
+                decision_reason=application.get("decision_reason"),
+                applicant_name=application.get("username"),
             )
-            embed = message.embeds[0] if message.embeds else discord.Embed(
-                title="Carry Team Application"
-            )
-            embed.color = (
-                discord.Color.green()
-                if application.get("status") == "accepted"
-                else discord.Color.red()
-            )
-            embed.set_footer(
-                text=f"Application {application.get('status', 'reviewed').title()} | "
-                f"Decision reason is recorded on the response page"
-            )
-            await message.edit(embed=embed, view=disabled_view)
+            await message.edit(view=disabled_view)
         except (discord.Forbidden, discord.HTTPException, discord.NotFound):
             logger.exception(
                 "Could not disable review controls for application=%s",
@@ -305,6 +365,7 @@ class CarryApplicationsCog(commands.Cog):
                     self.bot,
                     application_id,
                     review_url,
+                    application=application,
                 )
                 self.bot.add_view(
                     view,
@@ -350,51 +411,132 @@ class CarryApplicationsCog(commands.Cog):
         self._processing.add(app_id)
         try:
             application = get_application(app_id)
-            if not application or application.get("status") != "pending":
+            if not application:
                 return
-            if application.get("notification_status") == "sent":
-                return
-            await self._deliver_application(application)
-            latest = get_application(app_id)
-            if latest and latest.get("status") != "pending":
-                review_url = _review_url(app_id)
-                view = ApplicationReviewView(
-                    self.bot,
-                    app_id,
-                    review_url,
-                    disabled=True,
-                )
-                await view._disable_review_controls(latest)
-                return
-            update_application_notification(
-                app_id,
-                notification_status="sent",
-                notification_error=None,
-                notification_next_attempt_at=0,
-            )
-        except Exception as error:
-            logger.error(
-                "Unable to notify staff about application=%s (error type: %s)",
-                app_id,
-                type(error).__name__,
-            )
-            try:
-                application = get_application(app_id)
-                attempts = int((application or {}).get("notification_attempts") or 0) + 1
-                delay = min(3600, 30 * (2 ** min(attempts, 7)))
-                update_application_notification(
-                    app_id,
-                    notification_status="pending",
-                    notification_attempts=attempts,
-                    notification_error=type(error).__name__,
-                    notification_next_attempt_at=time.time() + delay,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to reschedule application notification id=%s", app_id
-                )
+            if (
+                application.get("status") == "pending"
+                and application.get("notification_status") != "sent"
+            ):
+                try:
+                    await self._deliver_application(application)
+                    latest = get_application(app_id)
+                    if latest and latest.get("status") != "pending":
+                        view = ApplicationReviewView(
+                            self.bot,
+                            app_id,
+                            _review_url(app_id),
+                            application=latest,
+                            disabled=True,
+                            status=latest.get("status", "pending"),
+                            decision_reason=latest.get("decision_reason"),
+                            applicant_name=latest.get("username"),
+                        )
+                        await view._disable_review_controls(latest)
+                    update_application_notification(
+                        app_id,
+                        notification_status="sent",
+                        notification_error=None,
+                    )
+                except Exception as error:
+                    self._schedule_notification_retry(
+                        app_id,
+                        error,
+                        status_field="notification_status",
+                        attempts_field="notification_attempts",
+                        error_field="notification_error",
+                    )
+
+            application = get_application(app_id)
+            if (
+                application
+                and application.get("confirmation_dm_status") == "pending"
+            ):
+                try:
+                    await self._deliver_applicant_confirmation(application)
+                    update_application_notification(
+                        app_id,
+                        confirmation_dm_status="sent",
+                        confirmation_dm_error=None,
+                    )
+                except (discord.Forbidden, discord.NotFound) as error:
+                    logger.warning(
+                        "Could not send submission confirmation DM for application=%s: %s",
+                        app_id,
+                        type(error).__name__,
+                    )
+                    update_application_notification(
+                        app_id,
+                        confirmation_dm_status="failed",
+                        confirmation_dm_error=type(error).__name__,
+                    )
+                except Exception as error:
+                    self._schedule_notification_retry(
+                        app_id,
+                        error,
+                        status_field="confirmation_dm_status",
+                        attempts_field="confirmation_dm_attempts",
+                        error_field="confirmation_dm_error",
+                    )
         finally:
             self._processing.discard(app_id)
+
+    def _schedule_notification_retry(
+        self,
+        application_id,
+        error,
+        status_field,
+        attempts_field,
+        error_field,
+    ):
+        logger.error(
+            "Unable to process %s for application=%s (error type: %s)",
+            error_field,
+            application_id,
+            type(error).__name__,
+        )
+        try:
+            application = get_application(application_id)
+            attempts = int((application or {}).get(attempts_field) or 0) + 1
+            delay = min(3600, 30 * (2 ** min(attempts, 7)))
+            update_application_notification(
+                application_id,
+                **{
+                    status_field: "pending",
+                    attempts_field: attempts,
+                    error_field: type(error).__name__,
+                    "notification_next_attempt_at": time.time() + delay,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "Failed to reschedule %s for application=%s",
+                error_field,
+                application_id,
+            )
+
+    async def _deliver_applicant_confirmation(self, application):
+        recipient = self.bot.get_user(int(application["user_id"]))
+        if recipient is None:
+            recipient = await self.bot.fetch_user(int(application["user_id"]))
+        view = discord.ui.LayoutView(timeout=None)
+        container = discord.ui.Container(accent_color=discord.Color.blue())
+        container.add_item(
+            discord.ui.TextDisplay("## Carry Team Application Submitted")
+        )
+        container.add_item(discord.ui.Separator())
+        container.add_item(
+            discord.ui.TextDisplay(
+                "Your application was submitted successfully and is awaiting staff "
+                "review. **Please wait for the result**—we'll send you another DM "
+                "when a decision has been made.\n\n"
+                f"**Application ID:** `{application['application_id']}`"
+            )
+        )
+        view.add_item(container)
+        await recipient.send(
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     async def _deliver_application(self, application):
         settings = get_settings().get("carry_application_delivery") or {}
@@ -412,7 +554,13 @@ class CarryApplicationsCog(commands.Cog):
                     client=self.bot,
                 ).fetch()
                 webhook_message = await webhook.send(
-                    embed=_application_embed(application, review_url),
+                    view=ApplicationReviewView(
+                        self.bot,
+                        application["application_id"],
+                        review_url,
+                        application=application,
+                        show_verdict_controls=False,
+                    ),
                     wait=True,
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
@@ -454,21 +602,13 @@ class CarryApplicationsCog(commands.Cog):
                     "The webhook must post in the connected Carry Service server."
                 )
             if not application.get("bot_message_id"):
-                review_embed = discord.Embed(
-                    title="Application verdict required",
-                    description=(
-                        f"**{application.get('username', 'Applicant')}** has submitted "
-                        "a Carry Team application.\n"
-                        f"[View the full response]({review_url})"
-                    ),
-                    color=discord.Color.gold(),
-                )
                 message = await channel.send(
-                    embed=review_embed,
                     view=ApplicationReviewView(
                         self.bot,
                         application["application_id"],
                         review_url,
+                        application=application,
+                        include_answers=False,
                     ),
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
@@ -490,11 +630,11 @@ class CarryApplicationsCog(commands.Cog):
             channel = await self.bot.fetch_channel(int(channel_id))
         if not application.get("bot_message_id"):
             message = await channel.send(
-                embed=_application_embed(application, review_url),
                 view=ApplicationReviewView(
                     self.bot,
                     application["application_id"],
                     review_url,
+                    application=application,
                 ),
                 allowed_mentions=discord.AllowedMentions.none(),
             )

@@ -146,6 +146,9 @@ def submit_application(user_id, username, answers, rules_accepted_at):
         "notification_attempts": 0,
         "notification_next_attempt_at": 0,
         "notification_error": None,
+        "confirmation_dm_status": "pending",
+        "confirmation_dm_attempts": 0,
+        "confirmation_dm_error": None,
         "bot_message_id": None,
         "webhook_message_id": None,
     }
@@ -236,9 +239,14 @@ def get_queued_application_notifications():
                 _clean(item)
                 for item in collection.find(
                     {
-                        "status": "pending",
-                        "notification_status": {"$ne": "sent"},
                         "notification_next_attempt_at": {"$lte": now},
+                        "$or": [
+                            {
+                                "status": "pending",
+                                "notification_status": {"$ne": "sent"},
+                            },
+                            {"confirmation_dm_status": "pending"},
+                        ],
                     }
                 ).sort("submitted_at", 1).limit(25)
             ]
@@ -249,8 +257,13 @@ def get_queued_application_notifications():
         return [
             dict(item)
             for item in _read_file()
-            if item.get("status") == "pending"
-            and item.get("notification_status") != "sent"
+            if (
+                (
+                    item.get("status") == "pending"
+                    and item.get("notification_status") != "sent"
+                )
+                or item.get("confirmation_dm_status") == "pending"
+            )
             and float(item.get("notification_next_attempt_at") or 0) <= now
         ][:25]
 
@@ -266,6 +279,10 @@ def reset_pending_application_notifications():
                 },
                 {"$set": {"notification_next_attempt_at": 0}},
             )
+            collection.update_many(
+                {"confirmation_dm_status": "pending"},
+                {"$set": {"notification_next_attempt_at": 0}},
+            )
             return
         except Exception:
             logger.exception("Failed to refresh pending application notifications")
@@ -275,8 +292,11 @@ def reset_pending_application_notifications():
         changed = False
         for item in applications:
             if (
-                item.get("status") == "pending"
-                and item.get("notification_status") != "sent"
+                (
+                    item.get("status") == "pending"
+                    and item.get("notification_status") != "sent"
+                )
+                or item.get("confirmation_dm_status") == "pending"
             ):
                 item["notification_next_attempt_at"] = 0
                 changed = True
@@ -290,7 +310,7 @@ def update_application_notification(application_id, **updates):
     if collection is not None:
         try:
             return collection.update_one(
-                {"_id": app_id, "status": "pending"},
+                {"_id": app_id},
                 {"$set": updates},
             ).modified_count > 0
         except Exception:
@@ -299,7 +319,7 @@ def update_application_notification(application_id, **updates):
     with _file_lock:
         applications = _read_file()
         for item in applications:
-            if str(item.get("application_id")) == app_id and item.get("status") == "pending":
+            if str(item.get("application_id")) == app_id:
                 item.update(updates)
                 _write_file(applications)
                 return True
