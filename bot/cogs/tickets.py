@@ -1870,9 +1870,11 @@ class TicketsCog(commands.Cog):
             return
 
         try:
+            overwrite = interaction.channel.overwrites_for(user)
+            overwrite.read_messages = False
             await interaction.channel.set_permissions(
                 user,
-                overwrite=None,
+                overwrite=overwrite,
                 reason=f"Removed from ticket by {interaction.user}",
             )
             await interaction.response.send_message(
