@@ -7,6 +7,8 @@ import datetime
 import hmac
 import secrets
 import time
+import aiohttp
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
 from urllib.parse import urlsplit
@@ -23,7 +25,8 @@ from flask import (
     session, 
     url_for, 
     jsonify, 
-    send_from_directory
+    send_from_directory,
+    Response
 )
 from requests_oauthlib import OAuth2Session
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -36,6 +39,11 @@ from utils.storage import (
     TRANSCRIPTS_DIR,
     get_settings,
     set_tickets_enabled,
+    get_april_fools_enabled,
+    set_april_fools_enabled,
+    get_april_fools_ad_config,
+    save_april_fools_ad_config,
+    pick_april_fools_ad,
     get_ticket_logs,
     get_logs_for_ticket,
     get_transcript_info,
@@ -43,6 +51,10 @@ from utils.storage import (
     list_transcript_filenames,
     get_ticket_categories,
     save_ticket_categories,
+    get_ticket_badge_config,
+    save_ticket_badge_config,
+    add_blocked_ticket_badge,
+    remove_blocked_ticket_badge,
     get_ticket_panel_draft,
     get_carry_rules_agreement,
     save_carry_rules_agreement,
@@ -71,6 +83,12 @@ from utils.access import (
     add_carry_application_verdict_role,
     remove_carry_application_verdict_role,
     has_carry_application_verdict_access,
+    create_ticket_ad_verification,
+    get_ticket_ad_verification,
+    mark_ticket_ad_viewed,
+    ticket_ad_seconds_remaining,
+    complete_ticket_ad_verification,
+    get_admin_ids,
     add_allowed_user,
     remove_allowed_user,
     add_allowed_role,
@@ -120,6 +138,8 @@ from utils.access import (
     consume_terms_unblock_token,
     get_active_terms_unblock_tokens,
     revoke_terms_unblock_token,
+    get_offline_schedule,
+    save_offline_schedule,
 )
 from utils.carry_applications import (
     ApplicationStateError,
@@ -157,6 +177,63 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 # Hosts like Render terminate TLS in front of the app, so without this Flask
 # builds http:// URLs for an https:// site and Discord rejects the redirect.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+
+_BOT_STATUS_SECTION_HTML = """<section class="ctb-status-section" aria-label="Bot status and downtime">
+  <div class="ctb-status-copy">
+    <span class="ctb-status-dot __STATUS_CLASS__"></span>
+    <div><strong>Bot Status</strong><span class="ctb-status-state">__STATUS_TEXT__</span></div>
+  </div>
+  <div class="ctb-status-countdown" data-api-block-until="__API_BLOCK_UNTIL__">__API_BLOCK_TEXT__</div>
+  <a class="ctb-status-link" href="/downtime">Downtime &amp; Offline Schedule →</a>
+</section>
+<style>
+.ctb-status-section{position:fixed;right:18px;bottom:18px;z-index:9999;display:flex;align-items:center;gap:16px;max-width:min(560px,calc(100vw - 36px));padding:12px 14px;border:1px solid #25273a;border-radius:12px;background:rgba(20,21,31,.96);box-shadow:0 12px 40px #0008;backdrop-filter:blur(12px);font:13px/1.35 Inter,system-ui,sans-serif;color:#eef0f7}
+.ctb-status-copy{display:flex;align-items:center;gap:9px;min-width:110px}.ctb-status-copy strong{display:block}.ctb-status-state{display:block;color:#8d90a8;font-size:12px;margin-top:2px}.ctb-status-countdown{color:#ffb454;font-size:12px;font-weight:700;min-width:115px}.ctb-status-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:0 0 9px}.ctb-online{background:#3fd68c;box-shadow:0 0 10px #3fd68c88}.ctb-offline{background:#f1556c;box-shadow:0 0 10px #f1556c66}.ctb-status-link{color:#ffc93c;text-decoration:none;font-weight:700;white-space:nowrap}.ctb-status-link:hover{text-decoration:underline}
+@media(max-width:600px){.ctb-status-section{left:12px;right:12px;bottom:12px;max-width:none;justify-content:space-between;gap:10px}.ctb-status-link{white-space:normal;text-align:right}}
+</style>
+<script>
+(function(){
+  const box=document.querySelector(".ctb-status-countdown");
+  if(!box) return;
+  const until=Number(box.dataset.apiBlockUntil||0);
+  if(!until) return;
+  const fmt=s=>{s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;return h?String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"):String(m).padStart(2,"0")+":"+String(x).padStart(2,"0");};
+  const tick=()=>{
+    const left=Math.max(0,until-Math.floor(Date.now()/1000));
+    if(left>0){box.textContent="Discord API blocked — retrying in "+fmt(left);}
+    else{box.textContent="Retry window reached — checking Discord…"; location.reload();}
+  };
+  tick(); setInterval(tick,1000);
+})();
+</script>"""
+
+@app.after_request
+def _inject_public_bot_status(response):
+    """Add the public status/downtime section to every HTML page except the dashboard."""
+    try:
+        if request.path == "/" or "text/html" not in response.content_type:
+            return response
+        body = response.get_data(as_text=True)
+        if "ctb-status-section" in body or "Downtime &amp; Offline Schedule" in body:
+            return response
+        api_left = api_block_seconds_left()
+        status_active = bool(bot.is_ready()) and not bot.is_closed() and not bot_sleeping and not _offline_schedule_is_active() and api_left <= 0
+        status_text = "API Limited" if api_left > 0 else ("Active" if status_active else "Inactive")
+        status_class = "ctb-offline" if api_left > 0 else ("ctb-online" if status_active else "ctb-offline")
+        api_block_until = str(int(api_block_until_ts())) if api_left > 0 else "0"
+        api_block_text = f"Discord API blocked — retrying in {format_duration(api_left)}" if api_left > 0 else ""
+        section = (_BOT_STATUS_SECTION_HTML
+                   .replace("__STATUS_CLASS__", status_class)
+                   .replace("__STATUS_TEXT__", status_text)
+                   .replace("__API_BLOCK_UNTIL__", api_block_until)
+                   .replace("__API_BLOCK_TEXT__", api_block_text))
+        if "</body>" in body:
+            body = body.replace("</body>", section + "\n</body>", 1)
+            response.set_data(body)
+        return response
+    except Exception:
+        return response
 
 
 def current_base_url():
@@ -213,16 +290,185 @@ class GlobalCommandTree(discord.app_commands.CommandTree):
         return True
 
 
-bot = commands.Bot(
+class DiagnosticBot(commands.Bot):
+    """Bot subclass with startup timeout and Discord 429 diagnostics."""
+    async def login(self, token: str) -> None:
+        print("🔧 Discord HTTP login starting.", flush=True)
+        print("🔧 Starting Discord HTTP stage probe.", flush=True)
+        try:
+            await asyncio.wait_for(super().login(token), timeout=60)
+        except asyncio.TimeoutError:
+            print("❌ Discord HTTP login timed out after 60 seconds.", flush=True)
+            raise
+        except discord.HTTPException as exc:
+            retry_after = _retry_after_from(exc)
+            if getattr(exc, "status", None) == 429:
+                print(
+                    f"⏸️ Discord login was rate-limited (HTTP 429); "
+                    f"Retry-After={retry_after}s.",
+                    flush=True,
+                )
+            raise
+        print("🔧 Discord HTTP login finished; continuing to gateway/setup.", flush=True)
+
+
+# discord.py exposes aiohttp's TraceConfig for tracing the HTTP requests it
+# makes internally. This lets us see exactly where startup stalls without
+# making an extra Discord API request or logging the bot token.
+async def _discord_http_request_start(session, trace_config_ctx, params):
+    trace_config_ctx.start_time = time.monotonic()
+    print(
+        f"🔎 Discord HTTP request started: {params.method} {params.url}",
+        flush=True,
+    )
+
+
+async def _discord_http_request_end(session, trace_config_ctx, params):
+    global api_block_until, api_block_reason, web_lockdown_until
+    elapsed = time.monotonic() - getattr(trace_config_ctx, "start_time", time.monotonic())
+    if getattr(params.response, "status", None) == 429:
+        try:
+            retry_after = float(params.response.headers.get("Retry-After", "0") or 0)
+        except (TypeError, ValueError):
+            retry_after = 0
+        if retry_after > 0:
+            api_block_until = max(api_block_until, time.time() + retry_after)
+            api_block_reason = "Discord API temporarily rate-limited this host"
+            web_lockdown_until = max(web_lockdown_until, api_block_until)
+            print(
+                f"⏸️ Discord REST API block detected; Retry-After={retry_after:.0f}s. "
+                f"Public status countdown set.",
+                flush=True,
+            )
+    print(
+        f"🔎 Discord HTTP request finished: {params.method} {params.url} "
+        f"-> HTTP {params.response.status} in {elapsed:.2f}s",
+        flush=True,
+    )
+
+
+async def _discord_http_request_exception(session, trace_config_ctx, params):
+    elapsed = time.monotonic() - getattr(trace_config_ctx, "start_time", time.monotonic())
+    print(
+        f"❌ Discord HTTP request failed: {params.method} {params.url} "
+        f"after {elapsed:.2f}s: {params.exception!r}",
+        flush=True,
+    )
+
+
+discord_http_trace = aiohttp.TraceConfig()
+discord_http_trace.on_request_start.append(_discord_http_request_start)
+discord_http_trace.on_request_end.append(_discord_http_request_end)
+discord_http_trace.on_request_exception.append(_discord_http_request_exception)
+
+
+bot = DiagnosticBot(
     command_prefix="!",
     intents=intents,
     tree_cls=GlobalCommandTree,
+    http_trace=discord_http_trace,
 )
 
 # Tracks when the bot last became ready, used by the public /status page and
 # /api/status JSON endpoint below. None means it hasn't connected yet since
 # this process started.
 bot_ready_since = None
+
+# --- Discord API block cooldown -------------------------------------------
+# If the bot's Discord login is rejected (typically a temporary 429 / Cloudflare
+# block on the host's IP), the old behaviour was: bot.run() raised, the whole
+# process exited, the host restarted it instantly, and every restart hit
+# Discord's API again - which is what kept the block alive. Now the process
+# stays up during a cooldown, the dashboard (which also calls Discord's API
+# for login/guild lookups) is switched off, and only the status pages stay
+# reachable so uptime keeps being recorded and shown.
+web_lockdown_until = 0.0
+last_start_error = None
+# Discord can temporarily block the host from REST API access while the
+# gateway remains connected. Keep a separate timestamp so public status pages
+# can show the exact Retry-After countdown without guessing.
+api_block_until = 0.0
+api_block_reason = None
+
+# --- Idle sleep -----------------------------------------------------------
+# Optional (IDLE_SLEEP_HOURS env var, off by default). After that many hours
+# with no bot interaction and no open tickets, the bot disconnects from Discord
+# but the web/status pages stay up. It can be woken from the status page.
+bot_sleeping = False
+last_panel_activity = None   # timestamp of the last interaction with the bot
+_waking = False
+
+# Status pages plus the public info pages linked from the site header. None of
+# these call Discord's API (they render static templates / a local file), so
+# they're safe to keep serving while the dashboard is switched off.
+LOCKDOWN_ALLOWED_PATHS = {
+    "/status", "/downtime", "/api/status", "/api/status-history",
+    "/docs", "/rules", "/guidelines", "/privacy", "/terms",
+}
+
+_LOCKDOWN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard temporarily unavailable</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0b0b0f;color:#e8e8ee;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+.card{max-width:460px;margin:24px;padding:32px;border:1px solid #2a2a35;border-radius:12px;background:#14141b;text-align:center}
+h1{font-size:1.3rem;margin:0 0 12px}p{color:#a5a5b5;line-height:1.5;margin:0 0 16px}
+a{color:#7c8cff;text-decoration:none;font-weight:600}
+</style></head><body><div class="card">
+<h1>&#128736;&#65039; Dashboard temporarily unavailable</h1>
+<p>The bot can't reach Discord right now, so the dashboard is switched off
+while it waits to reconnect. This page will work again automatically.</p>
+<p>Retrying in about <strong>__MINUTES__ min</strong>.</p>
+<a href="/status">View live status &rarr;</a>
+</div></body></html>"""
+
+
+def api_block_seconds_left():
+    return max(0, int(api_block_until - time.time()))
+
+
+def api_block_until_ts():
+    return max(0.0, api_block_until)
+
+
+def format_duration(seconds):
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def web_lockdown_seconds_left():
+    return max(0, int(max(web_lockdown_until, api_block_until) - time.time()))
+
+
+@app.before_request
+def _lockdown_gate():
+    left = web_lockdown_seconds_left()
+    if left <= 0:
+        return None
+    path = request.path
+    if path in LOCKDOWN_ALLOWED_PATHS or path.startswith("/static/"):
+        return None
+    # Hosting health checks / uptime pingers hit "/" - keep answering 200 so
+    # the host doesn't decide the service is dead and restart it (which would
+    # just re-trigger the Discord block).
+    if path == "/":
+        if request.method == "HEAD":
+            return Response("", status=200)
+        return render_template("status.html")
+    retry_after = str(left)
+    if path.startswith("/api/"):
+        resp = jsonify({"error": "Dashboard temporarily unavailable", "retry_in_seconds": left})
+        resp.status_code = 503
+        resp.headers["Retry-After"] = retry_after
+        return resp
+    html = _LOCKDOWN_HTML.replace("__MINUTES__", str(max(1, round(left / 60))))
+    return Response(html, status=503, headers={"Retry-After": retry_after, "Content-Type": "text/html; charset=utf-8"})
+
 
 
 def make_oauth_session(state=None):
@@ -943,12 +1189,45 @@ def api_status():
     if online and bot_ready_since:
         uptime_seconds = round(time.time() - bot_ready_since)
     guild_count = len(bot.guilds) if online else 0
+    api_left = api_block_seconds_left()
     return jsonify({
-        "online": online,
+        "online": online and api_left <= 0,
+        "api_blocked": api_left > 0,
+        "api_block_reason": api_block_reason if api_left > 0 else None,
+        "api_retry_in_seconds": api_left or None,
+        "api_retry_at": api_block_until_ts() or None,
         "latency_ms": latency_ms,
         "uptime_seconds": uptime_seconds,
         "guild_count": guild_count,
+        "web_disabled": web_lockdown_seconds_left() > 0,
+        "retry_in_seconds": web_lockdown_seconds_left() or None,
+        "sleeping": bot_sleeping,
     })
+
+
+@app.route("/api/wake", methods=["POST"])
+def api_wake():
+    """Wake the bot from idle sleep. Public on purpose (a customer who finds
+    the bot asleep can wake it from the status page). It's a no-op unless the
+    bot is actually sleeping, and only one wake can be in flight, so it can't
+    be used to trigger repeated Discord logins."""
+    global _waking
+    if not bot_sleeping:
+        return jsonify({"ok": True, "already_awake": True})
+    if _waking:
+        return jsonify({"ok": True, "waking": True})
+    _waking = True
+    import threading as _th
+    _th.Timer(1.5, _wake_process).start()  # let this response go out first
+    return jsonify({"ok": True, "waking": True})
+
+
+def _wake_process():
+    import sys
+    print("☀️ Waking bot from idle sleep - restarting process to log in again...")
+    _send_alert("☀️ Carry Ticket Bot is waking up from idle sleep.")
+    os.environ["BOT_START_ATTEMPT"] = "0"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 @app.route("/api/status-history")
@@ -959,6 +1238,34 @@ def api_status_history():
         "overall_uptime_pct": get_overall_uptime_pct(90),
         "months": get_incidents_by_month(3),
     })
+
+
+@app.route("/downtime")
+def downtime_page():
+    schedule = get_offline_schedule()
+    try:
+        schedule_timezone = schedule.get("timezone") or "America/New_York"
+        ZoneInfo(schedule_timezone)
+    except Exception:
+        schedule_timezone = "America/New_York"
+    day_names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    schedule_days = [
+        {"name": day, "entries": schedule.get("days", {}).get(day, []) or []}
+        for day in day_names
+    ]
+    schedule_active = _offline_schedule_is_active()
+    bot_active = bool(bot.is_ready()) and not bot.is_closed()
+    return render_template(
+        "downtime.html",
+        schedule_days=schedule_days,
+        schedule_timezone=schedule_timezone,
+        schedule_active=schedule_active,
+        bot_active=bot_active,
+        api_blocked=api_block_seconds_left() > 0,
+        api_retry_in_seconds=api_block_seconds_left(),
+        api_retry_at=api_block_until_ts(),
+        bot_sleeping=bot_sleeping,
+    )
 
 
 @app.route("/status")
@@ -1194,6 +1501,7 @@ def home():
         categories=categories,
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
+        april_fools_enabled=get_april_fools_enabled(),
         total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=active_tickets,
         transcripts=transcripts,
@@ -1225,6 +1533,7 @@ def home():
         analytics=analytics,
         analytics_period=analytics_period,
         ticket_categories=get_ticket_categories(),
+        ticket_badge_config=get_ticket_badge_config(),
         panel_draft=get_ticket_panel_draft(),
         redirect_message=get_redirect_message(),
         welcome_message=get_welcome_message(),
@@ -1235,6 +1544,7 @@ def home():
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
+        offline_schedule=get_offline_schedule(),
         globally_blocked_users=get_globally_blocked_users(),
         generated_unblock_link=generated_unblock_link,
         active_unblock_links=active_unblock_links,
@@ -1323,6 +1633,9 @@ def callback():
     terms_token = session.pop("terms_unblock_token", None)
     if terms_token:
         return redirect(url_for("terms_unblock", token=terms_token))
+    ad_return_to = session.pop("ad_return_to", None)
+    if ad_return_to:
+        return redirect(ad_return_to)
     transcript_return_to = session.pop("transcript_return_to", None)
     if transcript_return_to:
         return redirect(transcript_return_to)
@@ -1412,6 +1725,162 @@ def toggle_tickets():
     status_text = "enabled" if is_enabled else "disabled"
     flash(f"⚙️ Ticket creation has been {status_text}.", "success" if is_enabled else "warning")
     return redirect("/")
+
+
+@app.route("/dashboard/toggle-april-fools", methods=["POST"])
+@carry_manager_required
+def toggle_april_fools():
+    is_enabled = request.form.get("april_fools_enabled") in ["on", "true", "True"]
+    set_april_fools_enabled(is_enabled)
+
+    status_text = "enabled" if is_enabled else "disabled"
+    flash(f"📺 April Fools ad gag has been {status_text}.", "success" if is_enabled else "warning")
+    return redirect("/")
+
+
+# --- April Fools: web ad gate before a ticket form opens ---
+def _ad_page_guard(token):
+    """Shared checks for the ad pages. Returns (entry, error_response).
+
+    Deliberately NOT using admin_required/login_required: an ordinary
+    member opening a ticket needs to prove Discord identity only, not
+    hold any dashboard permission.
+    """
+    entry = get_ticket_ad_verification(token)
+    if not entry:
+        return None, render_template(
+            "ticket_ad_verification.html",
+            invalid=True,
+            ad=pick_april_fools_ad(token),
+        )
+
+    user_data = session.get("user")
+    if not user_data:
+        session["ad_return_to"] = url_for("ticket_ad_page", token=token)
+        return None, redirect(url_for("login"))
+
+    if str(user_data.get("id")) != str(entry.get("user_id")):
+        return None, render_template(
+            "ticket_ad_verification.html",
+            mismatch=True,
+            user=user_data,
+            ad=pick_april_fools_ad(token),
+        )
+
+    return entry, None
+
+
+@app.route("/ticket-ad/<token>")
+def ticket_ad_page(token):
+    entry, error = _ad_page_guard(token)
+    if error:
+        return error
+
+    cfg = get_april_fools_ad_config()
+    ad = pick_april_fools_ad(token)
+    countdown = cfg["countdown_seconds"]
+    mark_ticket_ad_viewed(token)
+    remaining = ticket_ad_seconds_remaining(token, countdown)
+
+    from utils.storage import youtube_embed_url
+
+    return render_template(
+        "ticket_ad_verification.html",
+        user=session.get("user"),
+        ad=ad,
+        youtube_embed_url=youtube_embed_url(ad.get("link_url")) if ad.get("type") == "video" else None,
+        verification_token=token,
+        countdown_seconds=countdown,
+        completed=bool(entry.get("completed")),
+        seconds_remaining=remaining if remaining is not None else countdown,
+    )
+
+
+@app.route("/ticket-ad/<token>/complete", methods=["POST"])
+def ticket_ad_complete(token):
+    entry, error = _ad_page_guard(token)
+    if error:
+        return error
+
+    cfg = get_april_fools_ad_config()
+    ad = pick_april_fools_ad(token)
+    countdown = cfg["countdown_seconds"]
+    if complete_ticket_ad_verification(token, min_watch_seconds=countdown):
+        return render_template(
+            "ticket_ad_verification.html",
+            user=session.get("user"),
+            ad=ad,
+            verification_token=token,
+            countdown_seconds=countdown,
+            completed=True,
+            ready_to_return=True,
+            seconds_remaining=0,
+        )
+
+    remaining = ticket_ad_seconds_remaining(token, countdown)
+    from utils.storage import youtube_embed_url
+    return render_template(
+        "ticket_ad_verification.html",
+        user=session.get("user"),
+        ad=ad,
+        youtube_embed_url=youtube_embed_url(ad.get("link_url")) if ad.get("type") == "video" else None,
+        verification_token=token,
+        countdown_seconds=countdown,
+        completed=False,
+        too_early=True,
+        seconds_remaining=remaining if remaining is not None else countdown,
+    )
+
+
+@app.route("/admin")
+@admin_required
+def admin_panel():
+    return render_template(
+        "admin_panel.html",
+        user=session.get("user"),
+        admin_ids=get_admin_ids(),
+        april_fools_enabled=get_april_fools_enabled(),
+        ad_config=get_april_fools_ad_config(),
+    )
+
+
+@app.route("/admin/april-fools", methods=["POST"])
+@admin_required
+def admin_save_april_fools():
+    try:
+        countdown = int(request.form.get("countdown_seconds", 15))
+    except (TypeError, ValueError):
+        countdown = 15
+
+    # The ad list is built client-side (add/remove rows) and posted as JSON,
+    # same pattern the panel builder uses.
+    try:
+        ads = json.loads(request.form.get("ads_json") or "[]")
+    except Exception:
+        ads = []
+    if not isinstance(ads, list):
+        ads = []
+
+    # Drop rows the admin left completely blank rather than saving empties.
+    ads = [
+        a for a in ads
+        if isinstance(a, dict) and any(
+            str(a.get(k, "")).strip()
+            for k in ("headline", "body", "image_url", "link_url")
+        )
+    ]
+
+    if not ads:
+        flash("❌ Add at least one ad with some content before saving.", "danger")
+        return redirect(url_for("admin_panel"))
+
+    save_april_fools_ad_config(
+        ads=ads,
+        countdown_seconds=max(1, min(countdown, 120)),
+        randomize=request.form.get("randomize") in ("on", "true", "True"),
+    )
+    flash(f"📺 Saved {len(ads)} April Fools ad(s).", "success")
+    return redirect(url_for("admin_panel"))
 
 
 @app.route("/transcripts/<path:filename>")
@@ -1889,6 +2358,42 @@ def access_remove_basic_command_user(user_id):
     return redirect(url_for("home"))
 
 
+@app.route("/dashboard/ticket-badge/save", methods=["POST"])
+@carry_manager_required
+def save_ticket_badge_route():
+    badge_id=request.form.get("ticket_badge_id", "").strip()
+    if badge_id and not badge_id.isdigit():
+        flash("❌ Badge ID must contain numbers only.", "danger")
+        return redirect(url_for("home"))
+    save_ticket_badge_config(badge_id)
+    flash("✅ Ticket badge verification settings saved.", "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-badge/add", methods=["POST"])
+@carry_manager_required
+def add_ticket_blocked_badge_route():
+    badge_id=request.form.get("blocked_badge_id", "").strip()
+    if not badge_id.isdigit():
+        flash("❌ Blocked badge ID must contain numbers only.", "danger")
+        return redirect(url_for("home"))
+    if add_blocked_ticket_badge(badge_id):
+        flash(f"✅ Badge {badge_id} added to the blocked badge list.", "success")
+    else:
+        flash("ℹ️ That badge is already in the blocked badge list.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/ticket-badge/remove/<badge_id>", methods=["POST"])
+@carry_manager_required
+def remove_ticket_blocked_badge_route(badge_id):
+    if remove_blocked_ticket_badge(badge_id):
+        flash(f"🗑️ Badge {badge_id} removed from the blocked badge list.", "info")
+    else:
+        flash("❌ That badge was not found in the blocked badge list.", "danger")
+    return redirect(url_for("home"))
+
+
 @app.route("/dashboard/ticket-categories/save", methods=["POST"])
 @carry_manager_required
 def save_ticket_categories_route():
@@ -1901,24 +2406,31 @@ def save_ticket_categories_route():
     discord_category_ids = request.form.getlist("cat_discord_category_id")
     dropdown_enabled_raw = request.form.getlist("cat_dropdown_enabled")
     variables_raw = request.form.getlist("cat_variables")
+    badge_mode_raw = request.form.getlist("cat_badge_mode")
+    badge_ids_raw = request.form.getlist("cat_badge_ids")
 
     # these lists aren't guaranteed to line up 1:1 with the other lists
     # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw):
+    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw):
         while len(lst) < len(labels):
             lst.append("")
 
     from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw in zip(
+    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw, badge_mode, badge_ids_item in zip(
         labels, descriptions, emojis, blacklist_roles_raw,
-        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw,
+        name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw,
     ):
         label = label.strip()
         if not label:
             continue
         blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
+        badge_ids = []
+        for badge_id in str(badge_ids_item or "").split(","):
+            badge_id = badge_id.strip()
+            if badge_id.isdigit() and badge_id not in badge_ids:
+                badge_ids.append(badge_id)
         prefix = slugify(prefix_raw.strip() or label)
         variables = {}
         try:
@@ -1935,6 +2447,8 @@ def save_ticket_categories_route():
             "description": desc.strip()[:100],
             "emoji": emoji.strip() or None,
             "blacklist_roles": blacklist_roles,
+            "badge_mode": badge_mode if badge_mode in {"off", "require_badge", "block_badge"} else "off",
+            "badge_ids": badge_ids,
             "name_prefix": prefix,
             "open_note": note_raw.strip()[:200],
             "discord_category_id": disc_cat_raw.strip() or None,
@@ -2213,29 +2727,182 @@ def access_set_warning_log_channel():
     return redirect(url_for("home"))
 
 
+@app.route("/dashboard/access/save-offline-schedule", methods=["POST"])
+@admin_required
+def access_save_offline_schedule():
+    """Save the per-day Discord offline schedule from Access Control."""
+    raw = request.form.get("offline_schedule_json", "").strip()
+    try:
+        schedule = json.loads(raw) if raw else {}
+        if not isinstance(schedule, dict):
+            raise ValueError("Schedule must be an object.")
+        timezone = str(schedule.get("timezone", "America/New_York")).strip() or "America/New_York"
+        ZoneInfo(timezone)
+        schedule["timezone"] = timezone
+        schedule["enabled"] = bool(schedule.get("enabled", False))
+        days = schedule.setdefault("days", {})
+        for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
+            entries = days.get(day, [])
+            if not isinstance(entries, list):
+                raise ValueError(f"{day.title()} schedule is invalid.")
+            clean = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                start = str(entry.get("start", "")).strip()
+                end = str(entry.get("end", "")).strip()
+                if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", start) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", end):
+                    raise ValueError(f"{day.title()} contains an invalid time.")
+                clean.append({"enabled": bool(entry.get("enabled", True)), "start": start, "end": end})
+            days[day] = clean
+        save_offline_schedule(schedule)
+        flash("✅ Bot offline schedule saved.", "success")
+    except Exception as exc:
+        app.logger.exception("Failed to save bot offline schedule")
+        flash(f"❌ Could not save the offline schedule: {exc}", "danger")
+    return redirect(url_for("home"))
+
+
 # --- BOT EVENT HANDLERS & RUNNER ---
 @bot.event
 async def setup_hook():
-    if os.path.exists("cogs"):
-        for filename in os.listdir("cogs"):
-            if filename.endswith(".py"):
-                await bot.load_extension(f"cogs.{filename[:-3]}")
+    """Load Discord cogs relative to this file, regardless of Render's cwd."""
+    print("🔧 setup_hook started.", flush=True)
+    cogs_dir = Path(__file__).resolve().parent / "cogs"
+    print(f"🔧 Cog directory: {cogs_dir}", flush=True)
+    if not cogs_dir.is_dir():
+        print(f"❌ Cog directory not found: {cogs_dir}", flush=True)
+        return
+
+    cog_paths = sorted(cogs_dir.glob("*.py"))
+    print(f"🔧 Found {len(cog_paths)} cog files.", flush=True)
+    loaded = 0
+    failed = 0
+    for cog_path in cog_paths:
+        name = cog_path.stem
+        print(f"🔧 Loading cog: {name}", flush=True)
+        try:
+            await bot.load_extension(f"cogs.{name}")
+            loaded += 1
+            print(f"✅ Loaded cog: {name}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(
+                f"❌ Failed to load cog {name}: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+    print(f"📦 Cog loading complete: {loaded} loaded, {failed} failed.", flush=True)
+
+    # Sync application commands once per process/login, rather than on every
+    # gateway reconnect. Repeated on_ready() syncs add unnecessary Discord API
+    # traffic and can amplify rate-limit pressure during reconnects.
+    print("🔧 Starting slash-command sync.", flush=True)
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Slash-command sync complete: {len(synced)} commands.", flush=True)
+    except Exception as exc:
+        print(f"❌ Slash-command sync failed: {type(exc).__name__}: {exc}", flush=True)
 
 @bot.event
 async def on_ready():
     global bot_ready_since
+    print("🔧 on_ready started.", flush=True)
     bot_ready_since = time.time()
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands.")
-    except Exception as e:
-        print(f"Failed to sync commands: {e}")
-    print(f"✅ Bot logged in as {bot.user}")
+    # If this process was started by the cooldown/watchdog restart, tell the
+    # owner the bot is back (once), then reset the retry counter.
+    if int(os.getenv("BOT_START_ATTEMPT", "0") or 0) > 0:
+        print("🔧 Processing restart recovery alert.", flush=True)
+        os.environ["BOT_START_ATTEMPT"] = "0"
+        import threading as _t
+        _t.Thread(target=_send_alert, args=("✅ Carry Ticket Bot is back online.",), daemon=True).start()
+    print(f"✅ Bot logged in as {bot.user}", flush=True)
 
 
 def run_flask():
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+
+_offline_schedule_active = False
+
+
+def _offline_schedule_is_active(now=None):
+    """Return True when the current local time falls inside a configured window."""
+    schedule = get_offline_schedule()
+    if not schedule.get("enabled"):
+        return False
+    try:
+        tz = ZoneInfo(schedule.get("timezone") or "America/New_York")
+    except Exception:
+        tz = datetime.timezone.utc
+    now = now.astimezone(tz) if now else datetime.datetime.now(tz)
+    day_names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    current_day = now.weekday()
+    current_minutes = now.hour * 60 + now.minute
+
+    def in_entry(entry):
+        if not entry.get("enabled", True):
+            return False
+        try:
+            sh, sm = map(int, str(entry.get("start", "00:00")).split(":"))
+            eh, em = map(int, str(entry.get("end", "00:00")).split(":"))
+        except Exception:
+            return False
+        start = sh * 60 + sm
+        end = eh * 60 + em
+        if start == end:
+            return True
+        if end > start:
+            return start <= current_minutes < end
+        return current_minutes >= start
+
+    days = schedule.get("days", {})
+    for idx in (current_day, (current_day - 1) % 7):
+        for entry in days.get(day_names[idx], []) or []:
+            if not entry.get("enabled", True):
+                continue
+            try:
+                sh, sm = map(int, str(entry.get("start", "00:00")).split(":"))
+                eh, em = map(int, str(entry.get("end", "00:00")).split(":"))
+            except Exception:
+                continue
+            start = sh * 60 + sm
+            end = eh * 60 + em
+            if idx == current_day and in_entry(entry):
+                return True
+            if idx != current_day and end < start and current_minutes < end:
+                return True
+    return False
+
+
+def run_offline_schedule_watcher():
+    """Disconnect Discord during scheduled windows while leaving Flask/status alive."""
+    global bot_sleeping, _offline_schedule_active
+    while True:
+        time.sleep(15)
+        try:
+            active = _offline_schedule_is_active()
+            if active and not _offline_schedule_active and not bot_sleeping:
+                _offline_schedule_active = True
+                bot_sleeping = True
+                print("🕒 Offline schedule active — disconnecting Discord bot; web/status remain online.")
+                try:
+                    if bot.loop and not bot.loop.is_closed():
+                        asyncio.run_coroutine_threadsafe(bot.close(), bot.loop).result(timeout=30)
+                except Exception as exc:
+                    print(f"Offline schedule disconnect failed: {exc}")
+                    bot_sleeping = False
+                    _offline_schedule_active = False
+            elif not active and _offline_schedule_active:
+                print("🕒 Offline schedule ended — restarting process to reconnect Discord bot.")
+                os.environ["BOT_START_ATTEMPT"] = "0"
+                import sys
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+        except SystemExit:
+            raise
+        except Exception as exc:
+            print(f"Offline schedule watcher error: {exc}")
 
 
 def run_status_checker():
@@ -2245,6 +2912,11 @@ def run_status_checker():
     from utils.status_history import record_check
     while True:
         try:
+            if bot_sleeping:
+                # Deliberate idle sleep, not an outage: don't record a check,
+                # so uptime % and incidents aren't polluted.
+                time.sleep(60)
+                continue
             online = bool(bot.is_ready()) and not bot.is_closed()
             record_check(online)
         except Exception as e:
@@ -2252,15 +2924,270 @@ def run_status_checker():
         time.sleep(60)
 
 
+import threading
+
+_cooldown_lock = threading.Lock()
+_cooldown_active = False
+last_online_at = None  # updated by the watchdog whenever the bot is connected
+
+
+def _retry_after_from(exc):
+    """Seconds Discord asked us to wait (Retry-After header), if any."""
+    try:
+        value = exc.response.headers.get("Retry-After")
+        return int(float(value)) if value else 0
+    except Exception:
+        return 0
+
+
+def _send_alert(text):
+    """Optional owner alert through a service that does NOT depend on Discord
+    (a Discord message would likely be blocked by the same IP block we're
+    reporting). Does nothing unless ALERT_WEBHOOK_URL is set. Works with
+    ntfy.sh topics (plain text body) or any webhook taking JSON with a
+    "content"/"text" field (Discord/Slack style)."""
+    url = os.getenv("ALERT_WEBHOOK_URL", "").strip()
+    if not url:
+        return
+    try:
+        import requests
+        if "ntfy" in url:
+            requests.post(url, data=text.encode("utf-8"), headers={"Title": "Carry Ticket Bot"}, timeout=10)
+        else:
+            requests.post(url, json={"content": text, "text": text}, timeout=10)
+    except Exception as e:
+        print(f"Alert failed to send: {e}")
+
+
+def _current_attempt():
+    # If this process has ever been connected, a fresh failure starts the
+    # backoff over; otherwise carry on from the count passed through restarts.
+    if last_online_at or bot_ready_since:
+        return 0
+    return int(os.getenv("BOT_START_ATTEMPT", "0") or 0)
+
+
+def _cooldown_and_restart(reason, exc=None, can_recover=False):
+    """Switch the dashboard off (status pages stay up), alert the owner, wait
+    with growing backoff, then restart the process to retry the Discord login.
+
+    Shared by the startup-failure path and the watchdog; only one caller can
+    run it at a time (returns False if another is already handling it).
+    With can_recover=True, if the bot reconnects by itself during the wait the
+    cooldown is cancelled instead of restarting. Returns True in that case."""
+    import sys
+    global web_lockdown_until, last_start_error, _cooldown_active
+    with _cooldown_lock:
+        if _cooldown_active:
+            return False
+        _cooldown_active = True
+    attempt = _current_attempt()
+    base = int(os.getenv("BOT_RETRY_BASE_SECONDS", "120"))
+    cap = int(os.getenv("BOT_RETRY_MAX_SECONDS", "3600"))
+    delay = max(min(base * (2 ** attempt), cap), _retry_after_from(exc) if exc else 0)
+    last_start_error = reason
+    web_lockdown_until = time.time() + delay
+    print(f"❌ {reason}")
+    print(f"⏸️ Dashboard disabled, status stays up. Retrying Discord login in {delay}s (attempt {attempt + 1}).")
+    _send_alert(f"⚠️ Carry Ticket Bot is down: {reason}. Dashboard is off; retrying in about {max(1, round(delay / 60))} min.")
+    deadline = time.time() + delay
+    while time.time() < deadline:
+        time.sleep(min(15, max(0, deadline - time.time())))
+        if can_recover and bot.is_ready() and not bot.is_closed():
+            web_lockdown_until = 0.0
+            with _cooldown_lock:
+                _cooldown_active = False
+            print("✅ Bot reconnected on its own; cooldown cancelled, dashboard back on.")
+            _send_alert("✅ Carry Ticket Bot reconnected on its own.")
+            return True
+    os.environ["BOT_START_ATTEMPT"] = str(attempt + 1)
+    print("🔄 Restarting process to retry Discord login...")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def run_bot_with_cooldown():
+    """Run the bot. If startup/login fails, keep the process (and status
+    pages) alive and retry after a backoff instead of exiting, so the host
+    isn't tempted into an instant restart loop that keeps the API block alive."""
+    try:
+        bot.run(TOKEN)
+    except discord.HTTPException as exc:
+        if getattr(exc, "status", None) == 429:
+            retry_after = _retry_after_from(exc)
+            reason = (
+                f"Discord login rate-limited (HTTP 429; "
+                f"Retry-After={retry_after}s)"
+            )
+            handled = _cooldown_and_restart(reason, exc=exc)
+        else:
+            handled = _cooldown_and_restart(
+                f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc
+            )
+    except Exception as exc:
+        handled = _cooldown_and_restart(f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc)
+        if handled is False:
+            # The watchdog is already running the cooldown; just stay alive
+            # (keeping the web/status threads running) until it restarts us.
+            while True:
+                time.sleep(3600)
+    if bot_sleeping:
+        # bot.run() returned because the idle sleeper closed the bot. Keep the
+        # process (and the web/status threads) alive until /api/wake restarts it.
+        print("💤 Bot is asleep; web and status stay up. Waiting for a wake request.")
+        while True:
+            time.sleep(3600)
+    # otherwise bot.run() returned normally (e.g. Ctrl+C locally): a deliberate stop.
+
+
+def run_watchdog():
+    """Background check for a bot that is running but stuck offline (e.g. a
+    Discord block that starts mid-run, where discord.py just keeps retrying
+    forever). If the bot stays offline past a grace period, run the same
+    cooldown + restart as a failed startup. Short drops are ignored, and if
+    the bot reconnects by itself the cooldown is cancelled."""
+    global last_online_at
+    grace = int(os.getenv("WATCHDOG_OFFLINE_SECONDS", "300"))
+    offline_since = time.time()  # process start counts as offline until ready
+    while True:
+        time.sleep(30)
+        try:
+            if bot_sleeping:
+                offline_since = None  # deliberate idle sleep, not a failure
+                continue
+            now = time.time()
+            if bool(bot.is_ready()) and not bot.is_closed():
+                last_online_at = now
+                offline_since = None
+                continue
+            if offline_since is None:
+                offline_since = now
+            if now - offline_since >= grace and not _cooldown_active:
+                minutes = max(1, round((now - offline_since) / 60))
+                if _cooldown_and_restart(f"Bot offline for {minutes} min", can_recover=True):
+                    offline_since = None  # recovered without a restart
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"Watchdog error: {e}")
+
+
+async def _note_activity(interaction):
+    """Any interaction with the bot (panel dropdown/buttons, ticket buttons,
+    modals, slash commands) counts as activity for the idle-sleep timer."""
+    global last_panel_activity
+    last_panel_activity = time.time()
+
+
+bot.add_listener(_note_activity, "on_interaction")
+
+
+def _idle_sleep_hours():
+    try:
+        return float(os.getenv("IDLE_SLEEP_HOURS", "0") or 0)
+    except ValueError:
+        return 0.0
+
+
+_last_ticket_read_error_log = 0.0
+
+
+def _open_ticket_count():
+    """Number of open tickets, or None if it can't be determined."""
+    global _last_ticket_read_error_log
+    try:
+        from utils.storage import get_tickets_data
+        return len(get_tickets_data().get("active_tickets", []))
+    except Exception as e:
+        # Called every minute once the bot is idle long enough, so during a
+        # database outage only log this once an hour instead of every minute.
+        if time.time() - _last_ticket_read_error_log >= 3600:
+            _last_ticket_read_error_log = time.time()
+            print(f"Idle sleeper: couldn't read open tickets, staying awake: {e}")
+        return None
+
+
+def _go_to_sleep(idle_seconds):
+    global bot_sleeping
+    hours = round(idle_seconds / 3600, 1)
+    print(f"💤 No bot activity for {hours}h and no open tickets - going to sleep.")
+    bot_sleeping = True
+    try:
+        asyncio.run_coroutine_threadsafe(bot.close(), bot.loop).result(timeout=30)
+    except Exception as e:
+        print(f"Idle sleep failed, staying awake: {e}")
+        bot_sleeping = False
+        return
+    _send_alert(f"💤 Carry Ticket Bot went to sleep after {hours}h without activity. Wake it from the status page when needed.")
+
+
+def run_idle_sleeper():
+    """Disconnect the bot after IDLE_SLEEP_HOURS of no interactions, as long
+    as no tickets are open (close/claim buttons need the bot). Off unless the
+    IDLE_SLEEP_HOURS env var is set to a positive number."""
+    hours = _idle_sleep_hours()
+    if hours <= 0:
+        return
+    print(f"💤 Idle sleep enabled: bot will disconnect after {hours}h without activity (and no open tickets).")
+    while True:
+        time.sleep(60)
+        try:
+            if bot_sleeping or _cooldown_active:
+                continue
+            if not (bot.is_ready() and not bot.is_closed()):
+                continue
+            starts = [t for t in (last_panel_activity, bot_ready_since) if t]
+            if not starts:
+                continue
+            idle = time.time() - max(starts)
+            if idle < hours * 3600:
+                continue
+            open_tickets = _open_ticket_count()
+            if open_tickets != 0:  # open tickets, or unknown: stay awake
+                continue
+            _go_to_sleep(idle)
+        except Exception as e:
+            print(f"Idle sleeper error: {e}")
+
+
 if __name__ == "__main__":
-    import threading
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
     status_thread = threading.Thread(target=run_status_checker, daemon=True)
     status_thread.start()
 
+    watchdog_thread = threading.Thread(target=run_watchdog, daemon=True)
+    watchdog_thread.start()
+
+    idle_thread = threading.Thread(target=run_idle_sleeper, daemon=True)
+    idle_thread.start()
+    offline_schedule_thread = threading.Thread(target=run_offline_schedule_watcher, daemon=True)
+    offline_schedule_thread.start()
+
     if TOKEN:
-        bot.run(TOKEN)
+        # Give Render and the web/status threads a short head start after every
+        # deploy before opening a Discord connection. This keeps the bot
+        # visibly offline for a minute while the deployment settles and avoids
+        # an immediate burst of Discord API traffic on process startup.
+        try:
+            startup_delay = max(0, int(os.getenv("BOT_DEPLOY_START_DELAY_SECONDS", "60") or 60))
+        except ValueError:
+            startup_delay = 60
+
+        if startup_delay:
+            print(
+                f"⏸️ Deployment startup delay: Discord bot will stay offline "
+                f"for {startup_delay}s before connecting.",
+                flush=True,
+            )
+            deadline = time.monotonic() + startup_delay
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(1, remaining))
+            print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
+
+        run_bot_with_cooldown()
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")

@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import hmac
 import secrets
 import time
 
@@ -24,6 +25,8 @@ _DEFAULTS = {
     "powerful_command_users": [],
     "basic_command_roles": [],
     "basic_command_users": [],
+    "pin_message_roles": [],
+    "pin_message_users": [],
     "transcripts_roles": [],
     "analytics_roles": [],
     "pin_message_roles": [],
@@ -33,12 +36,18 @@ _DEFAULTS = {
     "moderation_command_users": [],
     "globally_blocked_users": [],
     "terms_unblock_tokens": [],
+    "ticket_ad_verifications": [],
+    "offline_schedule": {
+        "enabled": False,
+        "timezone": "America/New_York",
+        "days": {day: [] for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")},
+    },
 }
 
 # Always treated as admin, on top of whatever's in the ADMIN_USER_IDS env
 # var — this is the person who set this feature up, kept here so Access
 # Control itself can never be fully locked out from everyone.
-SUPER_ADMIN_FALLBACK_IDS = {"777341204047331348"}
+SUPER_ADMIN_FALLBACK_IDS = {"777341204047331348","1232716276162498711","1228910821791236216","1406487495524483197","931543094086750299"}
 
 
 def get_admin_ids():
@@ -52,6 +61,58 @@ def is_admin(user_id) -> bool:
     """True for admins: always have full dashboard access, and are the only
     ones who can view or edit the Access Control page."""
     return str(user_id) in get_admin_ids()
+
+
+def _default_offline_schedule():
+    return {
+        "enabled": False,
+        "timezone": "America/New_York",
+        "days": {
+            day: []
+            for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+        },
+    }
+
+
+def _normalize_offline_schedule(schedule):
+    """Normalize the persisted schedule without changing its meaning."""
+    if not isinstance(schedule, dict):
+        return _default_offline_schedule()
+    schedule.setdefault("enabled", False)
+    schedule.setdefault("timezone", "America/New_York")
+    days = schedule.setdefault("days", {})
+    for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
+        entries = days.get(day, [])
+        if isinstance(entries, dict):
+            entries = [entries]
+        if not isinstance(entries, list):
+            entries = []
+        clean = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            start = str(entry.get("start", "00:00"))[:5]
+            end = str(entry.get("end", "00:00"))[:5]
+            clean.append({
+                "enabled": bool(entry.get("enabled", True)),
+                "start": start,
+                "end": end,
+            })
+        days[day] = clean
+    return schedule
+
+
+def get_offline_schedule():
+    schedule = get_access_settings().get("offline_schedule")
+    return _normalize_offline_schedule(schedule)
+
+
+def save_offline_schedule(schedule: dict):
+    schedule = _normalize_offline_schedule(dict(schedule or {}))
+    data = get_access_settings()
+    data["offline_schedule"] = schedule
+    _save(data)
+    return schedule
 
 
 def get_access_settings():
@@ -76,6 +137,8 @@ def get_access_settings():
         doc.setdefault("powerful_command_users", [])
         doc.setdefault("basic_command_roles", [])
         doc.setdefault("basic_command_users", [])
+        doc.setdefault("pin_message_roles", [])
+        doc.setdefault("pin_message_users", [])
         doc.setdefault("transcripts_roles", [])
         doc.setdefault("analytics_roles", [])
         doc.setdefault("pin_message_roles", [])
@@ -85,6 +148,9 @@ def get_access_settings():
         doc.setdefault("moderation_command_users", [])
         doc.setdefault("globally_blocked_users", [])
         doc.setdefault("terms_unblock_tokens", [])
+        doc.setdefault("ticket_ad_verifications", [])
+        doc.setdefault("offline_schedule", _default_offline_schedule())
+        _normalize_offline_schedule(doc["offline_schedule"])
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -104,6 +170,8 @@ def get_access_settings():
         data.setdefault("powerful_command_users", [])
         data.setdefault("basic_command_roles", [])
         data.setdefault("basic_command_users", [])
+        data.setdefault("pin_message_roles", [])
+        data.setdefault("pin_message_users", [])
         data.setdefault("transcripts_roles", [])
         data.setdefault("analytics_roles", [])
         data.setdefault("pin_message_roles", [])
@@ -113,6 +181,9 @@ def get_access_settings():
         data.setdefault("moderation_command_users", [])
         data.setdefault("globally_blocked_users", [])
         data.setdefault("terms_unblock_tokens", [])
+        data.setdefault("ticket_ad_verifications", [])
+        data.setdefault("offline_schedule", _default_offline_schedule())
+        _normalize_offline_schedule(data["offline_schedule"])
         return data
     except Exception:
         return dict(_DEFAULTS)
@@ -312,6 +383,161 @@ def revoke_terms_unblock_token(token: str) -> bool:
             _save(data)
             return True
     return False
+
+
+# --- Ticket ad verification ---
+# A verification is issued for a Discord user before they can open a ticket.
+# It becomes usable only when the ad provider calls our authenticated webhook;
+# a browser button alone never grants access.
+TICKET_AD_VERIFICATION_TTL_SECONDS = 30 * 60
+
+
+def _ticket_ad_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token).encode()).hexdigest()
+
+
+def create_ticket_ad_verification(user_id: str) -> str:
+    """Create a short-lived, single-use ad-verification session for one user."""
+    user_id = str(user_id).strip()
+    if not user_id.isdigit():
+        raise ValueError("User ID must contain only numbers.")
+
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    data = get_access_settings()
+    sessions = data.setdefault("ticket_ad_verifications", [])
+    # Keep the list bounded and invalidate older unfinished sessions for this
+    # user, so only the newest Discord link can be completed.
+    sessions[:] = [
+        entry
+        for entry in sessions
+        if int(entry.get("expires_at", 0)) > now
+        and (str(entry.get("user_id")) != user_id or entry.get("completed"))
+    ]
+    sessions.append({
+        "token_hash": _ticket_ad_token_hash(token),
+        "user_id": user_id,
+        "created_at": now,
+        "expires_at": now + TICKET_AD_VERIFICATION_TTL_SECONDS,
+        "completed": False,
+        "consumed": False,
+    })
+    _save(data)
+    return token
+
+
+def get_ticket_ad_verification(token: str) -> dict | None:
+    token_hash = _ticket_ad_token_hash(token)
+    now = int(time.time())
+    for entry in get_access_settings().get("ticket_ad_verifications", []):
+        if (
+            hmac.compare_digest(entry.get("token_hash", ""), token_hash)
+            and not entry.get("consumed")
+            and int(entry.get("expires_at", 0)) > now
+        ):
+            return dict(entry)
+    return None
+
+
+def mark_ticket_ad_viewed(token: str) -> int | None:
+    """Stamp when the ad page was first opened, and return that timestamp.
+
+    The countdown is enforced against this server-side stamp rather than
+    trusting the browser, so the gag can't be skipped by calling the
+    completion endpoint directly. Only the first view counts, so
+    reloading the page doesn't restart (or extend) the clock.
+    """
+    token_hash = _ticket_ad_token_hash(token)
+    now = int(time.time())
+    data = get_access_settings()
+    for entry in data.setdefault("ticket_ad_verifications", []):
+        if (
+            hmac.compare_digest(entry.get("token_hash", ""), token_hash)
+            and not entry.get("consumed")
+            and int(entry.get("expires_at", 0)) > now
+        ):
+            if not entry.get("viewed_at"):
+                entry["viewed_at"] = now
+                _save(data)
+            return int(entry["viewed_at"])
+    return None
+
+
+def ticket_ad_seconds_remaining(token: str, min_watch_seconds: int) -> int | None:
+    """Seconds still left before this session may be completed.
+
+    0 means it's ready. None means the token is invalid/expired, or the
+    page was never actually opened.
+    """
+    entry = get_ticket_ad_verification(token)
+    if not entry:
+        return None
+    viewed_at = entry.get("viewed_at")
+    if not viewed_at:
+        return None
+    elapsed = int(time.time()) - int(viewed_at)
+    return max(0, int(min_watch_seconds) - elapsed)
+
+
+def complete_ticket_ad_verification(token: str, min_watch_seconds: int = 0) -> bool:
+    """Mark a session complete once the required watch time has elapsed.
+
+    min_watch_seconds is checked against the server-side viewed_at stamp;
+    a session that was never opened (no stamp) can never be completed.
+    """
+    token_hash = _ticket_ad_token_hash(token)
+    now = int(time.time())
+    data = get_access_settings()
+    for entry in data.setdefault("ticket_ad_verifications", []):
+        if (
+            hmac.compare_digest(entry.get("token_hash", ""), token_hash)
+            and not entry.get("consumed")
+            and int(entry.get("expires_at", 0)) > now
+        ):
+            if min_watch_seconds > 0:
+                viewed_at = entry.get("viewed_at")
+                if not viewed_at:
+                    return False
+                # 1s grace for clock skew / request latency
+                if now - int(viewed_at) < int(min_watch_seconds) - 1:
+                    return False
+            entry["completed"] = True
+            entry["completed_at"] = now
+            _save(data)
+            return True
+    return False
+
+
+def user_has_completed_ticket_ad_verification(user_id: str) -> bool:
+    now = int(time.time())
+    return any(
+        str(entry.get("user_id")) == str(user_id)
+        and entry.get("completed")
+        and not entry.get("consumed")
+        and int(entry.get("expires_at", 0)) > now
+        for entry in get_access_settings().get("ticket_ad_verifications", [])
+    )
+
+
+def consume_ticket_ad_verification(user_id: str) -> bool:
+    """Consume the newest completed session when a ticket is submitted."""
+    now = int(time.time())
+    data = get_access_settings()
+    matches = [
+        entry
+        for entry in data.setdefault("ticket_ad_verifications", [])
+        if str(entry.get("user_id")) == str(user_id)
+        and entry.get("completed")
+        and not entry.get("consumed")
+        and int(entry.get("expires_at", 0)) > now
+    ]
+    if not matches:
+        return False
+    newest = max(matches, key=lambda entry: int(entry.get("completed_at", 0)))
+    newest["consumed"] = True
+    newest["consumed_at"] = now
+    _save(data)
+    return True
 
 
 def add_allowed_user(user_id: str) -> bool:
@@ -743,6 +969,78 @@ def has_basic_command_access(user_id: str, member_role_ids=None) -> bool:
     users = get_basic_command_user_ids()
     if not roles and not users:
         return True
+    if str(user_id) in users:
+        return True
+    if member_role_ids:
+        role_ids = {str(r) for r in member_role_ids}
+        if role_ids.intersection(set(roles)):
+            return True
+    return False
+
+
+def add_pin_message_role(role_id: str) -> bool:
+    """Add a role allowed to use /pin (and /unpin) inside ticket channels
+    — same shape as Basic Command Access."""
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id not in data["pin_message_roles"]:
+        data["pin_message_roles"].append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_pin_message_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    if role_id in data["pin_message_roles"]:
+        data["pin_message_roles"].remove(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def add_pin_message_user(user_id: str) -> bool:
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id not in data["pin_message_users"]:
+        data["pin_message_users"].append(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_pin_message_user(user_id: str) -> bool:
+    data = get_access_settings()
+    user_id = str(user_id)
+    if user_id in data["pin_message_users"]:
+        data["pin_message_users"].remove(user_id)
+        _save(data)
+        return True
+    return False
+
+
+def get_pin_message_role_ids():
+    return get_access_settings().get("pin_message_roles", [])
+
+
+def get_pin_message_user_ids():
+    return get_access_settings().get("pin_message_users", [])
+
+
+def has_pin_message_access(user_id: str, member_role_ids=None) -> bool:
+    """Return True if this user can pin/unpin messages via the bot's
+    Toggle Pin context menu, purely through the configurable role/user
+    list below (or being an admin). Roles added here also get Discord's
+    own dedicated Pin Messages permission inside ticket channels (see
+    tickets.py ticket creation and main.py's _sync_pin_role_on_open_tickets),
+    so native right-click pinning works too — this list is the single
+    source of truth for both paths.
+    """
+    if is_admin(user_id):
+        return True
+    roles = get_pin_message_role_ids()
+    users = get_pin_message_user_ids()
     if str(user_id) in users:
         return True
     if member_role_ids:

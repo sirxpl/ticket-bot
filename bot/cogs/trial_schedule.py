@@ -227,10 +227,30 @@ class TrialSchedule(commands.Cog):
         self._last_slot = None
         self._update_lock = asyncio.Lock()
 
+        # Discord can temporarily block the host after repeated global 429s.
+        # Do not keep retrying the trial schedule every minute while that
+        # happens; respect Retry-After and add exponential backoff.
+        self._rate_limit_until = 0.0
+        self._rate_limit_failures = 0
+
         self.auto_updater.start()
 
     def cog_unload(self):
         self.auto_updater.cancel()
+
+    def _rate_limit_retry_after(self, exc: discord.HTTPException) -> float:
+        """Return Discord's Retry-After value, if the response supplied one."""
+        try:
+            value = exc.response.headers.get("Retry-After")
+            return float(value) if value else 0.0
+        except (AttributeError, TypeError, ValueError):
+            return 0.0
+
+    def _rate_limit_delay(self, exc: discord.HTTPException) -> float:
+        retry_after = self._rate_limit_retry_after(exc)
+        # If Discord did not provide a usable value, back off exponentially.
+        fallback = min(3600.0, 60.0 * (2 ** min(self._rate_limit_failures, 5)))
+        return max(1.0, retry_after, fallback)
 
     async def publish_or_update(
         self,
@@ -238,6 +258,9 @@ class TrialSchedule(commands.Cog):
         force: bool = False,
     ):
         async with self._update_lock:
+            now = asyncio.get_running_loop().time()
+            if not force and now < self._rate_limit_until:
+                return None
             cfg = get_trial_schedule_settings()
 
             target_id = str(
@@ -334,14 +357,32 @@ class TrialSchedule(commands.Cog):
                     )
 
                 self._last_slot = slot_no
+                self._rate_limit_failures = 0
+                self._rate_limit_until = 0.0
 
                 return message
 
             except discord.HTTPException as exc:
-                logger.warning(
-                    "Trial schedule Discord API request failed: %s",
-                    exc,
-                )
+                if exc.status == 429:
+                    self._rate_limit_failures += 1
+                    delay = self._rate_limit_delay(exc)
+                    self._rate_limit_until = (
+                        asyncio.get_running_loop().time() + delay
+                    )
+                    logger.warning(
+                        "Trial schedule hit Discord 429; backing off for %.0fs "
+                        "(failure #%d): %s",
+                        delay,
+                        self._rate_limit_failures,
+                        exc,
+                    )
+                else:
+                    # A successful non-429 request resets the backoff state;
+                    # other HTTP errors should not be treated as rate limits.
+                    logger.warning(
+                        "Trial schedule Discord API request failed: %s",
+                        exc,
+                    )
 
                 return None
 

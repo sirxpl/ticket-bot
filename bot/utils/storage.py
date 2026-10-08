@@ -53,6 +53,105 @@ def save_settings(settings):
 def set_tickets_enabled(status):
     s=get_settings();s["tickets_enabled"]=bool(status);save_settings(s)
 
+# --- April Fools gag ---
+def get_april_fools_enabled():
+    """When on, opening a ticket first shows a joke 'ad' screen with a 15s
+    countdown and a Continue button. Purely a gag - the linked video is
+    optional to watch, never embedded or autoplayed."""
+    return bool(get_settings().get("april_fools_enabled", False))
+
+def set_april_fools_enabled(status):
+    s=get_settings();s["april_fools_enabled"]=bool(status);save_settings(s)
+
+APRIL_FOOLS_AD_FIELDS = {
+    "type": "video",
+    "headline": "",
+    "body": "",
+    "image_url": "",
+    "link_url": "",
+    "link_label": "Learn more",
+    "sponsor": "Tickety Ad Network",
+}
+
+APRIL_FOOLS_STARTER_AD = {
+    **APRIL_FOOLS_AD_FIELDS,
+    "headline": "A word from our sponsor",
+    "body": "Your ticket will open right after this short message.",
+}
+
+def _clean_april_fools_ad(raw):
+    """Normalise one ad dict, dropping unknown keys and bad types."""
+    ad = {**APRIL_FOOLS_AD_FIELDS}
+    for key in APRIL_FOOLS_AD_FIELDS:
+        if isinstance(raw, dict) and raw.get(key) is not None:
+            ad[key] = str(raw[key]).strip()
+    # Only two kinds exist: a video link, or a picture + text panel.
+    if ad["type"] not in ("video", "image"):
+        ad["type"] = "video"
+    if not ad["link_label"]:
+        ad["link_label"] = "Learn more"
+    return ad
+
+def get_april_fools_ad_config():
+    """Ad rotation config for the joke pre-ticket page.
+
+    Returns {"ads": [...], "countdown_seconds": int, "randomize": bool}.
+    Transparently migrates the older single-ad format so existing setups
+    keep working.
+    """
+    s = get_settings()
+    raw = s.get("april_fools_ads")
+
+    if not isinstance(raw, list) or not raw:
+        legacy = s.get("april_fools_ad")
+        raw = [legacy] if isinstance(legacy, dict) and legacy else [APRIL_FOOLS_STARTER_AD]
+
+    ads = [_clean_april_fools_ad(a) for a in raw if isinstance(a, dict)]
+    if not ads:
+        ads = [_clean_april_fools_ad(APRIL_FOOLS_STARTER_AD)]
+
+    try:
+        countdown = int(s.get("april_fools_countdown_seconds", 15))
+    except (TypeError, ValueError):
+        countdown = 15
+
+    return {
+        "ads": ads,
+        "countdown_seconds": max(1, min(countdown, 120)),
+        "randomize": bool(s.get("april_fools_randomize", True)),
+    }
+
+def save_april_fools_ad_config(ads, countdown_seconds=15, randomize=True):
+    s = get_settings()
+    cleaned = [_clean_april_fools_ad(a) for a in (ads or []) if isinstance(a, dict)]
+    if not cleaned:
+        cleaned = [_clean_april_fools_ad(APRIL_FOOLS_STARTER_AD)]
+    try:
+        countdown = int(countdown_seconds)
+    except (TypeError, ValueError):
+        countdown = 15
+    s["april_fools_ads"] = cleaned
+    s["april_fools_countdown_seconds"] = max(1, min(countdown, 120))
+    s["april_fools_randomize"] = bool(randomize)
+    s.pop("april_fools_ad", None)  # retire the legacy single-ad key
+    save_settings(s)
+    return get_april_fools_ad_config()
+
+def pick_april_fools_ad(seed=""):
+    """Choose which ad to show.
+
+    Keyed off the verification token so one member gets a stable ad for
+    the whole countdown (reloading won't reshuffle mid-view), while
+    different tickets get different ads.
+    """
+    cfg = get_april_fools_ad_config()
+    ads = cfg["ads"]
+    if len(ads) == 1 or not cfg["randomize"]:
+        return ads[0]
+    import hashlib
+    idx = int(hashlib.sha256(str(seed).encode()).hexdigest(), 16) % len(ads)
+    return ads[idx]
+
 # --- Trial schedule settings ---
 def get_trial_schedule_settings():
     """Persistent config for the automatically maintained Trial Schedule post."""
@@ -164,9 +263,79 @@ def slugify(text):return re.sub(r"[^a-z0-9]+","-",(text or "").lower().strip()).
 _DEFAULT_TICKET_CATEGORIES=[{"label":"General Support","description":"General help or questions","emoji":"❓"},{"label":"Report a User","description":"Report another user","emoji":"⚠️"},{"label":"Appeal / Ban Review","description":"Appeal moderation action","emoji":"📝"}]
 def get_ticket_categories():
     c=get_settings().get("ticket_categories") or list(_DEFAULT_TICKET_CATEGORIES)
-    for x in c:x.setdefault("blacklist_roles",[]);x.setdefault("name_prefix",slugify(x.get("label","ticket")));x.setdefault("open_note","");x.setdefault("discord_category_id",None);x.setdefault("dropdown_enabled",True);x.setdefault("variables",{})
+    for x in c:x.setdefault("blacklist_roles",[]);x.setdefault("badge_mode","off");x.setdefault("badge_ids",[]);x.setdefault("name_prefix",slugify(x.get("label","ticket")));x.setdefault("open_note","");x.setdefault("discord_category_id",None);x.setdefault("dropdown_enabled",True);x.setdefault("variables",{})
     return c
 def save_ticket_categories(categories):s=get_settings();s["ticket_categories"]=categories;save_settings(s)
+
+def get_ticket_badge_config():
+    cfg = get_settings().get("ticket_badge_verification") or {}
+    blocked_key_present = "blocked_badges" in cfg
+    blocked = cfg.get("blocked_badges") or []
+    if not isinstance(blocked, list):
+        blocked = []
+    blocked = [str(b).strip() for b in blocked if str(b).strip().isdigit()]
+    # Migrate the old single badge ID into the block list only for old configs
+    # that do not yet have an explicit blocked_badges list.
+    legacy_badge = str(cfg.get("badge_id") or "").strip()
+    if not blocked_key_present and legacy_badge.isdigit() and legacy_badge not in blocked:
+        blocked.append(legacy_badge)
+    return {
+        "badge_id": legacy_badge,
+        "blocked_badges": blocked,
+        "verification_url": str(cfg.get("verification_url") or "https://rover.link/verify/").strip(),
+    }
+
+def save_ticket_badge_config(badge_id, verification_url=None, blocked_badges=None):
+    s=get_settings()
+    existing=s.get("ticket_badge_verification") or {}
+    if blocked_badges is None:
+        blocked_badges = existing.get("blocked_badges") or []
+    blocked=[]
+    for value in blocked_badges:
+        value=str(value).strip()
+        if value.isdigit() and value not in blocked:
+            blocked.append(value)
+    s["ticket_badge_verification"]={
+        "badge_id": str(badge_id or "").strip(),
+        "blocked_badges": blocked,
+        "verification_url": str(verification_url or existing.get("verification_url") or "https://rover.link/verify/").strip(),
+    }
+    save_settings(s)
+
+def add_blocked_ticket_badge(badge_id):
+    badge_id=str(badge_id or "").strip()
+    if not badge_id.isdigit():
+        return False
+    cfg=get_ticket_badge_config()
+    blocked=cfg.get("blocked_badges", [])
+    if badge_id in blocked:
+        return False
+    blocked.append(badge_id)
+    save_ticket_badge_config(cfg.get("badge_id"), blocked_badges=blocked)
+    return True
+
+def remove_blocked_ticket_badge(badge_id):
+    badge_id=str(badge_id or "").strip()
+    cfg=get_ticket_badge_config()
+    blocked=[b for b in cfg.get("blocked_badges", []) if str(b) != badge_id]
+    if len(blocked) == len(cfg.get("blocked_badges", [])):
+        return False
+    save_ticket_badge_config(cfg.get("badge_id"), blocked_badges=blocked)
+    return True
+
+def get_ticket_open_count(user_id, category_label):
+    counts = get_settings().get("ticket_open_counts") or {}
+    key = f"{user_id}:{str(category_label or '').strip().lower()}"
+    try:return int(counts.get(key, 0))
+    except (TypeError, ValueError):return 0
+
+def increment_ticket_open_count(user_id, category_label):
+    s=get_settings()
+    counts=s.setdefault("ticket_open_counts",{})
+    key=f"{user_id}:{str(category_label or '').strip().lower()}"
+    counts[key]=int(counts.get(key,0))+1
+    save_settings(s)
+    return counts[key]
 def get_ticket_panel_draft():return get_settings().get("ticket_panel_draft") or {}
 def save_ticket_panel_draft(draft):s=get_settings();s["ticket_panel_draft"]=draft;save_settings(s)
 
@@ -371,6 +540,21 @@ def get_dashboard_base_url():
     for b in (os.getenv('PUBLIC_BASE_URL'),os.getenv('DASHBOARD_URL'),_detected_base_url,(get_settings() or {}).get('public_base_url'),os.getenv('OAUTH2_REDIRECT_URI')):
         if b:return b.strip().removesuffix('/callback').rstrip('/')
     return ''
+
+def youtube_embed_url(url):
+    """Return an embeddable https://www.youtube.com/embed/<id> URL for a
+    youtu.be/youtube.com link (watch, youtu.be, shorts, or already-embed
+    forms), or None if `url` doesn't look like a YouTube link."""
+    if not url:
+        return None
+    m = re.search(
+        r'(?:youtu\.be/|youtube\.com/(?:watch\?v=|embed/|shorts/))([A-Za-z0-9_-]{6,})',
+        url,
+    )
+    if not m:
+        return None
+    return f"https://www.youtube.com/embed/{m.group(1)}"
+
 def generate_transcript_token(filename,expires_seconds=3600):
     import hmac,hashlib,base64
     exp=int(time.time())+int(expires_seconds);p=f"{filename}|{exp}".encode();sig=hmac.new((os.getenv('SECRET_KEY') or 'supersecretkey123').encode(),p,hashlib.sha256).digest();return base64.urlsafe_b64encode(p+b"|"+sig).decode()

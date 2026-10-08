@@ -22,6 +22,10 @@ from utils.storage import (
     get_category_counter,
     get_redirect_message,
     get_settings,
+    get_ticket_categories,
+    get_ticket_open_count,
+    increment_ticket_open_count,
+    get_ticket_badge_config,
     get_tickets_data,
     get_welcome_message,
     increment_category_counter,
@@ -598,6 +602,187 @@ class TicketView(discord.ui.View):
         selection = select.values[0] if select.values else "General Support"
         outer_view = self
 
+        # Badge verification gate: a category can require the configured Roblox
+        # badge, or block users who have it, starting from the member's very
+        # first ticket in that category. The final decision is made server-side
+        # through RoVer + Roblox, never by the browser button.
+        #
+        # Every one of these variables is set up-front with a safe "gate off"
+        # default before the try block runs. Previously gate_category was only
+        # ever assigned inside the try, so if get_ticket_categories() (or
+        # anything before it finished) raised, the except clause below did NOT
+        # backfill gate_category — the very next line then hit a bare
+        # NameError, which happened before any interaction.response call had
+        # been made. Discord has nothing to show for that but "the application
+        # did not respond", since the 3-second ack window just ran out on an
+        # unhandled crash. This is likely exactly what's been happening.
+        gate_category = None
+        badge_mode = "off"
+        badge_cfg = {"badge_id": "", "verification_url": "https://rover.link/verify/"}
+        try:
+            categories_for_gate = get_ticket_categories()
+            gate_category = next((c for c in categories_for_gate if c.get("label") == selection), None)
+            badge_mode = (gate_category or {}).get("badge_mode", "off")
+            badge_cfg = get_ticket_badge_config()
+        except Exception:
+            logger.exception(
+                "ticket_select: badge-gate lookup failed, opening the ticket "
+                "without the badge gate rather than failing the interaction"
+            )
+            gate_category, badge_mode = None, "off"
+            badge_cfg = {"badge_id": "", "verification_url": "https://rover.link/verify/"}
+
+        category_badges = (gate_category or {}).get("badge_ids") or []
+        category_badges = [str(b).strip() for b in category_badges if str(b).strip().isdigit()]
+        blocked_badges = badge_cfg.get("blocked_badges") or []
+        global_block_badges = [str(b).strip() for b in blocked_badges if str(b).strip().isdigit()]
+        if badge_mode == "block_badge":
+            block_badges = category_badges or global_block_badges
+            if not block_badges and badge_cfg.get("badge_id"):
+                block_badges = [str(badge_cfg.get("badge_id"))]
+        else:
+            block_badges = []
+        required_badges = category_badges or ([str(badge_cfg.get("badge_id")).strip()] if str(badge_cfg.get("badge_id") or "").strip().isdigit() else [])
+        badge_gate_required = (
+            (badge_mode == "require_badge" and bool(required_badges)) or
+            (badge_mode == "block_badge" and bool(block_badges))
+        )
+
+        async def show_badge_gate():
+            from utils.storage import get_dashboard_base_url
+            verification_url = badge_cfg.get("verification_url") or "https://rover.link/verify/"
+            view = discord.ui.View(timeout=600)
+            view.add_item(discord.ui.Button(label="🔗 Verify with RoVer", style=discord.ButtonStyle.link, url=verification_url))
+            check = discord.ui.Button(label="✅ I've verified", style=discord.ButtonStyle.success)
+
+            async def _send_continue_button(target_interaction: discord.Interaction):
+                # A modal can only ever be shown as the FIRST response to an
+                # interaction — never through a followup/webhook, and never
+                # after response.defer() has already been used. Since the
+                # badge check above needs to defer (it makes network calls
+                # that can take longer than Discord's 3-second ack window),
+                # this same interaction can no longer show a modal. Instead,
+                # hand the user a fresh button; that button's own interaction
+                # is un-deferred, so its callback can call send_modal() on it
+                # directly and it will actually open.
+                continue_view = discord.ui.View(timeout=300)
+                continue_button = discord.ui.Button(label="🎫 Continue to Ticket Form", style=discord.ButtonStyle.success)
+
+                async def continue_callback(continue_interaction: discord.Interaction):
+                    if continue_interaction.user.id != interaction.user.id:
+                        await continue_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
+                        return
+                    await continue_interaction.response.send_modal(modal)
+
+                continue_button.callback = continue_callback
+                continue_view.add_item(continue_button)
+                await target_interaction.followup.send(
+                    "✅ Verification passed. Click below to continue to the ticket form.",
+                    view=continue_view,
+                    ephemeral=True,
+                )
+
+            async def _send_needs_consent(target_interaction, reason):
+                # RoVer confirms the account is verified but the user hasn't
+                # granted this server (or this bot's API key) permission to
+                # reveal it yet. Being "verified" no longer implies that
+                # permission — see https://rover.link/help/username-privacy-and-consent.
+                # Give them the exact place to grant it and let them retry
+                # the same "I've verified" button afterward.
+                from utils.rover_verification import ROVER_CONSENT_URL
+                view = discord.ui.View(timeout=600)
+                view.add_item(discord.ui.Button(label="🔓 Grant RoVer Access", style=discord.ButtonStyle.link, url=ROVER_CONSENT_URL))
+                await target_interaction.followup.send(
+                    f"🔒 You're verified with RoVer, but you haven't granted this server permission to see your linked Roblox account yet. "
+                    f"{reason}\n\nClick **Grant RoVer Access** above, allow this server, then press **✅ I've verified** again.",
+                    view=view,
+                    ephemeral=True,
+                )
+
+            async def check_callback(check_interaction: discord.Interaction):
+                if check_interaction.user.id != interaction.user.id:
+                    await check_interaction.response.send_message("❌ This verification belongs to another user.", ephemeral=True)
+                    return
+                await check_interaction.response.defer(ephemeral=True)
+                guild_id = check_interaction.guild.id if check_interaction.guild else None
+                if badge_mode == "require_badge":
+                    from utils.rover_verification import check_required_badges_for_discord_user
+                    owned_badges, reason, _details, ok, needs_consent = await asyncio.to_thread(
+                        check_required_badges_for_discord_user, guild_id, check_interaction.user.id, required_badges
+                    )
+                    if needs_consent:
+                        await _send_needs_consent(check_interaction, reason)
+                        return
+                    if not ok:
+                        # The check itself couldn't run (RoVer/Roblox unreachable
+                        # or blocked) — let the ticket through rather than stall
+                        # the user indefinitely, but make the failure visible so
+                        # staff know this badge check did not actually run.
+                        await check_interaction.followup.send(
+                            f"⚠️ There was an issue verifying: {reason} Continuing without a completed badge check — a staff member may want to double check this ticket.",
+                            ephemeral=True,
+                        )
+                        await _send_continue_button(check_interaction)
+                        return
+                    allowed = bool(owned_badges)
+                    if allowed:
+                        await _send_continue_button(check_interaction)
+                    else:
+                        badge_text = ", ".join(required_badges)
+                        await check_interaction.followup.send(
+                            f"❌ You do not have access to open this ticket. You need at least one of the configured Roblox badges: **{badge_text}**. {reason}",
+                            ephemeral=True,
+                        )
+                else:
+                    from utils.rover_verification import check_blocked_badges_for_discord_user
+                    owned_badges, reason, _details, ok, needs_consent = await asyncio.to_thread(
+                        check_blocked_badges_for_discord_user, guild_id, check_interaction.user.id, block_badges
+                    )
+                    if needs_consent:
+                        await _send_needs_consent(check_interaction, reason)
+                        return
+                    if not ok:
+                        # Same reasoning as the require_badge path above: don't
+                        # stall the ticket on an unreachable/blocked check, but
+                        # flag it clearly so staff know verification didn't run.
+                        await check_interaction.followup.send(
+                            f"⚠️ There was an issue verifying: {reason} Continuing without a completed badge check — a staff member may want to double check this ticket.",
+                            ephemeral=True,
+                        )
+                        await _send_continue_button(check_interaction)
+                        return
+                    if not owned_badges:
+                        await _send_continue_button(check_interaction)
+                    else:
+                        owned_text = ", ".join(owned_badges)
+                        await check_interaction.followup.send(
+                            f"❌ You do not have access to open this ticket. Your linked Roblox account has a blocked badge: **{owned_text}**.",
+                            ephemeral=True,
+                        )
+
+            check.callback = check_callback
+            view.add_item(check)
+            title = "🔐 Ticket Verification Required"
+            if badge_mode == "require_badge":
+                desc = "This ticket category requires verification. You must verify with RoVer and own at least one configured Roblox badge before continuing."
+            else:
+                desc = "This ticket category requires verification. You must verify with RoVer so the bot can confirm that you do not own any badge from this category's blocked list."
+            embed = discord.Embed(title=title, description=desc, color=discord.Color.blurple())
+            if badge_mode == "require_badge":
+                display_badges = ", ".join(required_badges)
+                if len(display_badges) > 1024:
+                    display_badges = display_badges[:1010] + "…"
+                embed.add_field(name="Required Roblox Badge IDs", value=display_badges or "None configured", inline=False)
+            else:
+                display_badges = ", ".join(block_badges)
+                if len(display_badges) > 1024:
+                    display_badges = display_badges[:1010] + "…"
+                embed.add_field(name="Blocked Badge IDs", value=display_badges or "None configured", inline=False)
+            embed.set_footer(text="Press ‘I've verified’ only after completing RoVer verification.")
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+        # Modal is constructed below; delay the gate until after modal creation.
+
         # check blacklist (individually-blacklisted user IDs) — only
         # "regular" type blocks ALL ticket categories outright. "voidcore"
         # type intentionally does NOT block here; it instead relies on the
@@ -663,8 +848,6 @@ class TicketView(discord.ui.View):
 
         # check per-category blacklist roles (set per dropdown option)
         try:
-            from utils.storage import get_ticket_categories
-
             categories = get_ticket_categories()
             matched_category = next(
                 (c for c in categories if c.get("label") == selection), None
@@ -836,6 +1019,32 @@ class TicketView(discord.ui.View):
                                 embed_links=True,
                                 attach_files=True,
                             )
+                except Exception:
+                    pass
+
+                try:
+                    # Roles granted Pin Message Access get Discord's actual
+                    # Pin Messages permission inside this ticket channel —
+                    # Discord split this out from Manage Messages, so this
+                    # grants pinning only, nothing else. Falls back to
+                    # Manage Messages only if the installed discord.py
+                    # version predates the dedicated Pin Messages flag.
+                    from utils.access import get_pin_message_role_ids
+
+                    for rid in get_pin_message_role_ids():
+                        pin_role = guild.get_role(int(rid))
+                        if not pin_role:
+                            continue
+                        existing = overwrites.get(pin_role)
+                        if existing is None:
+                            existing = discord.PermissionOverwrite(
+                                read_messages=True, send_messages=True
+                            )
+                        if hasattr(existing, "pin_messages"):
+                            existing.pin_messages = True
+                        else:
+                            existing.manage_messages = True
+                        overwrites[pin_role] = existing
                 except Exception:
                     pass
 
@@ -1066,6 +1275,8 @@ class TicketView(discord.ui.View):
                             f"Failed to append ticket creation log for channel={ticket_channel.id}: {e}"
                         )
 
+                    increment_ticket_open_count(user.id, self.selection)
+
                     await modal_interaction.followup.send(
                         render_ticket_template(
                             get_redirect_message().get("content")
@@ -1095,6 +1306,82 @@ class TicketView(discord.ui.View):
                     )
 
         modal = TicketModal(interaction.user, selection)
+
+        if badge_gate_required:
+            await show_badge_gate()
+            return
+
+        from utils.storage import get_april_fools_enabled, get_dashboard_base_url
+
+        if get_april_fools_enabled():
+            from utils.access import create_ticket_ad_verification, consume_ticket_ad_verification
+
+            # If they already finished the ad on a previous attempt (picked a
+            # category, went and watched it, came back and picked again), this
+            # consumes that completed session and lets them straight through.
+            if consume_ticket_ad_verification(interaction.user.id):
+                await interaction.response.send_modal(modal)
+                return
+
+            base_url = get_dashboard_base_url()
+            token = None
+            try:
+                token = create_ticket_ad_verification(interaction.user.id)
+            except ValueError:
+                token = None
+
+            if token and base_url:
+                ad_url = f"{base_url}/ticket-ad/{token}"
+                gate_view = discord.ui.View(timeout=600)
+                gate_view.add_item(
+                    discord.ui.Button(
+                        label="📺 Watch Ad",
+                        style=discord.ButtonStyle.link,
+                        url=ad_url,
+                    )
+                )
+
+                watched_button = discord.ui.Button(
+                    label="✅ I've watched it", style=discord.ButtonStyle.success
+                )
+
+                async def _on_watched(watched_interaction: discord.Interaction, _user_id=interaction.user.id, _modal=modal):
+                    if watched_interaction.user.id != _user_id:
+                        await watched_interaction.response.send_message(
+                            "❌ This isn't your ad to confirm.", ephemeral=True
+                        )
+                        return
+                    from utils.access import consume_ticket_ad_verification
+                    if consume_ticket_ad_verification(watched_interaction.user.id):
+                        await watched_interaction.response.send_modal(_modal)
+                    else:
+                        await watched_interaction.response.send_message(
+                            "⏳ Looks like the countdown on the ad page isn't done yet (or you "
+                            "haven't opened it). Click **Watch Ad** above, wait for it to finish, "
+                            "press Continue there, then press this button again.",
+                            ephemeral=True,
+                        )
+
+                watched_button.callback = _on_watched
+                gate_view.add_item(watched_button)
+
+                ad_embed = discord.Embed(
+                    title="📺 A Message From Our Totally Real Sponsors",
+                    description=(
+                        "Before your ticket opens, please watch the ad on our website, "
+                        "then come back here and press **I've watched it**.\n\n"
+                        "*(April Fools! ...mostly. You do actually need to watch it.)*"
+                    ),
+                    color=discord.Color.gold(),
+                )
+                ad_embed.set_footer(text="🃏 April Fools Mode is enabled on this server")
+                await interaction.response.send_message(
+                    embed=ad_embed, view=gate_view, ephemeral=True
+                )
+                return
+            # No PUBLIC_BASE_URL configured, so there's nowhere to send them —
+            # fail open rather than locking every ticket behind a dead link.
+
         await interaction.response.send_modal(modal)
 
 
@@ -1109,11 +1396,25 @@ class TicketsCog(commands.Cog):
     def get_ticket_view(self):
         return TicketView(self.bot)
 
+    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
+    #
+    # NOTE: @app_commands.context_menu() cannot decorate a method defined
+    # inside a class body — discord.py raises "context menus cannot be
+    # defined inside a class" at import time if you try. The actual
+    # implementation lives in the module-level `_toggle_pin_message`
+    # function below and is manually attached to the bot's command tree in
+    # cog_load/cog_unload.
+
     async def cog_load(self):
         self.autoclose_watcher.start()
+        self.bot.tree.add_command(toggle_pin_message_context_menu)
 
     def cog_unload(self):
         self.autoclose_watcher.cancel()
+        self.bot.tree.remove_command(
+            toggle_pin_message_context_menu.name,
+            type=toggle_pin_message_context_menu.type,
+        )
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1131,9 +1432,9 @@ class TicketsCog(commands.Cog):
                 f"Failed to update ticket activity for channel={message.channel.id}"
             )
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(hours=2)
     async def autoclose_watcher(self):
-        """Every 10 minutes: close any ticket whose opener has left the
+        """Every 2 hours: close any ticket whose opener has left the
         server, ping openers who've gone quiet for 12h with a heads-up,
         then close tickets that hit 24h of inactivity with nobody having
         disabled it via /autoclose disable.
@@ -1173,10 +1474,9 @@ class TicketsCog(commands.Cog):
             try:
                 member = guild.get_member(int(user_id))
                 if member is None:
-                    # This is a real, uncached HTTP call every time (Members
-                    # intent is disabled), so pace it - firing one of these
-                    # per active ticket back-to-back with zero delay is what
-                    # was triggering Discord's rate limiting.
+                    # Members intent is disabled, so uncached members require
+                    # a REST lookup. Pace those lookups so a large ticket
+                    # list cannot create a request burst.
                     try:
                         await guild.fetch_member(int(user_id))
                     except discord.NotFound:
@@ -1201,6 +1501,7 @@ class TicketsCog(commands.Cog):
                         # skip the rest of this tick's checks for this ticket
                         pass
                     finally:
+                        # Keep REST lookups sequential and deliberately paced.
                         await asyncio.sleep(1.2)
             except Exception:
                 logger.exception(
@@ -1344,6 +1645,31 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 "❌ You need either the **Manage Channels** permission or a role/user ID "
                 "granted in the Basic Command Access list to use this command.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def _pin_command_check(self, interaction: discord.Interaction) -> bool:
+        """Guard for pinning/unpinning messages inside a ticket channel.
+
+        Strictly gated by Access Control's Pin Message Access list (roles
+        or user IDs explicitly added there), plus admins. Discord's native
+        Manage Messages / channel-level Pin Messages permission is
+        intentionally NOT a fallback here — access is controlled entirely
+        through the bot's own role list, so someone with Manage Messages
+        but no matching role still can't use this until they're added.
+        """
+        if not await self._require_ticket_channel(interaction):
+            return False
+
+        from utils.access import has_pin_message_access
+
+        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
+        if not has_pin_message_access(interaction.user.id, member_role_ids):
+            await interaction.response.send_message(
+                "❌ You need a role or user ID granted in the Pin Message Access "
+                "list (Access Control) to pin or unpin messages.",
                 ephemeral=True,
             )
             return False
@@ -1742,6 +2068,9 @@ class TicketsCog(commands.Cog):
         emb.add_field(name="Reason", value=reason, inline=False)
         emb.set_footer(text="Tickety | Tickety.top")
         await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
+    # (actual implementation is the module-level toggle_pin_message_context_menu below)
 
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")
@@ -2490,6 +2819,42 @@ class TicketsCog(commands.Cog):
         except Exception as global_err:
             logger.exception(f"Error in do_close: {global_err}")
             return False
+
+
+@app_commands.context_menu(name="📌 Toggle Pin")
+async def toggle_pin_message_context_menu(interaction: discord.Interaction, message: discord.Message):
+    """Right-click a message -> Apps -> 📌 Toggle Pin.
+
+    Must live at module level, not inside TicketsCog — discord.py raises
+    "context menus cannot be defined inside a class" if you try to
+    decorate a method with @app_commands.context_menu directly. It's
+    manually attached to the bot's tree in TicketsCog.cog_load instead of
+    being auto-discovered like a normal @app_commands.command.
+    """
+    cog = interaction.client.get_cog("TicketsCog")
+    if cog is None or not await cog._pin_command_check(interaction):
+        return
+    try:
+        if message.pinned:
+            await message.unpin(reason=f"Unpinned by {interaction.user}")
+            await interaction.response.send_message(
+                f"📌 Unpinned [that message]({message.jump_url}).", ephemeral=True
+            )
+        else:
+            await message.pin(reason=f"Pinned by {interaction.user}")
+            await interaction.response.send_message(
+                f"📌 Pinned [that message]({message.jump_url}).", ephemeral=True
+            )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ I don't have permission to pin/unpin messages in this channel.",
+            ephemeral=True,
+        )
+    except discord.HTTPException as e:
+        await interaction.response.send_message(
+            f"❌ Failed to update the pin — {e.text if hasattr(e, 'text') else e}",
+            ephemeral=True,
+        )
 
 
 async def setup(bot):

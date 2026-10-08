@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Downtime & Offline Schedule — Carry Ticket Bot</title>
+<style>
+:root{--bg:#0b0c12;--surface:#14151f;--surface2:#191b28;--border:#25273a;--text:#eef0f7;--muted:#8d90a8;--yellow:#ffc93c;--indigo:#7c6cf0;--green:#3fd68c;--red:#f1556c}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -10%,#202347 0,#0b0c12 48%);color:var(--text);font:15px/1.6 Inter,system-ui,-apple-system,sans-serif}
+a{color:inherit}.wrap{width:min(980px,calc(100% - 36px));margin:0 auto;padding:34px 0 100px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:28px}.brand{font-weight:800;text-decoration:none}.back{color:var(--muted);text-decoration:none}.back:hover{color:var(--yellow)}
+.hero{padding:28px;border:1px solid var(--border);border-radius:16px;background:var(--surface);margin-bottom:18px}.eyebrow{color:var(--yellow);font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.hero h1{margin:7px 0 8px;font-size:34px;line-height:1.15}.hero p{margin:0;color:var(--muted)}
+.grid{display:grid;grid-template-columns:1fr 1.5fr;gap:18px}.card{padding:22px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}.card h2{font-size:18px;margin:0 0 14px}.state{display:inline-flex;align-items:center;gap:9px;padding:8px 12px;border-radius:9px;background:var(--surface2);font-weight:800}.dot{width:10px;height:10px;border-radius:50%}.online{background:var(--green);box-shadow:0 0 10px #3fd68c88}.offline{background:var(--red);box-shadow:0 0 10px #f1556c66}.meta{margin-top:15px;color:var(--muted);font-size:13px}.tz{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);word-break:break-word}
+.day{padding:13px 0;border-bottom:1px solid var(--border)}.day:last-child{border-bottom:0}.day-name{font-weight:800;text-transform:capitalize;margin-bottom:7px}.entry{display:inline-block;margin:3px 6px 3px 0;padding:5px 9px;border-radius:7px;background:var(--surface2);color:#cfd2e2;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.disabled{opacity:.45;text-decoration:line-through}.empty{color:var(--muted);font-size:13px}.note{margin-top:18px;padding:13px 15px;border-left:3px solid var(--yellow);background:#1e1d29;color:#c9cbd8;border-radius:8px;font-size:13px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.hero h1{font-size:29px}.top{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="top">
+    <a class="brand" href="{{ url_for('status_page') }}">Carry Ticket Bot</a>
+    <a class="back" href="{{ url_for('status_page') }}">← Live Status</a>
+  </div>
+  <section class="hero">
+    <div class="eyebrow">Downtime Center</div>
+    <h1>Downtime &amp; Offline Schedule</h1>
+    <p>See whether the bot is active, when scheduled downtime applies, and which timezone the schedule uses.</p>
+  </section>
+  <div class="grid">
+    <section class="card">
+      <h2>Current Status</h2>
+      <div class="state" id="bot-state" data-api-block-until="{{ api_retry_at or 0 }}">
+        <span class="dot {% if api_blocked %}offline{% elif bot_active and not schedule_active and not bot_sleeping %}online{% else %}offline{% endif %}" id="bot-state-dot"></span>
+        <span id="bot-state-text">{% if api_blocked %}API Limited{% elif bot_active and not schedule_active and not bot_sleeping %}Active{% else %}Inactive{% endif %}</span>
+      </div>
+      <div class="meta" id="api-countdown">{% if api_blocked %}Discord API blocked — retrying in <strong id="api-countdown-value">loading…</strong>{% endif %}</div>
+      <div class="meta">Schedule currently {% if schedule_active %}active{% else %}inactive{% endif %}.</div>
+      <div class="meta">Configured timezone:<br><span class="tz">{{ schedule_timezone }}</span></div>
+      <div class="meta">Your browser timezone:<br><span class="tz" id="browser-tz">Detecting…</span></div>
+      <div class="note">Scheduled downtime disconnects the Discord bot while the web/status pages remain available.</div>
+    </section>
+    <section class="card">
+      <h2>Weekly Schedule</h2>
+      {% for day in schedule_days %}
+        <div class="day">
+          <div class="day-name">{{ day.name }}</div>
+          {% if day.entries %}
+            {% for entry in day.entries %}
+              <span class="entry {% if not entry.enabled %}disabled{% endif %}">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
+            {% endfor %}
+          {% else %}
+            <span class="empty">No scheduled downtime</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </section>
+  </div>
+</main>
+<script>
+(function(){
+  const el=document.getElementById("browser-tz");
+  try{el.textContent=Intl.DateTimeFormat().resolvedOptions().timeZone||"Unknown";}catch(e){el.textContent="Unknown";}
+})();
+const apiCountdown=document.getElementById("api-countdown");
+const apiCountdownValue=document.getElementById("api-countdown-value");
+const stateText=document.getElementById("bot-state-text");
+const stateDot=document.getElementById("bot-state-dot");
+function fmt(s){s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return h?String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0"):String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0");}
+async function refreshStatus(){
+  try{
+    const r=await fetch("/api/status",{cache:"no-store"}); const d=await r.json();
+    const left=Number(d.api_retry_in_seconds||0);
+    if(left>0){
+      stateText.textContent="API Limited"; stateDot.className="dot offline";
+      apiCountdown.innerHTML='Discord API blocked — retrying in <strong id="api-countdown-value">'+fmt(left)+"</strong>";
+    }else{
+      const active=!!d.online && !d.sleeping;
+      stateText.textContent=active?"Active":"Inactive"; stateDot.className="dot "+(active?"online":"offline");
+      apiCountdown.textContent="";
+    }
+  }catch(e){}
+}
+function tick(){
+  const until=Number(document.querySelector("[data-api-block-until]")?.dataset.apiBlockUntil||0);
+  if(until>0){
+    const left=Math.max(0,until-Math.floor(Date.now()/1000));
+    if(left>0 && apiCountdownValue) apiCountdownValue.textContent=fmt(left);
+  }
+}
+setInterval(tick,1000); setInterval(refreshStatus,10000); tick();
+</script>
+</body>
+</html>
