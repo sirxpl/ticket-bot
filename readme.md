@@ -130,7 +130,7 @@ Carry Team application responses, verdicts, notification retry state, and denial
 
 The public application portal is available at `/carry-application`. Applicants must authorize with Discord, belong to the bot's connected Carry server, agree to the application rules, and complete every required question. Staff review the complete response through an authenticated link.
 
-In **Dashboard → Access Control**, add the role(s) allowed to decide applications and choose Bot or Webhook notifications. Bot mode posts an interactive review card. Webhook mode posts the result through the saved webhook and adds a separate bot-owned review card. Accept and Deny both require a reason; the decision is sent to the applicant's DMs, review controls are disabled, and the application remains visible. Denied applicants can reapply 14 days after the recorded verdict. The application system does not assign team roles.
+In **Dashboard → Access Control**, add the role(s) allowed to decide applications and choose Bot or Webhook notifications. Bot mode posts an interactive review card. Webhook mode posts the result through the saved webhook and adds a separate bot-owned review card. Applicants receive a Components V2 DM confirming submission, then another Components V2 DM with the Accept or Deny result and staff reason. Accept and Deny both require a reason; review controls are disabled after a verdict, and the application remains visible. Denied applicants can reapply 14 days after the recorded verdict. The application system does not assign team roles.
 
 The webhook URL is a secret: it is stored in the bot settings database and is never redisplayed in the dashboard. Anyone with access to that URL can post to its channel, so treat it like a credential.
 
