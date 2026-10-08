@@ -181,6 +181,30 @@ def save_trial_schedule_settings(data):
     }
 
 
+def save_carry_application_delivery(delivery):
+    """Persist application notification configuration without falling back to
+    local files when a configured MongoDB connection is unavailable."""
+    db = get_db()
+    if db is None and os.getenv("MONGODB_URI"):
+        raise RuntimeError(
+            "MONGODB_URI is set but MongoDB is unavailable; settings were not saved."
+        )
+    if db is not None:
+        try:
+            db.bot_settings.update_one(
+                {"_id": "singleton"},
+                {"$set": {"carry_application_delivery": dict(delivery)}},
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("Carry application delivery settings Mongo write failed")
+            raise
+        return
+    settings = get_settings()
+    settings["carry_application_delivery"] = dict(delivery)
+    save_settings(settings)
+
+
 def get_trial_schedule_user_mode(user_id):
     """Return an individual's preferred format for /trial_schedule."""
     settings = get_settings()

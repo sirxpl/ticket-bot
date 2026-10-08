@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Carry Application Review</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0c12;--surface:#14151f;--border:#25273a;--text:#eef0f7;--muted:#b7b9ca;--yellow:#ffc93c}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 Inter,system-ui,sans-serif}
+    main{max-width:900px;margin:42px auto;padding:0 20px 60px}.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:14px}
+    h1{margin:0 0 8px}h2{font-size:18px;margin:0 0 6px;color:var(--yellow)}p{margin:0;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:14px}
+  </style>
+</head>
+<body><main>
+  <div class="card">
+    <h1>Carry Application Review</h1>
+    <p class="meta">Application {{ application.application_id }} · Submitted {{ application.submitted_at }}</p>
+    <p class="meta">Discord: {{ application.username }} ({{ application.user_id }}) · Status: {{ application.status|title }}</p>
+  </div>
+  {% for key, label in answer_labels %}
+    <div class="card"><h2>{{ label }}</h2><p>{{ application.answers.get(key, 'No response') }}</p></div>
+  {% endfor %}
+  {% if application.status != "pending" %}
+    <div class="card">
+      <h2>{{ application.status|title }} by {{ application.decided_by }}</h2>
+      <p>{{ application.decision_reason }}</p>
+      <p class="meta">Decision time: {{ application.decided_at }}</p>
+    </div>
+  {% else %}
+    <div class="card"><p>This application is pending. Use its Accept or Deny controls in Discord to record a verdict and reason.</p></div>
+  {% endif %}
+</main></body>
+</html>

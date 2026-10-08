@@ -3,12 +3,15 @@ import glob
 import json
 import re
 import asyncio
+import datetime
+import hmac
+import secrets
 import time
 import aiohttp
-import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
 import discord
@@ -64,6 +67,7 @@ from utils.storage import (
     get_ticket_analytics,
     get_trial_schedule_settings,
     save_trial_schedule_settings,
+    save_carry_application_delivery,
     get_premade_warning_reasons,
     add_premade_warning_reason,
     update_premade_warning_reason,
@@ -76,6 +80,9 @@ from utils.storage import (
 # Import access-control helpers
 from utils.access import (
     get_access_settings,
+    add_carry_application_verdict_role,
+    remove_carry_application_verdict_role,
+    has_carry_application_verdict_access,
     create_ticket_ad_verification,
     get_ticket_ad_verification,
     mark_ticket_ad_viewed,
@@ -111,6 +118,8 @@ from utils.access import (
     remove_remove_cooldown_role,
     add_analytics_role,
     remove_analytics_role,
+    add_pin_message_role,
+    remove_pin_message_role,
     set_log_channel,
     set_blacklist_log_channel,
     set_warning_log_channel,
@@ -131,6 +140,13 @@ from utils.access import (
     revoke_terms_unblock_token,
     get_offline_schedule,
     save_offline_schedule,
+)
+from utils.carry_applications import (
+    ApplicationStateError,
+    get_application,
+    get_latest_application_for_user as get_application_for_user,
+    reset_pending_application_notifications,
+    submit_application,
 )
 
 # Environment & OAuth Setup
@@ -191,7 +207,7 @@ _BOT_STATUS_SECTION_HTML = """<section class="ctb-status-section" aria-label="Bo
   tick(); setInterval(tick,1000);
 })();
 </script>"""
-    
+
 @app.after_request
 def _inject_public_bot_status(response):
     """Add the public status/downtime section to every HTML page except the dashboard."""
@@ -651,6 +667,262 @@ def admin_required(f):
 
 # --- FLASK ROUTES ---
 
+def _carry_application_csrf_token():
+    token = session.get("carry_application_csrf")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["carry_application_csrf"] = token
+    return token
+
+
+def _valid_carry_application_csrf():
+    expected = session.get("carry_application_csrf", "")
+    submitted = request.form.get("csrf_token", "")
+    return bool(expected and submitted and hmac.compare_digest(expected, submitted))
+
+
+def _carry_application_member_status(user_id):
+    guild = bot.guilds[0] if bot.guilds else None
+    if guild is None or not bot.is_ready() or bot.loop.is_closed():
+        return None
+    member = guild.get_member(int(user_id))
+    if member is not None:
+        return True
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            guild.fetch_member(int(user_id)), bot.loop
+        )
+        future.result(timeout=10)
+        return True
+    except discord.NotFound:
+        return False
+    except Exception:
+        app.logger.exception(
+            "Could not verify guild membership for carry applicant=%s", user_id
+        )
+        return None
+
+
+def _carry_application_user_or_redirect():
+    user = session.get("user")
+    if not user:
+        session["application_return_to"] = url_for("carry_application")
+        return None, redirect(url_for("login"))
+    if is_globally_blocked(user.get("id")):
+        return None, ("This Discord account cannot use the application portal.", 403)
+    member_status = _carry_application_member_status(user.get("id"))
+    if member_status is False:
+        return None, ("You must be a member of the Carry Service Discord server to apply.", 403)
+    if member_status is None:
+        return None, ("The Discord bot is not connected to the server. Please try again when it is online.", 503)
+    return user, None
+
+
+@app.route("/carry-application")
+def carry_application():
+    user, response = _carry_application_user_or_redirect()
+    if response is not None:
+        return response
+    if session.get("carry_application_rules_user") != str(user["id"]):
+        session.pop("carry_application_rules_user", None)
+        session.pop("carry_application_rules_accepted_at", None)
+        return render_template(
+            "carry_application_rules.html",
+            user=user,
+            csrf_token=_carry_application_csrf_token(),
+        )
+    return redirect(url_for("carry_application_form"))
+
+
+@app.route("/carry-application/rules", methods=["POST"])
+def carry_application_accept_rules():
+    user, response = _carry_application_user_or_redirect()
+    if response is not None:
+        return response
+    if not _valid_carry_application_csrf():
+        return "Your form expired. Reload the application page and try again.", 400
+    if request.form.get("agree") != "yes":
+        return render_template(
+            "carry_application_rules.html",
+            user=user,
+            csrf_token=_carry_application_csrf_token(),
+            error="You must agree to the application rules before continuing.",
+        ), 400
+    session["carry_application_rules_user"] = str(user["id"])
+    session["carry_application_rules_accepted_at"] = datetime.datetime.now(
+        datetime.timezone.utc
+    ).isoformat()
+    return redirect(url_for("carry_application_form"))
+
+
+@app.route("/carry-application/form")
+def carry_application_form():
+    user, response = _carry_application_user_or_redirect()
+    if response is not None:
+        return response
+    if session.get("carry_application_rules_user") != str(user["id"]):
+        return redirect(url_for("carry_application"))
+    try:
+        latest = get_application_for_user(user["id"])
+    except Exception:
+        app.logger.exception(
+            "Could not check prior applications for user=%s", user["id"]
+        )
+        return "Application records are temporarily unavailable. Please try again later.", 503
+    if latest:
+        if latest.get("status") == "pending":
+            return "You already have an application awaiting review.", 409
+        if latest.get("status") == "accepted":
+            return "Your application has already been accepted.", 409
+        if latest.get("status") == "denied":
+            available_at = datetime.datetime.fromisoformat(
+                latest["decided_at"]
+            ) + datetime.timedelta(days=14)
+            if datetime.datetime.now(datetime.timezone.utc) < available_at:
+                return (
+                    "Your recent application was denied. You can apply again after "
+                    f"{available_at.strftime('%Y-%m-%d %H:%M UTC')}.",
+                    429,
+                )
+    return render_template(
+        "carry_application_form.html",
+        user=user,
+        answers={},
+        csrf_token=_carry_application_csrf_token(),
+    )
+
+
+@app.route("/carry-application/submit", methods=["POST"])
+def carry_application_submit():
+    user, response = _carry_application_user_or_redirect()
+    if response is not None:
+        return response
+    if session.get("carry_application_rules_user") != str(user["id"]):
+        return redirect(url_for("carry_application"))
+    if not _valid_carry_application_csrf():
+        return "Your form expired. Reload the application page and try again.", 400
+    if request.form.get("final_agreement") != "yes":
+        return render_template(
+            "carry_application_form.html",
+            user=user,
+            answers=request.form,
+            csrf_token=_carry_application_csrf_token(),
+            error="Please check the agreement box before submitting.",
+        ), 400
+
+    answers = {
+        "age_range": request.form.get("age_range", "").strip(),
+        "timezone": request.form.get("timezone", "").strip(),
+        "roblox_username": request.form.get("roblox_username", "").strip(),
+        "tds_level": request.form.get("tds_level", "").strip(),
+        "motivation": request.form.get("motivation", "").strip(),
+        "daily_activity": request.form.get("daily_activity", "").strip(),
+        "understands_terms": request.form.get("understands_terms", "").strip(),
+        "strategy_rating": request.form.get("strategy_rating", "").strip(),
+    }
+    valid_age_ranges = {"13-15", "16-17", "18+"}
+    if answers["age_range"] not in valid_age_ranges:
+        error = "Choose one of the listed age ranges."
+    elif answers["understands_terms"] not in {"Yes", "No"}:
+        error = "Answer the Roblox Terms of Service question."
+    elif not re.fullmatch(r"(?:[1-9]|10)", answers["strategy_rating"]):
+        error = "Choose a strategy rating from 1 to 10."
+    elif any(not value for key, value in answers.items() if key != "strategy_rating"):
+        error = "Please answer every required question."
+    elif len(answers["timezone"]) > 120 or len(answers["roblox_username"]) > 40 or len(answers["tds_level"]) > 40:
+        error = "One or more short answers are too long."
+    elif len(answers["motivation"]) > 2000 or len(answers["daily_activity"]) > 1200:
+        error = "One or more written answers are too long."
+    else:
+        error = None
+    if error:
+        return render_template(
+            "carry_application_form.html",
+            user=user,
+            answers=request.form,
+            csrf_token=_carry_application_csrf_token(),
+            error=error,
+        ), 400
+
+    try:
+        application = submit_application(
+            user["id"],
+            user.get("username"),
+            answers,
+            session.get("carry_application_rules_accepted_at"),
+        )
+    except ApplicationStateError as error:
+        if error.code == "cooldown" and error.available_at:
+            message = (
+                "Your recent application was denied. You can apply again after "
+                f"{error.available_at.strftime('%Y-%m-%d %H:%M UTC')}."
+            )
+            return message, 429
+        if error.code == "pending":
+            return "You already have an application awaiting review.", 409
+        if error.code == "accepted":
+            return "Your application has already been accepted.", 409
+        raise
+    except Exception:
+        app.logger.exception("Could not save carry application user=%s", user["id"])
+        return "We couldn't save your application because storage is temporarily unavailable. Please try again later.", 503
+
+    session.pop("carry_application_rules_user", None)
+    session.pop("carry_application_rules_accepted_at", None)
+    cog = bot.get_cog("CarryApplicationsCog")
+    if cog and bot.is_ready():
+        try:
+            asyncio.run_coroutine_threadsafe(
+                cog.process_application_notice(application["application_id"]),
+                bot.loop,
+            )
+        except RuntimeError:
+            app.logger.warning(
+                "Application %s was saved; staff notification will retry when the bot reconnects.",
+                application["application_id"],
+            )
+    return render_template("carry_application_submitted.html"), 201
+
+
+@app.route("/carry-application/review/<application_id>")
+def carry_application_review(application_id):
+    if not re.fullmatch(r"[a-f0-9]{32}", application_id):
+        return "Application not found.", 404
+    user = session.get("user")
+    if not user:
+        session["application_return_to"] = url_for(
+            "carry_application_review", application_id=application_id
+        )
+        return redirect(url_for("login"))
+    if is_globally_blocked(user.get("id")):
+        return "This Discord account cannot review Carry Team applications.", 403
+    role_ids = get_member_role_ids(user.get("id"))
+    if not has_carry_application_verdict_access(user.get("id"), role_ids):
+        return "You do not have permission to review Carry Team applications.", 403
+    try:
+        application = get_application(application_id)
+    except Exception:
+        app.logger.exception(
+            "Could not load Carry application=%s for review", application_id
+        )
+        return "Application records are temporarily unavailable. Please try again later.", 503
+    if not application:
+        return "Application not found.", 404
+    return render_template(
+        "carry_application_review.html",
+        application=application,
+        answer_labels=(
+            ("age_range", "Age range"),
+            ("timezone", "Country and time zone"),
+            ("roblox_username", "Roblox username"),
+            ("tds_level", "Tower Defense Simulator level"),
+            ("motivation", "Why they want to join"),
+            ("daily_activity", "Daily activity"),
+            ("understands_terms", "Understands the no-rewards policy"),
+            ("strategy_rating", "Game strategy experience (1-10)"),
+        ),
+    )
+
 
 @app.route("/carry-agreement")
 def carry_agreement():
@@ -1109,6 +1381,24 @@ def home():
         role = guild.get_role(int(rid)) if guild else None
         analytics_roles.append({"id": rid, "name": role.name if role else None})
 
+    pin_message_roles = []
+    for rid in access_settings.get("pin_message_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        pin_message_roles.append({"id": rid, "name": role.name if role else None})
+
+    carry_application_verdict_roles = []
+    for rid in access_settings.get("carry_application_verdict_roles", []):
+        role = guild.get_role(int(rid)) if guild else None
+        carry_application_verdict_roles.append(
+            {"id": rid, "name": role.name if role else None}
+        )
+    delivery_settings = settings.get("carry_application_delivery") or {}
+    carry_application_delivery = {
+        "mode": delivery_settings.get("mode", "bot"),
+        "channel_id": delivery_settings.get("channel_id"),
+        "webhook_configured": bool(delivery_settings.get("webhook_url")),
+    }
+
     is_admin_user = is_admin(user_data["id"])
     can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
     can_access_transcripts = has_transcripts_access(user_data["id"], role_ids)
@@ -1232,6 +1522,9 @@ def home():
         transcripts_roles=transcripts_roles,
         remove_cooldown_roles=remove_cooldown_roles,
         analytics_roles=analytics_roles,
+        pin_message_roles=pin_message_roles,
+        carry_application_verdict_roles=carry_application_verdict_roles,
+        carry_application_delivery=carry_application_delivery,
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
         can_access_transcripts=can_access_transcripts,
@@ -1346,6 +1639,9 @@ def callback():
     transcript_return_to = session.pop("transcript_return_to", None)
     if transcript_return_to:
         return redirect(transcript_return_to)
+    application_return_to = session.pop("application_return_to", None)
+    if application_return_to and application_return_to.startswith("/carry-application"):
+        return redirect(application_return_to)
     return redirect(url_for('home'))
 
 
@@ -2263,6 +2559,124 @@ def access_add_analytics_role():
 def access_remove_analytics_role(role_id):
     remove_analytics_role(role_id)
     flash("🗑️ Role removed from Analytics access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-pin-message-role", methods=["POST"])
+@admin_required
+def access_add_pin_message_role_route():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_pin_message_role(role_id)
+        flash("✅ Role granted message-pinning access.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/remove-pin-message-role/<role_id>", methods=["POST"])
+@admin_required
+def access_remove_pin_message_role_route(role_id):
+    remove_pin_message_role(role_id)
+    flash("🗑️ Role removed from message-pinning access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/add-carry-application-verdict-role", methods=["POST"])
+@admin_required
+def access_add_carry_application_verdict_role():
+    role_id = request.form.get("role_id", "").strip()
+    if role_id.isdigit():
+        add_carry_application_verdict_role(role_id)
+        flash("✅ Role can now decide Carry Team applications.", "success")
+    else:
+        flash("❌ Please select a valid role.", "danger")
+    return redirect(url_for("home"))
+
+
+@app.route(
+    "/dashboard/access/remove-carry-application-verdict-role/<role_id>",
+    methods=["POST"],
+)
+@admin_required
+def access_remove_carry_application_verdict_role(role_id):
+    remove_carry_application_verdict_role(role_id)
+    flash("🗑️ Role removed from Carry Team application verdict access.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard/access/carry-application-delivery", methods=["POST"])
+@admin_required
+def save_carry_application_delivery_route():
+    mode = request.form.get("delivery_mode", "").strip()
+    channel_id = request.form.get("channel_id", "").strip()
+    webhook_url = request.form.get("webhook_url", "").strip()
+    clear_webhook = request.form.get("clear_webhook") == "yes"
+    if mode not in {"bot", "webhook"}:
+        flash("❌ Choose Bot or Webhook delivery.", "danger")
+        return redirect(url_for("home"))
+
+    if webhook_url:
+        parsed = urlsplit(webhook_url)
+        try:
+            webhook_port = parsed.port
+        except ValueError:
+            webhook_port = -1
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname not in {
+                "discord.com",
+                "canary.discord.com",
+                "ptb.discord.com",
+            }
+            or not re.fullmatch(
+                r"/api/webhooks/[0-9]{17,20}/[A-Za-z0-9._-]{60,}",
+                parsed.path,
+            )
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+            or parsed.query
+            or webhook_port not in {None, 443}
+        ):
+            flash("❌ Enter a valid HTTPS Discord webhook URL.", "danger")
+            return redirect(url_for("home"))
+
+    if mode == "bot":
+        guild = bot.guilds[0] if bot.guilds else None
+        channel = guild.get_channel(int(channel_id)) if guild and channel_id.isdigit() else None
+        if channel is None or not isinstance(channel, discord.TextChannel):
+            flash("❌ Select a text channel in the connected Carry server.", "danger")
+            return redirect(url_for("home"))
+
+    settings = get_settings()
+    delivery = dict(settings.get("carry_application_delivery") or {})
+    delivery["mode"] = mode
+    if mode == "bot":
+        delivery["channel_id"] = channel_id
+    if clear_webhook:
+        delivery.pop("webhook_url", None)
+    elif webhook_url:
+        delivery["webhook_url"] = webhook_url
+    if mode == "webhook" and not delivery.get("webhook_url"):
+        flash("❌ Configure a webhook URL before selecting Webhook delivery.", "danger")
+        return redirect(url_for("home"))
+    try:
+        save_carry_application_delivery(delivery)
+    except Exception:
+        app.logger.exception("Failed to save Carry Team application delivery settings")
+        flash("❌ Could not save the application delivery settings.", "danger")
+        return redirect(url_for("home"))
+    try:
+        reset_pending_application_notifications()
+    except Exception:
+        app.logger.exception("Could not expedite queued Carry application notices")
+        flash(
+            "✅ Settings saved. Pending notices will retry on their existing schedule.",
+            "warning",
+        )
+        return redirect(url_for("home"))
+    flash("✅ Carry Team application delivery settings saved.", "success")
     return redirect(url_for("home"))
 
 

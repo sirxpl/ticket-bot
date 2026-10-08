@@ -29,6 +29,8 @@ _DEFAULTS = {
     "pin_message_users": [],
     "transcripts_roles": [],
     "analytics_roles": [],
+    "pin_message_roles": [],
+    "carry_application_verdict_roles": [],
     "remove_cooldown_roles": [],
     "moderation_command_roles": [],
     "moderation_command_users": [],
@@ -139,6 +141,8 @@ def get_access_settings():
         doc.setdefault("pin_message_users", [])
         doc.setdefault("transcripts_roles", [])
         doc.setdefault("analytics_roles", [])
+        doc.setdefault("pin_message_roles", [])
+        doc.setdefault("carry_application_verdict_roles", [])
         doc.setdefault("remove_cooldown_roles", [])
         doc.setdefault("moderation_command_roles", [])
         doc.setdefault("moderation_command_users", [])
@@ -170,6 +174,8 @@ def get_access_settings():
         data.setdefault("pin_message_users", [])
         data.setdefault("transcripts_roles", [])
         data.setdefault("analytics_roles", [])
+        data.setdefault("pin_message_roles", [])
+        data.setdefault("carry_application_verdict_roles", [])
         data.setdefault("remove_cooldown_roles", [])
         data.setdefault("moderation_command_roles", [])
         data.setdefault("moderation_command_users", [])
@@ -196,6 +202,74 @@ def _save(data: dict):
 
 def get_globally_blocked_users() -> list[str]:
     return [str(user_id) for user_id in get_access_settings().get("globally_blocked_users", [])]
+
+
+def add_pin_message_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    roles = data.setdefault("pin_message_roles", [])
+    if role_id not in roles:
+        roles.append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_pin_message_role(role_id: str) -> bool:
+    data = get_access_settings()
+    roles = data.setdefault("pin_message_roles", [])
+    if str(role_id) in roles:
+        roles.remove(str(role_id))
+        _save(data)
+        return True
+    return False
+
+
+def has_pin_message_access(user_id, member_role_ids=None) -> bool:
+    if is_admin(user_id):
+        return True
+    allowed_roles = get_access_settings().get("pin_message_roles", [])
+    return bool(
+        set(str(role_id) for role_id in (member_role_ids or []))
+        .intersection(str(role_id) for role_id in allowed_roles)
+    )
+
+
+def add_carry_application_verdict_role(role_id: str) -> bool:
+    data = get_access_settings()
+    role_id = str(role_id)
+    roles = data.setdefault("carry_application_verdict_roles", [])
+    if role_id not in roles:
+        roles.append(role_id)
+        _save(data)
+        return True
+    return False
+
+
+def remove_carry_application_verdict_role(role_id: str) -> bool:
+    data = get_access_settings()
+    roles = data.setdefault("carry_application_verdict_roles", [])
+    if str(role_id) in roles:
+        roles.remove(str(role_id))
+        _save(data)
+        return True
+    return False
+
+
+def get_carry_application_verdict_role_ids():
+    return get_access_settings().get("carry_application_verdict_roles", [])
+
+
+def has_carry_application_verdict_access(user_id, member_role_ids=None) -> bool:
+    if is_admin(user_id):
+        return True
+    configured_roles = get_carry_application_verdict_role_ids()
+    if not configured_roles:
+        return False
+    return bool(
+        set(str(role_id) for role_id in (member_role_ids or []))
+        .intersection(str(role_id) for role_id in configured_roles)
+    )
 
 
 def is_globally_blocked(user_id) -> bool:

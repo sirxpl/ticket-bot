@@ -1226,6 +1226,7 @@
                 <button type="button" class="flash-close" aria-label="Dismiss notification" onclick="dismissNotice(this)">×</button>
             </div>
           {% endfor %}
+
         {% endwith %}
 
         <section class="page active" id="page-overview">
@@ -2107,6 +2108,97 @@
                     {% else %}
                     <p style="color:var(--text-dim);">No active single-use links.</p>
                     {% endfor %}
+
+            <h4 style="margin-top: 24px;">Message Pinning Access</h4>
+            <p class="card-subtitle">
+                Members with one of these roles can use the bot's pin command. Administrators always have access.
+            </p>
+            <form action="/dashboard/access/add-pin-message-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in pin_message_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-pin-message-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles configured — only administrators can pin through the bot.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 24px;">Carry Team Application Verdict Access</h4>
+            <p class="card-subtitle">
+                Members with these roles can accept or deny applications from the Discord review card. A reason is required for every verdict. Administrators always have access; if no roles are configured, only administrators can decide.
+            </p>
+            <form action="/dashboard/access/add-carry-application-verdict-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {% for r in carry_application_verdict_roles %}
+                <div class="list-item">
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-carry-application-verdict-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No verdict roles configured.</p>
+            {% endfor %}
+
+            <h4 style="margin-top: 24px;">Carry Team Application Notifications</h4>
+            <p class="card-subtitle">
+                The portal is <a href="{{ url_for('carry_application', _external=True) }}" target="_blank" rel="noopener">available here</a>. Bot delivery posts the review card directly. Webhook delivery posts the result through your webhook and the bot adds a separate interactive verdict card in the same channel. Verdict controls are disabled after a decision while the response remains viewable.
+            </p>
+            <p class="card-subtitle">
+                For applications, verdicts, and cooldowns to survive redeploys, configure <code>MONGODB_URI</code>. Local JSON fallback may be erased by the hosting provider.
+            </p>
+            <form action="/dashboard/access/carry-application-delivery" method="POST" class="access-form" style="display:block;">
+                <div style="margin-bottom:12px;">
+                    <label>Notification method:</label>
+                    <select name="delivery_mode" required>
+                        <option value="bot" {% if carry_application_delivery.mode == 'bot' %}selected{% endif %}>Bot</option>
+                        <option value="webhook" {% if carry_application_delivery.mode == 'webhook' %}selected{% endif %}>Webhook + bot verdict card</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label>Bot review channel:</label>
+                    <select name="channel_id">
+                        <option value="">Select a text channel...</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if carry_application_delivery.channel_id and carry_application_delivery.channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label>Discord webhook URL:</label>
+                    <input type="password" name="webhook_url" autocomplete="new-password" placeholder="{{ 'Webhook already saved; leave blank to keep it' if carry_application_delivery.webhook_configured else 'https://discord.com/api/webhooks/...' }}">
+                    {% if carry_application_delivery.webhook_configured %}
+                        <p class="card-subtitle">A webhook URL is saved and hidden. Paste a replacement to change it.</p>
+                        <label style="display:flex;gap:8px;align-items:center;font-weight:400;">
+                            <input type="checkbox" name="clear_webhook" value="yes"> Clear the saved webhook URL
+                        </label>
+                    {% endif %}
+                </div>
+                <button type="submit" class="btn-view">Save Application Settings</button>
+            </form>
 
                     <h4 style="margin-top: 20px;">Allowed Users</h4>
             <form action="/dashboard/access/add-user" method="POST" class="access-form">

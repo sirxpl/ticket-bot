@@ -105,8 +105,9 @@
         <li><strong>Message content within ticket channels</strong> — messages sent inside a support ticket channel are read and saved into a transcript when the ticket is closed.</li>
         <li><strong>Attachment metadata</strong> — filenames and URLs of files/images shared in a ticket (the files themselves remain hosted on Discord's CDN; we do not download or re-host them).</li>
         <li><strong>Timestamps</strong> — when tickets are created, messages sent, and tickets closed.</li>
+        <li><strong>Carry Team applications</strong> — your OAuth2-verified Discord ID and username, age range, country/time zone, Roblox username, application answers, rules-agreement time, and any staff verdict and reason.</li>
       </ul>
-      <p>We do <strong>not</strong> collect data from channels outside of ticket channels, and we do not read messages in channels where a ticket is not active.</p>
+      <p>The Bot does <strong>not</strong> read messages from channels outside of active ticket channels. Carry Team application data is submitted separately through the application portal.</p>
 
       <h2 id="why-we-collect">2. Why We Collect It</h2>
       <ul>
@@ -114,6 +115,7 @@
         <li>To enforce <strong>role-based access control</strong>, such as preventing specific roles from opening tickets or specific ticket categories.</li>
         <li>To display <strong>ticket history and status</strong> on our web dashboard for staff to review.</li>
         <li>To apply <strong>cooldowns</strong> that prevent ticket spam.</li>
+        <li>To review Carry Team applications, contact applicants with a verdict, and enforce the 14-day reapplication wait after a denial.</li>
       </ul>
 
       <h2 id="where-stored">3. Where Data Is Stored</h2>
@@ -122,8 +124,9 @@
         <li>Ticket transcripts (HTML files containing message content, usernames, and timestamps)</li>
         <li>Configuration data (role IDs, user IDs) used for access control</li>
         <li>Ticket metadata (creation/close timestamps, ticket counters, cooldowns)</li>
+        <li>Carry Team application responses and review decisions, accessible only to configured application reviewers and administrators</li>
       </ul>
-      <div class="callout">Transcript links shared with ticket creators expire after a limited time (currently 1 hour) for security, but the underlying transcript file remains stored so staff can access ticket history through the dashboard.</div>
+      <div class="callout">Application responses, verdicts, and reapplication cooldowns are stored in MongoDB when configured; otherwise they use local JSON files, which may not survive a host redeploy. Transcript links shared with ticket creators expire after a limited time (currently 1 hour) for security, but the underlying transcript file remains stored so staff can access ticket history through the dashboard.</div>
 
       <h2 id="what-we-dont-do">4. What We Don't Do</h2>
       <ul>
@@ -134,7 +137,7 @@
       </ul>
 
       <h2 id="retention">5. Retention &amp; Deletion</h2>
-      <p>Ticket transcripts and related metadata are retained to preserve support history. If you would like your data removed (for example, a specific ticket transcript deleted), contact the server administrators who operate this Bot, or reach out using the contact method below.</p>
+      <p>Ticket transcripts and application records are retained for support and recruitment review. If you would like your data removed (for example, an application or ticket transcript), contact the server administrators who operate this Bot, or reach out using the contact method below.</p>
 
       <h2 id="your-rights">6. Your Rights</h2>
       <ul>
