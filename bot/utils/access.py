@@ -6,6 +6,7 @@ import secrets
 import time
 
 from utils.db import get_db
+from flask import g, has_request_context, request
 
 DATA_DIR = "data"
 ACCESS_FILE = os.path.join(DATA_DIR, "access.json")
@@ -120,6 +121,9 @@ def get_access_settings():
     channel ticket activity gets logged to, and roles that are blocked from
     creating tickets. Reads from MongoDB when MONGODB_URI is configured,
     otherwise from the local access.json file."""
+    memo = has_request_context() and request.endpoint == "home" and request.method == "GET"
+    if memo and hasattr(g, "_dashboard_access_settings"):
+        return g._dashboard_access_settings
     db = get_db()
     if db is not None:
         doc = db.access_control.find_one({"_id": "singleton"})
@@ -151,6 +155,8 @@ def get_access_settings():
         doc.setdefault("ticket_ad_verifications", [])
         doc.setdefault("offline_schedule", _default_offline_schedule())
         _normalize_offline_schedule(doc["offline_schedule"])
+        if memo:
+            g._dashboard_access_settings = doc
         return doc
 
     if not os.path.exists(ACCESS_FILE):
@@ -184,6 +190,8 @@ def get_access_settings():
         data.setdefault("ticket_ad_verifications", [])
         data.setdefault("offline_schedule", _default_offline_schedule())
         _normalize_offline_schedule(data["offline_schedule"])
+        if memo:
+            g._dashboard_access_settings = data
         return data
     except Exception:
         return dict(_DEFAULTS)

@@ -48,6 +48,7 @@ from utils.storage import (
     get_ticket_logs,
     get_logs_for_ticket,
     get_transcript_info,
+    get_transcript_page,
     get_transcript_html,
     list_transcript_filenames,
     get_ticket_categories,
@@ -539,7 +540,7 @@ def get_member_role_ids(user_id):
 _username_cache = {}
 
 
-def resolve_username(guild, user_id):
+def resolve_username(guild, user_id, cached_only=False):
     """Best-effort username lookup for display purposes (e.g. showing a name
     next to a raw user ID on the dashboard). Returns None if it can't be
     resolved — callers should fall back to showing the raw ID.
@@ -560,7 +561,7 @@ def resolve_username(guild, user_id):
     except (TypeError, ValueError):
         return None
 
-    if not member:
+    if not member and not cached_only:
         try:
             future = asyncio.run_coroutine_threadsafe(
                 guild.fetch_member(int(user_id)), bot.loop
@@ -1295,6 +1296,9 @@ def home(page="overview"):
         return render_template(
             "dashboard.html",
             active_page=page,
+            transcripts_page=1,
+            transcripts_total_pages=1,
+            transcripts_total=1,
             user=None,
             preview_mode=True,
             guild_name="Carry Ticket Bot Demo",
@@ -1337,35 +1341,32 @@ def home(page="overview"):
         session.pop("user", None)
         return redirect(url_for("home"))
 
-    role_ids = get_member_role_ids(user_data["id"])
+    # An ID-based admin requires no blocking Discord role fetch just to view the dashboard.
+    role_ids = [] if is_admin(user_data["id"]) else get_member_role_ids(user_data["id"])
     if not has_dashboard_access(user_data["id"], role_ids):
         flash("⛔ You don't have permission to view this dashboard. Ask an admin to add your user ID or role in Access Control.", "danger")
         session.pop("user", None)
         return redirect(url_for("home"))
 
     guild = bot.guilds[0] if bot.guilds else None
-    channels = guild.text_channels if guild else []
-    categories = guild.categories if guild else []
-    roles = guild.roles if guild else []
-    
-    tickets_info = get_tickets_data()
-    blacklist_info = get_blacklist_data()
-    settings = get_settings()
-    warning_presets = get_premade_warning_reasons()
-    warning_builder = get_warning_builder()
-    warning_records = get_all_warnings()
-    # Treat the generated-link dialog as a one-time handoff. The link itself
-    # remains available in the active-links list, but a refresh must not
-    # reopen the modal or expose the full URL again.
-    generated_unblock_link = session.pop("generated_unblock_link", None)
+    # Only populate channel and role lists on pages that actually render them.
+    channels = guild.text_channels if guild and page in ("carry-settings", "trial-schedules", "access-control") else []
+    categories = guild.categories if guild and page == "carry-settings" else []
+    roles = guild.roles if guild and page in ("carry-settings", "warning-builder", "access-control") else []
+
+    # Never read unrelated collections while opening a single dashboard page.
+    tickets_info = get_tickets_data() if page == "overview" else {}
+    blacklist_info = get_blacklist_data() if page == "blacklists" else {}
+    settings = get_settings() if page in ("carry-settings", "access-control") else {}
+    warning_presets = get_premade_warning_reasons() if page == "warning-builder" else []
+    warning_builder = get_warning_builder() if page == "warning-builder" else {}
+    warning_records = get_all_warnings() if page == "warnings" else []
+    generated_unblock_link = session.pop("generated_unblock_link", None) if page == "access-control" else None
     active_unblock_links = [
-        {
-            **entry,
-            "url": external_url("terms_unblock", token=entry["token"]),
-        }
+        {**entry, "url": external_url("terms_unblock", token=entry["token"])}
         for entry in get_active_terms_unblock_tokens()
-    ]
-    access_settings = get_access_settings()
+    ] if page == "access-control" else []
+    access_settings = get_access_settings() if page in ("access-control", "blacklists") else {}
 
     allowed_users = []
     for uid in access_settings.get("allowed_users", []):
@@ -1433,7 +1434,7 @@ def home(page="overview"):
 
     analytics = None
     analytics_period = 7
-    if can_access_analytics:
+    if page == "analytics" and can_access_analytics:
         try:
             analytics_period = int(request.args.get("analytics_period", 7))
         except (TypeError, ValueError):
@@ -1473,7 +1474,7 @@ def home(page="overview"):
     # members who are blocked from creating tickets via a Ticket Blacklist Role
     # (in addition to the individually-blacklisted user IDs above)
     role_blacklisted_members = []
-    if guild:
+    if guild and page == "blacklists":
         blacklist_role_id_set = {str(rid) for rid in access_settings.get("blacklist_roles", [])}
         if blacklist_role_id_set:
             for member in guild.members:
@@ -1490,30 +1491,38 @@ def home(page="overview"):
     active_tickets = []
     for t in tickets_info.get("active_tickets", []):
         t = dict(t)
-        t["username"] = resolve_username(guild, t.get("user_id"))
+        t["username"] = resolve_username(guild, t.get("user_id"), cached_only=True) or t.get("username")
         active_tickets.append(t)
 
     cooldowns = []
     for cd in tickets_info.get("cooldowns", []):
         cd = dict(cd)
-        cd["username"] = resolve_username(guild, cd.get("user_id"))
+        cd["username"] = resolve_username(guild, cd.get("user_id"), cached_only=True) or cd.get("username")
         cooldowns.append(cd)
 
     transcripts = []
-    for filename in list_transcript_filenames():
-        transcript = get_transcript_info(filename)
-        if transcript:
-            transcripts.append(transcript)
+    transcripts_page = 1
+    transcripts_total_pages = 1
+    transcripts_total = 0
+    if page == "transcripts":
+        try:
+            transcripts_page = max(1, int(request.args.get("transcripts_page", 1)))
+        except (TypeError, ValueError):
+            transcripts_page = 1
+        transcripts, transcripts_total = get_transcript_page(transcripts_page, per_page=50)
+        transcripts_total_pages = max(1, (transcripts_total + 49) // 50)
+        if transcripts_page > transcripts_total_pages:
+            return redirect(url_for("home", page="transcripts", transcripts_page=transcripts_total_pages))
 
     blacklisted_users = []
     for entry in blacklist_info.get("blacklisted_users", []):
         if isinstance(entry, dict):
             entry = dict(entry)
-            entry["username"] = resolve_username(guild, entry.get("user_id"))
+            entry["username"] = resolve_username(guild, entry.get("user_id"), cached_only=True) or entry.get("username")
         else:
             entry = {
                 "user_id": str(entry),
-                "username": resolve_username(guild, entry),
+                "username": resolve_username(guild, entry, cached_only=True),
                 "reason": None,
                 "expires_ts": None,
             }
@@ -1528,12 +1537,15 @@ def home(page="overview"):
         categories=categories,
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
-        april_fools_enabled=get_april_fools_enabled(),
-        ad_config=get_april_fools_ad_config(),
+        april_fools_enabled=get_april_fools_enabled() if page == "carry-settings" else False,
+        ad_config=get_april_fools_ad_config() if page == "carry-settings" else {},
         admin_ids=get_admin_ids(),
         total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=active_tickets,
         transcripts=transcripts,
+        transcripts_page=transcripts_page,
+        transcripts_total_pages=transcripts_total_pages,
+        transcripts_total=transcripts_total,
         cooldowns=cooldowns,
         blacklisted_users=blacklisted_users,
         role_blacklisted_members=role_blacklisted_members,
@@ -1561,20 +1573,20 @@ def home(page="overview"):
         can_access_analytics=can_access_analytics,
         analytics=analytics,
         analytics_period=analytics_period,
-        ticket_categories=get_ticket_categories(),
-        ticket_badge_config=get_ticket_badge_config(),
-        panel_draft=get_ticket_panel_draft(),
-        redirect_message=get_redirect_message(),
-        welcome_message=get_welcome_message(),
-        trial_schedule=get_trial_schedule_settings(),
+        ticket_categories=get_ticket_categories() if page == "carry-settings" else [],
+        ticket_badge_config=get_ticket_badge_config() if page == "carry-settings" else {},
+        panel_draft=get_ticket_panel_draft() if page == "carry-settings" else {},
+        redirect_message=get_redirect_message() if page == "carry-settings" else {},
+        welcome_message=get_welcome_message() if page == "carry-settings" else {},
+        trial_schedule=get_trial_schedule_settings() if page == "trial-schedules" else {},
         warning_presets=warning_presets,
         warning_builder=warning_builder,
         warning_records=warning_records,
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
-        offline_schedule=get_offline_schedule(),
-        globally_blocked_users=get_globally_blocked_users(),
+        offline_schedule=get_offline_schedule() if page == "access-control" else {},
+        globally_blocked_users=get_globally_blocked_users() if page == "access-control" else [],
         generated_unblock_link=generated_unblock_link,
         active_unblock_links=active_unblock_links,
     )

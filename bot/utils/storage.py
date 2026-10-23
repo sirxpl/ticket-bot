@@ -8,6 +8,7 @@ import datetime
 
 from pymongo import ReturnDocument
 from utils.db import get_db
+from flask import g, has_request_context, request
 
 logger = logging.getLogger('ticket_storage')
 if not logger.handlers:
@@ -31,16 +32,32 @@ if not os.path.exists(TICKET_LOGS_FILE):
 
 
 def get_settings():
+    # Scope memoization to a single GET /dashboard request (not writes or bot jobs).
+    memo = has_request_context() and request.endpoint == "home" and request.method == "GET"
+    if memo and hasattr(g, "_dashboard_bot_settings"):
+        return g._dashboard_bot_settings
     db=get_db()
     if db is not None:
         try:
             doc=db.bot_settings.find_one({"_id":"singleton"})
-            if doc: doc.pop("_id",None); return doc
-        except Exception: logger.exception("get_settings Mongo read failed")
-    if not os.path.exists(SETTINGS_FILE): return {"tickets_enabled":True}
-    try:
-        with open(SETTINGS_FILE) as f:return json.load(f)
-    except Exception:return {"tickets_enabled":True}
+            if doc:
+                doc.pop("_id", None)
+                if memo:
+                    g._dashboard_bot_settings = doc
+                return doc
+        except Exception:
+            logger.exception("get_settings Mongo read failed")
+    if not os.path.exists(SETTINGS_FILE):
+        result = {"tickets_enabled": True}
+    else:
+        try:
+            with open(SETTINGS_FILE) as f:
+                result = json.load(f)
+        except Exception:
+            result = {"tickets_enabled": True}
+    if memo:
+        g._dashboard_bot_settings = result
+    return result
 
 def save_settings(settings):
     db=get_db()
@@ -494,6 +511,53 @@ def get_ticket_analytics(days=30):
     return {"all_time_created":len(created),"all_time_closed":len(closed),"last_24h_created":sum(1 for l in created if (ts(l) or 0)>=last24),"last_24h_closed":sum(1 for l in closed if (ts(l) or 0)>=last24),"daily":daily,"response_daily":response_daily,"avg_response_seconds":round(sum(vals)/len(vals)) if vals else None,"response_count":len(vals),"staff_leaderboard":board[:10]}
 
 # --- Transcripts ---
+
+def get_transcript_page(page=1, per_page=50):
+    """Paginate transcript names and fetch all their creator metadata in one query."""
+    page = max(1, int(page))
+    per_page = max(1, min(100, int(per_page)))
+    offset = (page - 1) * per_page
+    db = get_db()
+    if db is not None:
+        try:
+            total = db.transcripts.count_documents({})
+            filenames = [
+                record["_id"] for record in
+                db.transcripts.find({}, {"_id": 1}).sort("_id", -1)
+                .skip(offset).limit(per_page)
+            ]
+            keys = [name.removeprefix("ticket-").removesuffix(".html") for name in filenames]
+            ids = list(keys) + [int(key) for key in keys if key.isdigit()]
+            logs = list(db.ticket_logs.find(
+                {"action": "created", "ticket_id": {"$in": ids}},
+                {"_id": 0, "ticket_id": 1, "creator": 1, "ticket_number": 1},
+            )) if ids else []
+        except Exception:
+            logger.exception("Transcript page Mongo read failed")
+            return [], 0
+    else:
+        all_names = sorted(list_transcript_filenames(), reverse=True)
+        total = len(all_names)
+        filenames = all_names[offset:offset + per_page]
+        logs = [entry for entry in get_ticket_logs() if entry.get("action") == "created"]
+    by_id = {}
+    for entry in logs:
+        ticket_id = str(entry.get("ticket_id") or "")
+        if ticket_id:
+            by_id.setdefault(ticket_id, entry)
+    rows = []
+    for filename in filenames:
+        ticket_id = filename.removeprefix("ticket-").removesuffix(".html")
+        created = by_id.get(ticket_id) or {}
+        creator = created.get("creator") or {}
+        rows.append({
+            "filename": filename,
+            "ticket_number": created.get("ticket_number"),
+            "username": creator.get("name") or "Unknown User",
+            "user_id": creator.get("id"),
+        })
+    return rows, total
+
 def get_transcript_info(filename):
     tid=filename.removeprefix("ticket-").removesuffix(".html");c=next((l for l in get_logs_for_ticket(tid) if l.get("action")=="created"),None);cr=(c or {}).get("creator") or {};return {"filename":filename,"username":cr.get("name") or "Unknown User","ticket_number":(c or {}).get("ticket_number")}
 def list_transcript_filenames():

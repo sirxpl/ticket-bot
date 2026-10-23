@@ -7,7 +7,7 @@
         <div class="card">
             <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
             <input type="search" class="table-search" data-filter-target="transcript-list"
-                   placeholder="Search by user ID, username, or ticket number..." aria-label="Search transcripts">
+                   placeholder="Search this page by user ID, username, or ticket number..." aria-label="Search transcripts">
             {% if not preview_mode %}
             <div class="flash flash-success" style="margin-bottom: 16px;">
                 ✅ Transcripts capture message text through Discord's channel-history API. The Message Content gateway intent is not required; the bot still needs View Channel and Read Message History permissions.
@@ -18,6 +18,9 @@
                 <button type="button" class="flash-close" aria-label="Dismiss notification" onclick="dismissNotice(this)">×</button>
             </div>
             {% endif %}
+           {% if not preview_mode %}
+           <p class="card-subtitle">Showing up to 50 transcripts per page ({{ transcripts_total }} saved).</p>
+           {% endif %}
            <div id="transcript-list">
            {% for transcript in transcripts %}
                 <div class="list-item searchable-row" data-search="{{ transcript.user_id or '' }} {{ transcript.username or '' }} {{ transcript.ticket_number or '' }}">
@@ -31,6 +34,17 @@
             {% endfor %}
             <p class="search-empty" style="display:none; color:var(--text-dim);">No transcripts match that search.</p>
             </div>
+            {% if not preview_mode and transcripts_total_pages > 1 %}
+            <nav aria-label="Transcript pages" style="display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:20px;">
+                {% if transcripts_page > 1 %}
+                <a class="btn-view" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page - 1) }}">← Previous</a>
+                {% endif %}
+                <span class="card-subtitle">Page {{ transcripts_page }} of {{ transcripts_total_pages }}</span>
+                {% if transcripts_page < transcripts_total_pages %}
+                <a class="btn-view" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page + 1) }}">Next →</a>
+                {% endif %}
+            </nav>
+            {% endif %}
         </div>
         {% else %}
         <div class="card">
