@@ -571,7 +571,10 @@ def resolve_username(guild, user_id, cached_only=False):
             member = None
 
     name = str(member) if member else None
-    _username_cache[key] = name
+    # A cache-only lookup must not permanently cache a missing member and
+    # prevent another part of the bot from performing a real lookup later.
+    if name is not None or not cached_only:
+        _username_cache[key] = name
     return name
 
 
