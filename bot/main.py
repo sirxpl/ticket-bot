@@ -1529,6 +1529,8 @@ def home(page="overview"):
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
         april_fools_enabled=get_april_fools_enabled(),
+        ad_config=get_april_fools_ad_config(),
+        admin_ids=get_admin_ids(),
         total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=active_tickets,
         transcripts=transcripts,
@@ -1762,7 +1764,7 @@ def toggle_april_fools():
 
     status_text = "enabled" if is_enabled else "disabled"
     flash(f"📺 April Fools ad gag has been {status_text}.", "success" if is_enabled else "warning")
-    return redirect(url_for("home", page="overview"))
+    return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
 
 # --- April Fools: web ad gate before a ticket form opens ---
@@ -1862,16 +1864,12 @@ def ticket_ad_complete(token):
 @app.route("/admin")
 @admin_required
 def admin_panel():
-    return render_template(
-        "admin_panel.html",
-        user=session.get("user"),
-        admin_ids=get_admin_ids(),
-        april_fools_enabled=get_april_fools_enabled(),
-        ad_config=get_april_fools_ad_config(),
-    )
+    # Redirect old /admin bookmarks into the integrated dashboard settings.
+    return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
 
 @app.route("/admin/april-fools", methods=["POST"])
+@app.route("/dashboard/ad-gag/save", methods=["POST"])
 @admin_required
 def admin_save_april_fools():
     try:
@@ -1899,7 +1897,7 @@ def admin_save_april_fools():
 
     if not ads:
         flash("❌ Add at least one ad with some content before saving.", "danger")
-        return redirect(url_for("admin_panel"))
+        return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
     save_april_fools_ad_config(
         ads=ads,
@@ -1907,7 +1905,7 @@ def admin_save_april_fools():
         randomize=request.form.get("randomize") in ("on", "true", "True"),
     )
     flash(f"📺 Saved {len(ads)} April Fools ad(s).", "success")
-    return redirect(url_for("admin_panel"))
+    return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
 
 @app.route("/transcripts/<path:filename>")

@@ -647,6 +647,23 @@
                 <button type="submit" class="btn-view">Register Metadata</button>
             </form>
         </div>
+        <details class="card">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">🛡️</span> Configured Bot Admin IDs</h3>
+                    <p class="card-subtitle">Read-only. These IDs are set using the ADMIN_USER_IDS environment variable.</p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+                {% for admin_id in admin_ids %}
+                    <code style="display:inline-block;margin:0 8px 8px 0;">{{ admin_id }}</code>
+                {% else %}
+                    <p class="card-subtitle">No admin IDs configured.</p>
+                {% endfor %}
+            </div>
+        </details>
+
         {% else %}
         <div class="card">
             <h3><span class="card-icon">🔒</span> Restricted</h3>

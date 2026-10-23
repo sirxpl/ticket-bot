@@ -41,6 +41,10 @@
             </form>
         </div>
 
+        {% if is_admin_user %}
+        {% include 'dashboard_pages/_ad_gag_settings.html' %}
+        {% endif %}
+
         <details class="card" open>
             <summary>
                 <div class="card-head-text">
