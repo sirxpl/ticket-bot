@@ -31,7 +31,7 @@ h1,h2,h3{font-family:Sora,sans-serif;line-height:1.2}h1{font-size:clamp(38px,5vw
 <nav class="nav" aria-label="Main navigation">
   <a class="brand" href="{{ url_for('landing') }}"><span class="brand-mark" aria-hidden="true">🎫</span>Carry Bot</a>
   <div class="nav-actions">
-    <a class="quiet" href="{{ url_for('docs_page') }}">Documentation</a>
+    <a class="quiet" href="{{ url_for('docs') }}">Documentation</a>
     <a class="quiet" href="{{ url_for('status_page') }}">Status</a>
     <a class="button" href="{{ url_for('home', page='overview') if user else url_for('login') }}">{{ 'Open Dashboard' if user else 'Login with Discord' }} →</a>
   </div>
@@ -76,6 +76,6 @@ h1,h2,h3{font-family:Sora,sans-serif;line-height:1.2}h1{font-size:clamp(38px,5vw
 </section>
 <section class="cta"><div><h2>Ready to manage your server?</h2><p>Open the existing dashboard with your authorized Discord account.</p></div><a class="button" href="{{ url_for('home', page='overview') if user else url_for('login') }}">Open Control Panel →</a></section>
 </main>
-<footer><div class="footer-inner"><span>© 2026 Carry Ticket Bot. All rights reserved.</span><div class="footer-links"><a href="{{ url_for('terms_page') }}">Terms</a><a href="{{ url_for('privacy_page') }}">Privacy</a><a href="{{ url_for('status_page') }}">Service Status</a></div></div></footer>
+<footer><div class="footer-inner"><span>© 2026 Carry Ticket Bot. All rights reserved.</span><div class="footer-links"><a href="{{ url_for('terms_page') }}">Terms</a><a href="{{ url_for('privacy_policy') }}">Privacy</a><a href="{{ url_for('status_page') }}">Service Status</a></div></div></footer>
 </div>
 </body></html>
