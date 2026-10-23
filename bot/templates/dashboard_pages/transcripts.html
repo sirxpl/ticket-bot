@@ -1,0 +1,41 @@
+<section class="page active" id="page-transcripts">
+        <div class="page-head">
+            <h1>Transcripts</h1>
+            <p>Browse saved logs of closed tickets.</p>
+        </div>
+        {% if can_access_transcripts %}
+        <div class="card">
+            <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
+            <input type="search" class="table-search" data-filter-target="transcript-list"
+                   placeholder="Search by user ID, username, or ticket number..." aria-label="Search transcripts">
+            {% if not preview_mode %}
+            <div class="flash flash-success" style="margin-bottom: 16px;">
+                ✅ Transcripts capture message text through Discord's channel-history API. The Message Content gateway intent is not required; the bot still needs View Channel and Read Message History permissions.
+            </div>
+            {% else %}
+            <div class="flash flash-warning">
+                <span>Sample transcript preview — this ticket and message are fictional.</span>
+                <button type="button" class="flash-close" aria-label="Dismiss notification" onclick="dismissNotice(this)">×</button>
+            </div>
+            {% endif %}
+           <div id="transcript-list">
+           {% for transcript in transcripts %}
+                <div class="list-item searchable-row" data-search="{{ transcript.user_id or '' }} {{ transcript.username or '' }} {{ transcript.ticket_number or '' }}">
+                    <div>
+                        <div><strong>Ticket #{{ transcript.ticket_number or '—' }}</strong> • {{ transcript.username }}</div>
+                    </div>
+                    <a href="{% if preview_mode %}{{ url_for('preview_transcript') }}{% else %}/transcripts/{{ transcript.filename }}{% endif %}" target="_blank" class="btn-view">View Transcript</a>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No transcripts saved yet.</p>
+            {% endfor %}
+            <p class="search-empty" style="display:none; color:var(--text-dim);">No transcripts match that search.</p>
+            </div>
+        </div>
+        {% else %}
+        <div class="card">
+            <h3>🔒 Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to view Transcripts. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
+        </section>

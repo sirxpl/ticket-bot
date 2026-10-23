@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0d14">
+<meta name="description" content="Carry Ticket Bot — a modern Discord ticket and staff management control panel.">
+<title>Carry Ticket Bot — Enhanced Ticket Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0b0d14;--panel:#12141d;--raised:#191d2a;--line:#272c3e;--text:#f5f7ff;--muted:#a0abc4;--blue:#4d74ff;--aqua:#65dcfa}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+body:before{content:"";position:absolute;inset:0 0 auto;pointer-events:none;height:750px;background:radial-gradient(ellipse at 75% 10%,rgba(56,110,255,.18),transparent 52%),radial-gradient(ellipse at 10% 25%,rgba(67,181,242,.07),transparent 54%)}
+a{color:inherit;text-decoration:none}.container{width:min(1130px,calc(100% - 44px));margin:auto}.nav{position:relative;display:flex;justify-content:space-between;align-items:center;padding:27px 0;gap:20px}.brand{display:inline-flex;align-items:center;gap:10px;font-weight:800;font-family:Sora,sans-serif}.brand-mark{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#5573ff,#8764ed)}
+.nav-actions{display:flex;align-items:center;gap:20px;font-size:14px;font-weight:650}.nav-actions .quiet{color:var(--muted)}.button{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:12px 19px;border-radius:11px;background:var(--blue);color:white;font-weight:750;border:1px solid transparent;transition:transform .18s,background .18s}.button:hover{transform:translateY(-2px);background:#6688ff}.button.secondary{background:rgba(255,255,255,.045);border-color:#394059}.button.secondary:hover{background:#21283d}
+.hero{position:relative;display:grid;grid-template-columns:1.05fr .95fr;align-items:center;gap:55px;padding:106px 0 110px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:#9fb8ff;font-weight:800;display:inline-flex;gap:8px;align-items:center}.eyebrow .dot{background:#73d4fa;width:7px;height:7px;border-radius:50%;box-shadow:0 0 14px #73d4fa}
+h1,h2,h3{font-family:Sora,sans-serif;line-height:1.2}h1{font-size:clamp(38px,5vw,64px);letter-spacing:-.05em;margin:21px 0}h1 em{font-style:normal;color:#80a1ff}.lead{color:var(--muted);font-size:17px;max-width:520px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:33px}.minor{color:#8994af;font-size:12px;margin-top:20px}
+.preview{position:relative;border:1px solid #36415c;border-radius:19px;background:linear-gradient(145deg,#171b2c,#11141f);box-shadow:0 32px 100px rgba(0,0,0,.4);padding:18px;min-width:0}.preview:before{content:"";position:absolute;inset:-1px;border:1px solid rgba(98,139,255,.22);border-radius:19px;pointer-events:none}
+.window-top{display:flex;align-items:center;gap:7px;padding:3px 2px 16px;border-bottom:1px solid var(--line)}.window-top i{width:8px;height:8px;border-radius:50%;background:#454e6c}.window-title{margin-left:auto;font-size:11px;font-weight:750;color:#aab7d5}
+.mock{display:grid;grid-template-columns:125px 1fr;min-height:275px;margin-top:15px;gap:15px}.mock-side{border-right:1px solid #2a3042;padding-right:10px}.mock-side p{font-size:10px;color:#8090ac;text-transform:uppercase;letter-spacing:.09em}.mock-side span{display:block;font-size:11px;font-weight:700;padding:9px 10px;border-radius:7px;color:#aab6d6}.mock-side .selected{color:#fff;background:#252c50}.mock-main{min-width:0}.mock-main h3{font-size:17px;margin:3px 0 9px}.mock-main small{color:#98a6c2}.mock-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}.mock-card{padding:14px;border:1px solid #333a52;border-radius:11px;background:#1c2233}.mock-card strong{display:block;font-size:20px;color:#eef2ff}.mock-card span{font-size:11px;color:#a2afd0}.bar-row{display:flex;align-items:end;height:75px;gap:8px;margin-top:18px;padding:8px 3px}.bar{flex:1;border-radius:5px 5px 0 0;background:linear-gradient(180deg,#6787ff,#3b4fa1)}
+.section{padding:18px 0 85px}.section-head{max-width:660px;margin-bottom:28px}.section-head h2{font-size:30px;letter-spacing:-.03em;margin:10px 0}.section-head p{color:var(--muted);margin:0}.features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.feature{padding:24px;border:1px solid var(--line);background:var(--panel);border-radius:16px}.feature-icon{width:43px;height:43px;display:grid;place-items:center;border-radius:12px;background:#252b48;font-size:22px}.feature h3{font-size:15px;margin:18px 0 9px}.feature p{color:var(--muted);font-size:13px;margin:0}
+.cta{margin-bottom:80px;padding:34px;border:1px solid #3d4770;border-radius:18px;background:linear-gradient(110deg,#182340,#171a29);display:flex;align-items:center;justify-content:space-between;gap:22px}.cta h2{margin:0 0 8px;font-size:24px}.cta p{margin:0;color:var(--muted)}footer{border-top:1px solid var(--line);padding:27px 0 37px;color:#8a94ae;font-size:12px}.footer-inner{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap}.footer-links{display:flex;gap:18px}.flash{position:relative;padding:12px 16px;border:1px solid #495579;border-radius:10px;margin-top:15px;background:#1b2338;font-size:13px}
+@media(max-width:860px){.hero{grid-template-columns:1fr;padding:72px 0;gap:38px}.hero .preview{max-width:590px}.features{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.container{width:min(100% - 28px,1130px)}.nav{padding:18px 0}.nav-actions .quiet{display:none}.nav-actions{gap:8px}.nav-actions .button{padding:10px 12px;font-size:12px}.hero{padding:47px 0 65px}.lead{font-size:15px}.features{grid-template-columns:1fr}.cta{flex-direction:column;align-items:flex-start;padding:26px}.mock{grid-template-columns:95px 1fr;gap:9px}.mock-grid{gap:6px}.mock-card{padding:10px}.mock-side span{padding:7px;font-size:10px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.button{transition:none}}
+</style>
+</head>
+<body>
+<div class="container">
+<nav class="nav" aria-label="Main navigation">
+  <a class="brand" href="{{ url_for('landing') }}"><span class="brand-mark" aria-hidden="true">🎫</span>Carry Bot</a>
+  <div class="nav-actions">
+    <a class="quiet" href="{{ url_for('docs_page') }}">Documentation</a>
+    <a class="quiet" href="{{ url_for('status_page') }}">Status</a>
+    <a class="button" href="{{ url_for('home', page='overview') if user else url_for('login') }}">{{ 'Open Dashboard' if user else 'Login with Discord' }} →</a>
+  </div>
+</nav>
+{% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}
+<div class="flash" role="status">{{ message }}</div>
+{% endfor %}{% endwith %}
+<main>
+<section class="hero">
+  <div>
+    <div class="eyebrow"><span class="dot"></span>Discord staff &amp; ticket management</div>
+    <h1>Support, staffing, and tickets. <em>All in one place.</em></h1>
+    <p class="lead">Meet the enhanced Carry Ticket Bot control panel. Manage Discord ticket workflows, review transcripts, organize staff tools, and make informed decisions without digging through dozens of commands.</p>
+    <div class="actions">
+      <a class="button" href="{{ url_for('home', page='overview') if user else url_for('login') }}">{{ 'Go to Dashboard' if user else 'Get Started with Discord' }} <span aria-hidden="true">→</span></a>
+      <a class="button secondary" href="{{ url_for('home', page='overview') }}">Explore Dashboard Preview</a>
+    </div>
+    <p class="minor">Discord sign-in required for server management. Features are subject to server permissions.</p>
+  </div>
+  <div class="preview" role="img" aria-label="Illustration of the Carry Bot dashboard layout">
+    <div class="window-top"><i></i><i></i><i></i><span class="window-title">CARRY BOT / CONTROL PANEL</span></div>
+    <div class="mock">
+      <div class="mock-side"><p>GENERAL</p><span class="selected">📊 Overview</span><span>📈 Analytics</span><p>TICKETS</p><span>📜 Transcripts</span><p>STAFFING</p><span>🚫 Blacklists</span><span>⚠️ Warnings</span></div>
+      <div class="mock-main">
+        <h3>Control Panel</h3><small>Manage tickets and staffing from one workspace.</small>
+        <div class="mock-grid"><div class="mock-card"><strong>🎟️</strong><span>Ticket tools</span></div><div class="mock-card"><strong>🛡️</strong><span>Access control</span></div></div>
+        <div class="bar-row" aria-hidden="true"><div class="bar" style="height:38%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:45%"></div><div class="bar" style="height:83%"></div><div class="bar" style="height:56%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:70%"></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="section" id="features">
+  <div class="section-head"><div class="eyebrow">Built for your staff team</div><h2>A more organized control center</h2><p>Separate pages for the tools your team uses, with the existing dashboard experience preserved.</p></div>
+  <div class="features">
+    <article class="feature"><div class="feature-icon">🎫</div><h3>Ticket overview</h3><p>See active ticket information and manage daily ticket operations.</p></article>
+    <article class="feature"><div class="feature-icon">📈</div><h3>Analytics</h3><p>Review ticket activity and trends with permission-aware reporting.</p></article>
+    <article class="feature"><div class="feature-icon">📜</div><h3>Transcripts</h3><p>Access saved ticket conversations from a dedicated workspace.</p></article>
+    <article class="feature"><div class="feature-icon">🚫</div><h3>Staffing tools</h3><p>Manage blacklists and warning records in their own sections.</p></article>
+    <article class="feature"><div class="feature-icon">🗓️</div><h3>Carry team controls</h3><p>Configure carry settings, trial schedules, and warning templates.</p></article>
+    <article class="feature"><div class="feature-icon">🔐</div><h3>Access control</h3><p>Keep sensitive settings behind Discord authorization and role checks.</p></article>
+  </div>
+</section>
+<section class="cta"><div><h2>Ready to manage your server?</h2><p>Open the existing dashboard with your authorized Discord account.</p></div><a class="button" href="{{ url_for('home', page='overview') if user else url_for('login') }}">Open Control Panel →</a></section>
+</main>
+<footer><div class="footer-inner"><span>© 2026 Carry Ticket Bot. All rights reserved.</span><div class="footer-links"><a href="{{ url_for('terms_page') }}">Terms</a><a href="{{ url_for('privacy_page') }}">Privacy</a><a href="{{ url_for('status_page') }}">Service Status</a></div></div></footer>
+</div>
+</body></html>

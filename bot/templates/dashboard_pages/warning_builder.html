@@ -1,0 +1,132 @@
+<section class="page active" id="page-warnings">
+                <div class="page-head">
+        <h1>Warning Builder</h1>
+        <p>Customize warning embeds, warning roles, and reusable reasons for Discord’s <code>/w1</code>, <code>/w2</code>, and <code>/w3</code> commands.</p>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">🧱</span> Warning Builder</h3>
+        <p class="card-subtitle">
+            Customize the warning embed and assign one Discord role to each warning tier.
+            Role assignment requires the bot's role to be above the selected role.
+        </p>
+        {% for tier in ["W1", "W2", "W3"] %}
+        {% set builder = warning_builder[tier] %}
+        <form action="{{ url_for('save_warning_builder_route', tier=tier) }}" method="POST" style="padding:16px 0; border-top:1px solid var(--border);">
+            <h4>{{ tier }}</h4>
+            <label for="warning-title-{{ tier }}">Embed title</label>
+            <input id="warning-title-{{ tier }}" name="title" maxlength="256" required value="{{ builder.title }}">
+
+            <label for="warning-description-{{ tier }}">Embed description</label>
+            <textarea id="warning-description-{{ tier }}" name="description" rows="3" maxlength="4096" required>{{ builder.description }}</textarea>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div>
+                    <label for="warning-color-{{ tier }}">Embed color</label>
+                    <input id="warning-color-{{ tier }}" name="color" type="text" maxlength="7" pattern="^#[0-9A-Fa-f]{6}$" placeholder="#5865F2" value="{{ builder.color }}" required>
+                </div>
+                <div>
+                    <label for="warning-role-{{ tier }}">Role to assign</label>
+                    <select id="warning-role-{{ tier }}" name="role_id">
+                        <option value="">No role</option>
+                        {% for role in roles|reverse %}
+                        <option value="{{ role.id }}" {% if builder.role_id and role.id|string == builder.role_id|string %}selected{% endif %}>@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <label for="warning-footer-{{ tier }}">Embed footer</label>
+            <input id="warning-footer-{{ tier }}" name="footer" maxlength="2048" value="{{ builder.footer }}">
+            <button type="submit" class="btn-submit" style="width:auto; margin-top:10px;">Save {{ tier }}</button>
+        </form>
+        {% endfor %}
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">➕</span> Add Warning Preset</h3>
+
+        <p class="card-subtitle">
+            Staff see the label in Discord autocomplete. The full reason is stored on the warning case.
+        </p>
+
+        <form action="{{ url_for('add_warning_preset_route') }}" method="POST">
+            <label for="warning-preset-name">Preset label</label>
+            <input
+                id="warning-preset-name"
+                name="name"
+                type="text"
+                maxlength="100"
+                required
+                placeholder="Example: Advertising / Self Promotion"
+            >
+
+            <label for="warning-preset-reason">Full warning reason</label>
+            <textarea
+                id="warning-preset-reason"
+                name="reason"
+                rows="4"
+                maxlength="500"
+                required
+                placeholder="Example: Advertising or promoting external content is not allowed in this server."
+            ></textarea>
+
+            <button type="submit" class="btn-submit" style="width:auto;">
+                Add Preset
+            </button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">📋</span> Saved Presets</h3>
+
+        {% for preset in warning_presets %}
+        <div class="list-item" style="flex-direction:column; align-items:stretch; gap:10px;">
+            <div id="preset-view-{{ preset.id }}" style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                <div>
+                    <strong>{{ preset.name }}</strong>
+                    <div style="color:var(--text-dim); font-size:0.9em; margin-top:4px; white-space:pre-wrap;">
+                        {{ preset.reason }}
+                    </div>
+                </div>
+                <div style="display:flex; gap:6px; flex-shrink:0;">
+                    <button type="button" class="btn-view" onclick="document.getElementById('preset-view-{{ preset.id }}').style.display='none'; document.getElementById('preset-edit-{{ preset.id }}').style.display='block';">Edit</button>
+                    <form action="{{ url_for('delete_warning_preset_route', preset_id=preset.id) }}" method="POST" onsubmit="return confirm('Delete this warning preset? This does not affect warnings already issued with it.');" style="margin:0;">
+                        <button type="submit" class="btn-danger">Delete</button>
+                    </form>
+                </div>
+            </div>
+
+            <form id="preset-edit-{{ preset.id }}" action="{{ url_for('edit_warning_preset_route', preset_id=preset.id) }}" method="POST" style="display:none;">
+                <label for="warning-preset-name-{{ preset.id }}">Preset label</label>
+                <input
+                    id="warning-preset-name-{{ preset.id }}"
+                    name="name"
+                    type="text"
+                    maxlength="100"
+                    required
+                    value="{{ preset.name }}"
+                >
+
+                <label for="warning-preset-reason-{{ preset.id }}">Full warning reason</label>
+                <textarea
+                    id="warning-preset-reason-{{ preset.id }}"
+                    name="reason"
+                    rows="4"
+                    maxlength="500"
+                    required
+                >{{ preset.reason }}</textarea>
+
+                <div style="display:flex; gap:6px;">
+                    <button type="submit" class="btn-submit" style="width:auto;">Save Changes</button>
+                    <button type="button" class="btn-view" onclick="document.getElementById('preset-edit-{{ preset.id }}').style.display='none'; document.getElementById('preset-view-{{ preset.id }}').style.display='flex';">Cancel</button>
+                </div>
+            </form>
+        </div>
+        {% else %}
+        <p style="color:var(--text-dim);">
+            No warning presets yet. Add your first one above.
+        </p>
+        {% endfor %}
+    </div>
+        </section>

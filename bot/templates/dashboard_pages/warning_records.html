@@ -1,0 +1,52 @@
+<section class="page active" id="page-warning-records">
+        <div class="page-head">
+            <h1>Warnings</h1>
+            <p>Review warning cases issued to members by your moderation team.</p>
+        </div>
+        <div class="card">
+            <h3><span class="card-icon">⚠️</span> Warning Records</h3>
+            <input type="search" class="table-search" data-filter-target="warning-record-list"
+                   placeholder="Search by user, user ID, moderator, reason, or case ID..." aria-label="Search warning records">
+            <div id="warning-record-list">
+            {% for warning in warning_records %}
+                <div class="warning-record searchable-row {% if warning.status == 'revoked' or warning.revoked %}is-revoked{% endif %}" data-search="{{ warning.username or '' }} {{ warning.user_id or '' }} {{ warning.issued_by_name or '' }} {{ warning.issued_by_id or '' }} {{ warning.reason or '' }} {{ warning.tier or '' }} {{ warning.case_id or '' }}">
+                    <div class="warning-record-head">
+                        <div class="warning-record-user">
+                            <strong>{{ warning.username or 'Unknown user' }}</strong>
+                            <span style="color:var(--text-dim);">({{ warning.user_id }})</span>
+                        </div>
+                        <div class="warning-badges">
+                            <span class="warning-badge warning-badge-tier">{{ warning.tier or 'Warning' }}</span>
+                            {% if warning.status == 'revoked' or warning.revoked %}
+                                <span class="warning-badge warning-badge-revoked">Revoked</span>
+                            {% else %}
+                                <span class="warning-badge warning-badge-active">Active</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="warning-record-meta">
+                            <strong>Reason:</strong> {{ warning.reason or 'No reason provided.' }}<br>
+                            <strong>Moderator:</strong> {{ warning.issued_by_name or 'Unknown moderator' }} ({{ warning.issued_by_id or '—' }})<br>
+                            <strong>Issued:</strong> <span class="local-time" data-ts="{{ warning.issued_at }}">{{ warning.issued_at or '—' }}</span>
+                            • <strong>Timeout expires:</strong>
+                            {% if warning.expires_at %}
+                                <span class="local-time" data-ts="{{ warning.expires_at }}">{{ warning.expires_at }}</span>
+                            {% else %}
+                                Not recorded
+                            {% endif %}
+                            • <strong>Role expires:</strong>
+                            {% if warning.role_expires_at %}
+                                <span class="local-time" data-ts="{{ warning.role_expires_at }}">{{ warning.role_expires_at }}</span>
+                            {% else %}
+                                No role expiry
+                            {% endif %}
+                            • <strong>Case:</strong> {{ warning.case_id or '—' }}
+                    </div>
+                </div>
+            {% else %}
+                <p style="color:var(--text-dim);">No warning records yet.</p>
+            {% endfor %}
+            <p class="search-empty" style="display:none; color:var(--text-dim);">No warning records match that search.</p>
+            </div>
+        </div>
+        </section>

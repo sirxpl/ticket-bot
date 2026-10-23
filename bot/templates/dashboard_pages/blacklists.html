@@ -1,0 +1,46 @@
+<section class="page active" id="page-blacklist">
+        <div class="page-head">
+            <h1>Blacklists</h1>
+            <p>Block users from opening tickets or being carried.</p>
+        </div>
+        <div class="card">
+            <h3><span class="card-icon">🚫</span> Blacklisted Users</h3>
+            <input type="search" class="table-search" data-filter-target="blacklist-users"
+                   placeholder="Search by user ID or username..." aria-label="Search blacklisted users">
+            <div id="blacklist-users">
+            {% for b_user in blacklisted_users %}
+                {% set entry = b_user if b_user is mapping else {'user_id': b_user, 'reason': None, 'expires_ts': None} %}
+                <div class="list-item searchable-row" data-search="{{ entry.user_id }} {{ entry.username or '' }}">
+                    <div>
+                        <div><strong>{{ entry.username or 'Unknown user' }}</strong> <span style="color:var(--text-dim);">({{ entry.user_id }})</span></div>
+                        <div style="color: var(--text-dim); font-size: 0.9em;">
+                            <strong>Type:</strong> {{ (entry.blacklist_type or "regular")|title }} •
+                            <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
+                            {% if entry.expires_ts %}
+                                • <span class="local-time" data-ts="{{ entry.expires_ts }}">expires {{ entry.expires_ts }}</span>
+                            {% else %}
+                                • Permanent
+                            {% endif %}
+                        </div>
+                    </div>
+                    <button onclick="unblacklistUser('{{ entry.user_id }}')" class="btn-danger">Unblacklist</button>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No individually blacklisted users.</p>
+            {% endfor %}
+            <p class="search-empty" style="display:none; color:var(--text-dim);">No blacklisted users match that search.</p>
+            </div>
+
+            <h4 style="margin-top: 20px;">Blacklisted via Role</h4>
+            <p class="card-subtitle">
+                Members blocked from creating tickets because they hold a Ticket Blacklist Role. Manage the roles themselves in Access Control.
+            </p>
+            {% for member in role_blacklisted_members %}
+                <div class="list-item">
+                    <span><strong>{{ member.name }}</strong> ({{ member.id }}) — @{{ member.role_name or 'Unknown role' }}</span>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No members currently blacklisted via a role.</p>
+            {% endfor %}
+        </div>
+        </section>

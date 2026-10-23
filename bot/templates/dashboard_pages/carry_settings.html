@@ -1,0 +1,271 @@
+<section class="page active" id="page-carry-settings">
+        <div class="page-head">
+            <h1>Carry Manager Settings</h1>
+            <p>Configure how the carry ticket system behaves in your server.</p>
+        </div>
+        {% if can_access_carry_settings %}
+        <div class="card">
+            <h3><span class="card-icon">⚙️</span> System Settings</h3>
+            <form action="/dashboard/toggle-tickets" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <strong>Enable Ticket Creation:</strong>
+                    <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
+                        When toggled off, users cannot open new tickets from Discord.
+                    </p>
+                </div>
+                
+                <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 10px;">
+                    <input type="checkbox" name="tickets_enabled" value="true" onchange="this.form.submit()" {% if tickets_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);">
+                    <span style="font-weight: bold; color: {% if tickets_enabled %}var(--success){% else %}var(--danger){% endif %};">
+                        {% if tickets_enabled %}ENABLED{% else %}DISABLED{% endif %}
+                    </span>
+                </label>
+            </form>
+
+            <hr style="border: 0; border-top: 1px solid var(--border); margin: 18px 0;">
+
+            <form action="/dashboard/toggle-april-fools" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <strong>📺 April Fools Ad Gag:</strong>
+                    <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
+                        Shows a joke "advertisement" with a 15-second countdown before the ticket form opens. The linked video is optional — it's never embedded or autoplayed.
+                    </p>
+                </div>
+
+                <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 10px;">
+                    <input type="checkbox" name="april_fools_enabled" value="true" onchange="this.form.submit()" {% if april_fools_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);">
+                    <span style="font-weight: bold; color: {% if april_fools_enabled %}var(--success){% else %}var(--text-dim){% endif %};">
+                        {% if april_fools_enabled %}ON{% else %}OFF{% endif %}
+                    </span>
+                </label>
+            </form>
+        </div>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">📋</span> Ticket Dropdown Categories</h3>
+                <p class="card-subtitle">
+                    Customize the options shown in the "Choose ticket type..." dropdown. New panels you deploy use these immediately; panels already posted in Discord pick up changes after the bot restarts.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/ticket-categories/save" method="POST" id="categoriesForm">
+                <div id="categoriesContainer"></div>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button type="button" onclick="addNewCategoryRow()" class="btn-submit" style="width:auto;">+ Add Category</button>
+                    <button type="submit" class="btn-submit" style="width:auto;">💾 Save Categories</button>
+                </div>
+            </form>
+            </div>
+        </details>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">🛡️</span> RoVer Badge Ticket Verification</h3>
+                <p class="card-subtitle">Configure the Roblox badges checked on the second and later ticket attempt for categories below.</p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/ticket-badge/save" method="POST">
+                <label>Required Roblox Badge ID:</label>
+                <input type="text" name="ticket_badge_id" inputmode="numeric" pattern="[0-9]*" value="{{ ticket_badge_config.badge_id or '' }}" placeholder="e.g. 123456789">
+                <p class="card-subtitle" style="margin-top:8px;">Used when a category is set to <strong>Enable tickets only if they have the badge</strong>.</p>
+                <button type="submit" class="btn-submit" style="width:auto;margin-top:12px;">💾 Save Required Badge</button>
+            </form>
+
+            <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+                <strong style="font-size:.95em;">🚫 Badges blocked from tickets</strong>
+                <p class="card-subtitle" style="margin:5px 0 10px;">When a category uses <strong>Block tickets if they have the badge</strong>, the member is blocked if they own <strong>any</strong> badge in this list. You can add multiple badge IDs.</p>
+                <form action="/dashboard/ticket-badge/add" method="POST" style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" name="blocked_badge_id" inputmode="numeric" pattern="[0-9]*" placeholder="Enter Roblox badge ID" required style="flex:1;">
+                    <button type="submit" class="btn-submit" style="width:auto;white-space:nowrap;">+ Add</button>
+                </form>
+                <div style="margin-top:10px;">
+                    {% if ticket_badge_config.blocked_badges %}
+                        {% for badge_id in ticket_badge_config.blocked_badges %}
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--raised-2);border:1px solid var(--border);padding:9px 10px;border-radius:6px;margin-top:6px;">
+                            <span><strong>Badge ID:</strong> {{ badge_id }}</span>
+                            <form action="/dashboard/ticket-badge/remove/{{ badge_id }}" method="POST" style="margin:0;">
+                                <button type="submit" style="background:var(--danger);color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;">Remove</button>
+                            </form>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div style="color:var(--text-dim);padding:9px 0;">No blocked badges have been added yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+            </div>
+        </details>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">📨</span> "Ticket Created" Redirect Message</h3>
+                <p class="card-subtitle">
+                    Sent privately (only they can see it) to the member right after they submit the ticket form, pointing them to their new channel.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/ticket-messages/save-redirect" method="POST">
+                <label>Message:</label>
+                <textarea name="redirect_content" rows="2" maxlength="1000" placeholder="e.g. ✅ Ticket created! Please head over to {channel}.">{{ (redirect_message | default({})).content | default('') }}</textarea>
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{channel}</code> <code>{user}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code> <code>{tds_level}</code>
+                </p>
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Redirect Message</button>
+            </form>
+            </div>
+        </details>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">💬</span> Ticket-Channel Welcome Message</h3>
+                <p class="card-subtitle">
+                    Sent inside the new ticket channel itself, right after it's created — this is what the opener and staff first see.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/ticket-messages/save-welcome" method="POST">
+                <label>Format:</label>
+                <select name="welcome_use_embed">
+                    <option value="yes" {% if welcome_message.use_embed %}selected{% endif %}>Embed (styled box)</option>
+                    <option value="no" {% if not welcome_message.use_embed %}selected{% endif %}>Plain text (no embed)</option>
+                </select>
+
+                <label>Message Content <span style="font-weight:normal; color:var(--text-dim);">(sent above/outside the embed — usually the mention)</span>:</label>
+                <input type="text" name="welcome_content" maxlength="500" value="{{ welcome_message.content }}" placeholder="{user_mention}">
+
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                    <div>
+                        <label>Embed Title:</label>
+                        <input type="text" name="welcome_title" maxlength="256" value="{{ welcome_message.title }}" placeholder="🎫 {category} - {user_name}">
+                    </div>
+                    <div>
+                        <label>Embed Color:</label>
+                        <input type="text" name="welcome_color" maxlength="7" value="{{ welcome_message.color or '#3498db' }}" placeholder="#3498db">
+                    </div>
+                </div>
+
+                <label>Embed Description (optional):</label>
+                <textarea name="welcome_description" rows="2" maxlength="2000" placeholder="Optional description text...">{{ welcome_message.description }}</textarea>
+
+                <label>Embed Footer (optional):</label>
+                <input type="text" name="welcome_footer" maxlength="200" value="{{ welcome_message.footer }}" placeholder="e.g. Powered by Carry Bot">
+
+                <p class="card-subtitle" style="margin-top:8px; margin-bottom:0;">
+                    Placeholders: <code>{user}</code> <code>{user_name}</code> <code>{channel}</code> <code>{category}</code> <code>{timezone}</code> <code>{display_name}</code> <code>{can_join}</code> <code>{tds_level}</code>
+                </p>
+
+                <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0;">
+
+                <p class="card-subtitle" style="margin-bottom:8px;">Which of the opener's form answers should be shown as fields?</p>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;">
+                    <div>
+                        <label>Show Timezone:</label>
+                        <select name="welcome_show_timezone">
+                            <option value="yes" {% if welcome_message.show_timezone %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_timezone %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show Display Name:</label>
+                        <select name="welcome_show_display_name">
+                            <option value="yes" {% if welcome_message.show_display_name %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_display_name %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show "Can Join?":</label>
+                        <select name="welcome_show_can_join">
+                            <option value="yes" {% if welcome_message.show_can_join %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_can_join %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Show TDS Level:</label>
+                        <select name="welcome_show_tds_level">
+                            <option value="yes" {% if welcome_message.show_tds_level %}selected{% endif %}>Yes</option>
+                            <option value="no" {% if not welcome_message.show_tds_level %}selected{% endif %}>No</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-submit" style="width:auto; margin-top:15px;">💾 Save Welcome Message</button>
+            </form>
+            </div>
+        </details>
+
+        <details class="card" open>
+            <summary>
+                <div class="card-head-text">
+                <h3><span class="card-icon">🚀</span> Advanced Carry Ticket Panel Builder</h3>
+                <p class="card-subtitle">
+                    Components V2 builder. Add embeds (containers), dividers, buttons, and dropdowns. Buttons and dividers can be placed inside embeds or outside them.
+                </p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+            <form action="/dashboard/tickets" method="POST" id="embedForm">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div>
+                        <label>Target Channel:</label>
+                        <select name="channel_id" required>
+                            {% for channel in channels %}
+                                <option value="{{ channel.id }}" {% if panel_draft.channel_id and channel.id|string == panel_draft.channel_id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Support Role:</label>
+                        <select name="support_role_id">
+                            <option value="">None</option>
+                            {% for role in roles %}
+                                <option value="{{ role.id }}" {% if panel_draft.support_role_id and role.id|string == panel_draft.support_role_id|string %}selected{% endif %}>@{{ role.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <input type="hidden" name="category_id" value="{{ panel_draft.category_id or '' }}">
+                <input type="hidden" name="title" value="{{ panel_draft.title or 'Request Carry' }}">
+                <input type="hidden" name="description" value="{{ panel_draft.description or '' }}">
+                <input type="hidden" name="embed_color" value="{{ panel_draft.embed_color or '#58b9ff' }}">
+                <input type="hidden" name="image_url" value="">
+                <input type="hidden" name="thumbnail_url" value="">
+                <input type="hidden" name="footer_text" value="">
+                <input type="hidden" name="fields_json" value="[]">
+                <input type="hidden" name="components_json" id="components_json">
+
+                <div class="pb-toolbar">
+                    <button type="button" onclick="addPanelBlock('embed')">📦 New Embed</button>
+                    <button type="button" onclick="addPanelBlock('divider')">➖ Divider</button>
+                    <button type="button" onclick="addPanelBlock('button')">🔘 Button</button>
+                    <button type="button" onclick="addPanelBlock('dropdown')">▾ Dropdown</button>
+                </div>
+
+                <div id="panelBlocks"></div>
+
+                <button type="submit" formaction="/dashboard/tickets/save-draft" class="btn-view" style="width:100%;margin-top:18px;">💾 Save Draft</button>
+                <button type="submit" class="btn-submit" style="width:100%;margin-top:10px;">🚀 Deploy Components V2 Panel</button>
+            </form>
+            </div>
+        </details>
+        {% else %}
+        <div class="card">
+            <h3><span class="card-icon">🔒</span> Restricted</h3>
+            <p style="color: var(--text-dim);">You don't have the required role to access Carry Manager Settings. Ask an admin to add your role in Access Control.</p>
+        </div>
+        {% endif %}
+        </section>
