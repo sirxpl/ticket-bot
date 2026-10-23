@@ -2076,7 +2076,7 @@ def save_ticket_panel_draft_route():
     draft = _panel_draft_from_form()
     save_ticket_panel_draft(draft)
     flash("💾 Panel draft saved. It'll be pre-filled next time you open this builder.", "success")
-    return redirect("/")
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/tickets", methods=["POST"])
@@ -2093,7 +2093,7 @@ def deploy_ticket_panel():
 
     if not channel_id:
         flash("❌ Please select a valid target channel.", "danger")
-        return redirect("/")
+        return redirect(url_for("home", page="carry-settings"))
 
     title = draft["title"]
     description = draft["description"]
@@ -2132,7 +2132,7 @@ def deploy_ticket_panel():
     else:
         flash("❌ Ticket cog not found.", "danger")
 
-    return redirect("/")
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/access/add-user", methods=["POST"])
