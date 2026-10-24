@@ -61,34 +61,28 @@
   ::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
   @media (max-width:900px){ .toc{display:none;} main{padding:28px 20px;} }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/public-pages.css') }}">
 </head>
-<body>
+<body class="public-page privacy-page">
 
-<div class="topbar">
-  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
-  <div class="topnav">
-    <a href="{{ url_for('docs') }}">Docs</a>
-    <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
-    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
-    <a href="{{ url_for('privacy_policy') }}" class="active">Privacy</a>
-    <a href="{{ url_for('status_page') }}">Status</a>
-  </div>
-</div>
+{% include '_public_navigation.html' %}
+
 
 <div class="layout">
-  <aside class="toc">
+  <button type="button" class="public-toc-toggle" id="publicTocButton" aria-expanded="false" aria-controls="publicToc">On this page ▾</button>
+  <aside class="toc" id="publicToc">
     <div class="toc-title">On this page</div>
-    <a href="#what-we-collect">1. What We Collect</a>
-    <a href="#why-we-collect">2. Why We Collect It</a>
-    <a href="#where-stored">3. Where Data Is Stored</a>
-    <a href="#what-we-dont-do">4. What We Don't Do</a>
-    <a href="#retention">5. Retention &amp; Deletion</a>
-    <a href="#your-rights">6. Your Rights</a>
-    <a href="#changes">7. Changes to This Policy</a>
-    <a href="#contact">8. Contact</a>
+    <a href="#what-we-collect"><span class="public-toc-icon" aria-hidden="true">▤</span>1. What We Collect</a>
+    <a href="#why-we-collect"><span class="public-toc-icon" aria-hidden="true">▤</span>2. Why We Collect It</a>
+    <a href="#where-stored"><span class="public-toc-icon" aria-hidden="true">▤</span>3. Where Data Is Stored</a>
+    <a href="#what-we-dont-do"><span class="public-toc-icon" aria-hidden="true">▤</span>4. What We Don't Do</a>
+    <a href="#retention"><span class="public-toc-icon" aria-hidden="true">▤</span>5. Retention &amp; Deletion</a>
+    <a href="#your-rights"><span class="public-toc-icon" aria-hidden="true">▤</span>6. Your Rights</a>
+    <a href="#changes"><span class="public-toc-icon" aria-hidden="true">▤</span>7. Changes to This Policy</a>
+    <a href="#contact"><span class="public-toc-icon" aria-hidden="true">▤</span>8. Contact</a>
   </aside>
 
-  <main>
+  <main id="page-content">
     <div class="doc-header">
       <div class="eyebrow">Carry Ticket Bot</div>
       <h1 class="doctitle">Privacy Policy</h1>
@@ -158,5 +152,6 @@
 </div>
 
 {% include "_fake_ads.html" %}
+<script src="{{ url_for('static', filename='js/public-pages.js') }}" defer></script>
 </body>
 </html>

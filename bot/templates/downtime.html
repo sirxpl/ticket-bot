@@ -13,14 +13,13 @@ a{color:inherit}.wrap{width:min(980px,calc(100% - 36px));margin:0 auto;padding:3
 .day{padding:13px 0;border-bottom:1px solid var(--border)}.day:last-child{border-bottom:0}.day-name{font-weight:800;text-transform:capitalize;margin-bottom:7px}.entry{display:inline-block;margin:3px 6px 3px 0;padding:5px 9px;border-radius:7px;background:var(--surface2);color:#cfd2e2;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.disabled{opacity:.45;text-decoration:line-through}.empty{color:var(--muted);font-size:13px}.note{margin-top:18px;padding:13px 15px;border-left:3px solid var(--yellow);background:#1e1d29;color:#c9cbd8;border-radius:8px;font-size:13px}
 @media(max-width:760px){.grid{grid-template-columns:1fr}.hero h1{font-size:29px}.top{align-items:flex-start;flex-direction:column}}
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/public-pages.css') }}">
 </head>
-<body>
-<main class="wrap">
-  <div class="top">
-    <a class="brand" href="{{ url_for('status_page') }}">Carry Ticket Bot</a>
-    <a class="back" href="{{ url_for('status_page') }}">← Live Status</a>
-  </div>
-  <section class="hero">
+<body class="public-page downtime-page">
+{% include '_public_navigation.html' %}
+<main class="wrap" id="page-content">
+  <div class="top"><span class="eyebrow">Status details</span><a class="back" href="{{ url_for('status_page') }}#downtime">← Back to status</a></div>
+<section class="hero">
     <div class="eyebrow">Downtime Center</div>
     <h1>Downtime &amp; Offline Schedule</h1>
     <p>See whether the bot is active, when scheduled downtime applies, and which timezone the schedule uses.</p>
@@ -88,5 +87,6 @@ function tick(){
 }
 setInterval(tick,1000); setInterval(refreshStatus,10000); tick();
 </script>
+<script src="{{ url_for('static', filename='js/public-pages.js') }}" defer></script>
 </body>
 </html>

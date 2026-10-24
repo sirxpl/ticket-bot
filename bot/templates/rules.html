@@ -57,40 +57,34 @@
   ::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
   @media (max-width:900px){ .toc{display:none;} main{padding:28px 20px;} }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/public-pages.css') }}">
 </head>
-<body>
+<body class="public-page rules-page">
 
-<div class="topbar">
-  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
-  <div class="topnav">
-    <a href="{{ url_for('docs') }}">Docs</a>
-    <a href="{{ url_for('rules') }}" class="active">Rules &amp; Regulations</a>
-    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
-    <a href="{{ url_for('privacy_policy') }}">Privacy</a>
-    <a href="{{ url_for('status_page') }}">Status</a>
-  </div>
-</div>
+{% include '_public_navigation.html' %}
+
 
 <div class="layout">
-  <aside class="toc">
+  <button type="button" class="public-toc-toggle" id="publicTocButton" aria-expanded="false" aria-controls="publicToc">On this page ▾</button>
+  <aside class="toc" id="publicToc">
     <div class="toc-title">On this page</div>
-    <a href="#preface">Preface</a>
-    <a href="#introductory">Introductory</a>
-    <a href="#category-i.-server-terms-and-conditions">I. Server Terms &amp; Conditions</a>
-    <a href="#category-ii.-user-appropriation-and-decorum-codified-profile-regulations-and-standards">II. User Appropriation &amp; Decorum</a>
-    <a href="#category-iii.-illicit-platform-tags-and-involvement-of-unauthorized-platforms-and-community-servers">III. Illicit Platform Tags</a>
-    <a href="#category-iv.-illicit-endorsements-advertisement-and-profile-contamination">IV. Illicit Endorsements</a>
-    <a href="#category-v.-the-doctrine-of-general-profile-compliance">V. Profile Compliance</a>
-    <a href="#the-constitutional-structure---aureolis-rules-and-regulations">Constitutional Structure</a>
-    <a href="#the-rules---clause-i.-low-and-tolerable-infractions">Clause I. Low/Tolerable</a>
-    <a href="#the-rules---clause-ii.-moderate-infractions">Clause II. Moderate</a>
-    <a href="#the-rules---clause-iii.-severe-infractions">Clause III. Severe</a>
-    <a href="#the-rules---clause-iv.-critial-infractions">Clause IV. Critical</a>
-    <a href="#the-rules---clause-v.-voice-channel-usage-this-section-establishes-the-supreme-regulations-governing-all-audio-transmissions-screen-broadcasts-and-real-time-data-streaming-within-public-voice-sectors.-voice-channels-are-designated-as-collaborative-high-order-communicative-spaces.-acoustic-terrorism-non-consensual-tracking-or-the-transmission-of-hostile-audio-signals-undermines-structural-communication-and-will-be-suppressed.-the-administration-enforces-a-tiered-disciplinary-framework-to-neutralize-auditory-chaos-maintaining-the-same-rigorous-platform-compliance-standards-outlined-prior-above.">Clause V. Voice Channels</a>
-    <a href="#the-rules---clause-vi-the-carry-service-system">Clause VI. Carry Service</a>
+    <a href="#preface"><span class="public-toc-icon" aria-hidden="true">▤</span>Preface</a>
+    <a href="#introductory"><span class="public-toc-icon" aria-hidden="true">▤</span>Introductory</a>
+    <a href="#category-i.-server-terms-and-conditions"><span class="public-toc-icon" aria-hidden="true">▤</span>I. Server Terms &amp; Conditions</a>
+    <a href="#category-ii.-user-appropriation-and-decorum-codified-profile-regulations-and-standards"><span class="public-toc-icon" aria-hidden="true">▤</span>II. User Appropriation &amp; Decorum</a>
+    <a href="#category-iii.-illicit-platform-tags-and-involvement-of-unauthorized-platforms-and-community-servers"><span class="public-toc-icon" aria-hidden="true">▤</span>III. Illicit Platform Tags</a>
+    <a href="#category-iv.-illicit-endorsements-advertisement-and-profile-contamination"><span class="public-toc-icon" aria-hidden="true">▤</span>IV. Illicit Endorsements</a>
+    <a href="#category-v.-the-doctrine-of-general-profile-compliance"><span class="public-toc-icon" aria-hidden="true">▤</span>V. Profile Compliance</a>
+    <a href="#the-constitutional-structure---aureolis-rules-and-regulations"><span class="public-toc-icon" aria-hidden="true">▤</span>Constitutional Structure</a>
+    <a href="#the-rules---clause-i.-low-and-tolerable-infractions"><span class="public-toc-icon" aria-hidden="true">▤</span>Clause I. Low/Tolerable</a>
+    <a href="#the-rules---clause-ii.-moderate-infractions"><span class="public-toc-icon" aria-hidden="true">▤</span>Clause II. Moderate</a>
+    <a href="#the-rules---clause-iii.-severe-infractions"><span class="public-toc-icon" aria-hidden="true">▤</span>Clause III. Severe</a>
+    <a href="#the-rules---clause-iv.-critial-infractions"><span class="public-toc-icon" aria-hidden="true">▤</span>Clause IV. Critical</a>
+    <a href="#the-rules---clause-v.-voice-channel-usage-this-section-establishes-the-supreme-regulations-governing-all-audio-transmissions-screen-broadcasts-and-real-time-data-streaming-within-public-voice-sectors.-voice-channels-are-designated-as-collaborative-high-order-communicative-spaces.-acoustic-terrorism-non-consensual-tracking-or-the-transmission-of-hostile-audio-signals-undermines-structural-communication-and-will-be-suppressed.-the-administration-enforces-a-tiered-disciplinary-framework-to-neutralize-auditory-chaos-maintaining-the-same-rigorous-platform-compliance-standards-outlined-prior-above."><span class="public-toc-icon" aria-hidden="true">▤</span>Clause V. Voice Channels</a>
+    <a href="#the-rules---clause-vi-the-carry-service-system"><span class="public-toc-icon" aria-hidden="true">▤</span>Clause VI. Carry Service</a>
   </aside>
 
-  <main>
+  <main id="page-content">
     <div class="doc-header">
       <div class="eyebrow">Aureolis</div>
       <h1 class="doctitle">Rules &amp; Regulations, Community Guidelines, and the Discord Terms of Service</h1>
@@ -820,5 +814,6 @@ c. Unannounced disappearances or persistent stagnation will result in the quiet 
 </div>
 
 {% include "_fake_ads.html" %}
+<script src="{{ url_for('static', filename='js/public-pages.js') }}" defer></script>
 </body>
 </html>

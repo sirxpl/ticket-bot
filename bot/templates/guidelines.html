@@ -79,34 +79,28 @@
   ::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
   @media (max-width:900px){ .toc{display:none;} main{padding:28px 20px;} }
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/public-pages.css') }}">
 </head>
-<body>
+<body class="public-page guidelines-page">
 
-<div class="topbar">
-  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
-  <div class="topnav">
-    <a href="{{ url_for('docs') }}">Docs</a>
-    <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
-    <a href="{{ url_for('guidelines') }}" class="active">Carry Guidelines</a>
-    <a href="{{ url_for('privacy_policy') }}">Privacy</a>
-    <a href="{{ url_for('status_page') }}">Status</a>
-  </div>
-</div>
+{% include '_public_navigation.html' %}
+
 
 <div class="layout">
-  <aside class="toc">
+  <button type="button" class="public-toc-toggle" id="publicTocButton" aria-expanded="false" aria-controls="publicToc">On this page ▾</button>
+  <aside class="toc" id="publicToc">
     <div class="toc-title">On this page</div>
-    <a href="#preface">Preface</a>
-    <a href="#for-clients">For Clients</a>
-    <a href="#for-carry-team">For Carry Team Members</a>
-    <a href="#points-info">Points Info</a>
-    <a href="#points-regular">Regular Modes</a>
-    <a href="#points-special">Special Gamemodes</a>
-    <a href="#points-trials">Challenge Trials</a>
-    <a href="#points-misc">Miscellaneous</a>
+    <a href="#preface"><span class="public-toc-icon" aria-hidden="true">▤</span>Preface</a>
+    <a href="#for-clients"><span class="public-toc-icon" aria-hidden="true">▤</span>For Clients</a>
+    <a href="#for-carry-team"><span class="public-toc-icon" aria-hidden="true">▤</span>For Carry Team Members</a>
+    <a href="#points-info"><span class="public-toc-icon" aria-hidden="true">▤</span>Points Info</a>
+    <a href="#points-regular"><span class="public-toc-icon" aria-hidden="true">▤</span>Regular Modes</a>
+    <a href="#points-special"><span class="public-toc-icon" aria-hidden="true">▤</span>Special Gamemodes</a>
+    <a href="#points-trials"><span class="public-toc-icon" aria-hidden="true">▤</span>Challenge Trials</a>
+    <a href="#points-misc"><span class="public-toc-icon" aria-hidden="true">▤</span>Miscellaneous</a>
   </aside>
 
-  <main>
+  <main id="page-content">
     <div class="doc-header">
       <div class="eyebrow">Carry Ticket Bot</div>
       <h1 class="doctitle">📜 Carry Service System Rules</h1>
@@ -227,5 +221,6 @@
 </div>
 
 {% include "_fake_ads.html" %}
+<script src="{{ url_for('static', filename='js/public-pages.js') }}" defer></script>
 </body>
 </html>
