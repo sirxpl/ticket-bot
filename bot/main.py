@@ -1257,7 +1257,7 @@ def downtime_page():
 
 @app.route("/status")
 def status_page():
-    return render_template("status.html", **_public_schedule_context())
+    return render_template("status.html", base_url=current_base_url(), **_public_schedule_context())
 
 
 DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "blacklists", "warnings", "carry-settings", "trial-schedules", "warning-builder", "access-control"}
