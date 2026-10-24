@@ -472,6 +472,10 @@ def set_ticket_owner_close_locked(channel_id, locked):
         except Exception:
             logger.exception("Cannot update ticket owner-close lock in MongoDB")
             raise RuntimeError("Could not save ticket lock to MongoDB")
+    # When MongoDB is configured but disconnected, don't announce a lock
+    # saved only to an ephemeral fallback file; it would vanish on reconnect.
+    if os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is unavailable; ticket lock cannot be saved")
     # Local-file mode only: ticket state must still exist and be saved.
     data = get_tickets_data()
     for ticket in data.get("active_tickets", []):
