@@ -197,6 +197,7 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
 <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 6 6 6-6 6M12 18h8"/></symbol>
 <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5c-3-2-6-2-9-1v16c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zM12 5v16"/></symbol>
 <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
 </svg>
 <header class="topbar">
   <button id="docsMenu" class="nav-toggle" type="button" aria-label="Toggle documentation sidebar" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -208,6 +209,7 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
       <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
       <a href="{{ url_for('privacy_policy') }}">Privacy</a>
       <a href="{{ url_for('status_page') }}">Status</a>
+      <a href="{{ url_for('downtime_page') }}">Downtime</a>
     </nav>
     <div class="top-actions"><a href="{{ url_for('home', page='overview') }}">Dashboard</a>{% if user %}<a href="{{ url_for('logout') }}">Log out</a>{% else %}<a href="{{ url_for('login') }}">Log in</a>{% endif %}</div>
   </div>
@@ -225,6 +227,7 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
 <a href="#blacklist" class="navlink" data-page="blacklist"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-ban"></use></svg></span><span>Blacklist</span></a>
 <a href="#access" class="navlink" data-page="access"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-shield"></use></svg></span><span>Access Control</span></a>
 <a href="#transcripts" class="navlink" data-page="transcripts"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-file"></use></svg></span><span>Transcripts</span></a>
+<a href="#downtime" class="navlink" data-page="downtime"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-clock"></use></svg></span><span>Downtime &amp; Offline Schedule</span></a>
 <h4>Staff Commands</h4>
 <a href="#commands" class="navlink" data-page="commands"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-terminal"></use></svg></span><span>Slash Commands</span></a>
 <h4>Reference</h4>
@@ -457,6 +460,48 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
       </div>
     </section>
 
+    <!-- DOWNTIME GUIDE -->
+    <section class="page" id="page-downtime">
+      <p class="eyebrow">Dashboard &amp; Status</p>
+      <h1 class="title">Downtime &amp; Offline Schedule</h1>
+      <p class="lede">Learn how scheduled offline hours work, where to configure them, and how to check the public bot status.</p>
+
+      <h2 class="section-h">What downtime means</h2>
+      <p class="body-p">The offline schedule defines periods when the <strong>Discord bot</strong> should be offline. The website and public status pages can remain accessible during those periods. A scheduled offline window is different from an unexpected outage or an API rate limit.</p>
+
+      <h2 class="section-h">Configure your offline schedule</h2>
+      <ul class="doc-list">
+        <li>Open <strong>Dashboard → Access Control</strong> with an authorized administrator account.</li>
+        <li>Expand the <strong>🕒 Bot Offline Schedule</strong> accordion. It starts collapsed by default.</li>
+        <li>Enable the schedule, then set a valid timezone (for example, <code>America/New_York</code>).</li>
+        <li>For each day, add one or more enabled <strong>Start</strong> and <strong>End</strong> times. Windows can cross midnight.</li>
+        <li>Click <strong>Save Offline Schedule</strong> and check the Status page to confirm the configuration appears.</li>
+      </ul>
+      <div class="callout">Changing the offline schedule requires administrator access. Other visitors can view its public status and configured time windows without access to your dashboard.</div>
+
+      <h2 class="section-h">View downtime and bot status</h2>
+      <div class="grid">
+        <a class="card card-link" href="{{ url_for('status_page') }}#downtime">
+          <span class="icon" aria-hidden="true">📊</span>
+          <h3>System Status</h3>
+          <p>See live connectivity, recent incidents, and a summary of the configured weekly schedule.</p>
+        </a>
+        <a class="card card-link" href="{{ url_for('downtime_page') }}">
+          <span class="icon" aria-hidden="true">🕒</span>
+          <h3>Downtime Details</h3>
+          <p>Review all seven days, individual time windows, configured timezone, and bot status.</p>
+        </a>
+      </div>
+      <h3 class="sub-h">Understanding the status labels</h3>
+      <ul class="doc-list">
+        <li><strong>Active:</strong> The bot is connected and currently available.</li>
+        <li><strong>Inactive / Scheduled offline:</strong> The bot is offline or inside a scheduled offline window.</li>
+        <li><strong>API Limited:</strong> Discord API restrictions are temporarily affecting connectivity; this is not a planned downtime window.</li>
+        <li><strong>Disabled time window:</strong> The saved entry remains visible but does not activate downtime.</li>
+      </ul>
+      <p class="body-p">Use the configured schedule timezone when reading the time windows; it may differ from your own browser timezone. Updates to the public page may require a refresh after the schedule is saved.</p>
+    </section>
+
     <!-- QUICK REF -->
     <section class="page" id="page-quickref">
       <div class="eyebrow">Reference</div>
@@ -473,6 +518,8 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
         <tr><td>Individually blacklisted users</td><td>Blacklist page</td></tr>
         <tr><td>Ticket activity log channel</td><td>Access Control</td></tr>
         <tr><td>Dashboard login access</td><td>Access Control</td></tr>
+        <tr><td>Bot offline schedule</td><td>Access Control → Bot Offline Schedule</td></tr>
+        <tr><td>Current and planned downtime</td><td><a href="{{ url_for('status_page') }}#downtime">Status</a> or <a href="{{ url_for('downtime_page') }}">Downtime Details</a></td></tr>
       </table>
     </section>
 
