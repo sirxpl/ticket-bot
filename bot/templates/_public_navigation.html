@@ -8,7 +8,8 @@
       <a href="{{ url_for('rules') }}" {% if request.endpoint == 'rules' %}class="active" aria-current="page"{% endif %}>Rules &amp; Regulations</a>
       <a href="{{ url_for('guidelines') }}" {% if request.endpoint == 'guidelines' %}class="active" aria-current="page"{% endif %}>Carry Guidelines</a>
       <a href="{{ url_for('privacy_policy') }}" {% if request.endpoint == 'privacy_policy' %}class="active" aria-current="page"{% endif %}>Privacy</a>
-      <a href="{{ url_for('status_page') }}" {% if request.endpoint == 'status_page' or request.endpoint == 'downtime_page' %}class="active" aria-current="page"{% endif %}>Status</a>
+      <a href="{{ url_for('status_page') }}" {% if request.endpoint == 'status_page' %}class="active" aria-current="page"{% endif %}>Status</a>
+      <a href="{{ url_for('downtime_page') }}" {% if request.endpoint == 'downtime_page' %}class="active" aria-current="page"{% endif %}>Downtime</a>
     </nav>
     <div class="top-actions">
       <a href="{{ url_for('home', page='overview') }}">Dashboard</a>
