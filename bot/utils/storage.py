@@ -408,11 +408,33 @@ def increment_category_counter(prefix):s=get_settings();c=s.get("category_counte
 def is_ticket_channel(channel_id):return any(str(t.get("channel_id"))==str(channel_id) for t in get_tickets_data().get("active_tickets",[]))
 def get_active_ticket_for_user(user_id):return next((t for t in get_tickets_data().get("active_tickets",[]) if str(t.get("user_id"))==str(user_id)),None)
 def get_active_ticket(channel_id):return next((t for t in get_tickets_data().get("active_tickets",[]) if str(t.get("channel_id"))==str(channel_id)),None)
-def update_active_ticket(channel_id,**kwargs):
-    d=get_tickets_data()
-    for t in d.get("active_tickets",[]):
-        if str(t.get("channel_id"))==str(channel_id):t.update(kwargs)
-    _save_tickets_data(d)
+def update_active_ticket(channel_id, **kwargs):
+    """Update one ticket without replacing the whole MongoDB document.
+
+    In particular, activity updates cannot overwrite an unrelated owner-close
+    lock transition when a Discord message and a staff command overlap.
+    """
+    if not kwargs:
+        return False
+    channel_id = str(channel_id)
+    db = get_db()
+    if db is not None:
+        try:
+            fields = {f"active_tickets.$.{key}": value for key, value in kwargs.items()}
+            result = db.tickets_data.update_one(
+                {"_id": "singleton", "active_tickets.channel_id": channel_id},
+                {"$set": fields},
+            )
+            return result.matched_count == 1
+        except Exception:
+            logger.exception("Ticket MongoDB update failed")
+            return False
+    d = get_tickets_data()
+    for ticket in d.get("active_tickets", []):
+        if str(ticket.get("channel_id")) == channel_id:
+            ticket.update(kwargs)
+            return _save_tickets_data(d)
+    return False
 def add_active_ticket(ticket_id,channel_id,user_id,ticket_number=None):
     d=get_tickets_data()
     if not any(t.get("ticket_id")==str(ticket_id) for t in d["active_tickets"]):
