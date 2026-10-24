@@ -21,6 +21,16 @@ class CarryManagerSettingsTemplateTests(unittest.TestCase):
         env.get_template("dashboard_pages/carry_settings.html")
         env.get_template("dashboard.html")
 
+    def test_carry_settings_panels_are_closed_on_normal_load(self):
+        carry = (TEMPLATES / "dashboard_pages" / "carry_settings.html").read_text(encoding="utf-8")
+        ad_gag = AD_GAG.read_text(encoding="utf-8")
+        self.assertIn('<details class="card" id="system-settings">', carry)
+        self.assertIn('<details class="card" id="ad-gag-settings">', ad_gag)
+        self.assertEqual(carry.count('<details class="card"'), 6)
+        self.assertNotIn('<details class="card" open>', carry)
+        self.assertNotIn('<details class="card" id="ad-gag-settings" open>', ad_gag)
+        self.assertIn("target.open = true", carry)
+
     def test_add_ad_button_has_matching_javascript_handler(self):
         markup = AD_GAG.read_text(encoding="utf-8")
         self.assertIn('onclick="addAprilFoolsAd()"', markup)

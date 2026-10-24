@@ -4,14 +4,33 @@
             <p>Decide who can reach each part of this control panel.</p>
         </div>
         {% if is_admin_user %}
-        <div class="card">
+        <details class="card" id="access-overview">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">🔐</span> Dashboard Access Overview</h3>
+                    <p class="card-subtitle">Control who can access the dashboard and staff tools.</p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
             <h3><span class="card-icon">🔐</span> Access Control</h3>
             <p class="card-subtitle">
                 Add a user ID or role below to let them view this dashboard. While this list is empty, anyone who logs in with Discord can see it — once you add someone, only matching users/roles get in.
             </p>
 
-            <h4 style="margin-top: 24px;">🕒 Bot Offline Schedule</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-bot-offline-schedule">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> 🕒 Bot Offline Schedule</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Schedule when the Discord bot should appear offline. The dashboard and public status pages remain available. Each day can have multiple offline windows, and a window can cross midnight.
             </p>
             <form action="/dashboard/access/save-offline-schedule" method="POST" id="offlineScheduleForm">
@@ -81,8 +100,19 @@
             })();
             </script>
 
-            <h4 style="margin-top: 24px;">Global Blocked Users</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-global-blocked-users">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Global Blocked Users</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 These Discord user IDs cannot use slash commands or this dashboard. Use this for privacy-policy or platform-policy violations.
             </p>
             <form action="/dashboard/access/add-global-block" method="POST" class="access-form">
@@ -103,8 +133,19 @@
                 <p style="color:var(--text-dim);">No globally blocked users.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 24px;">Generate Terms Unblock Link</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-generate-terms-unblock-link">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Generate Terms Unblock Link</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Creates a single-use link valid for 24 hours. The recipient must authenticate with the matching Discord account before accepting the terms.
             </p>
             <p class="card-subtitle"><a href="{{ url_for('terms_page') }}" target="_blank" rel="noopener">Open the public Terms and Conditions page</a></p>
@@ -131,8 +172,19 @@
             </div>
             {% endif %}
 
-                    <h4 style="margin-top: 24px;">Active Single-use Links</h4>
-                    <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-active-single-use-links">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Active Single-use Links</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                         Unused links that have not expired yet. Anyone with a link can open it, but only the matching Discord account can accept the terms.
                     </p>
                     {% for unblock_link in active_unblock_links %}
@@ -154,8 +206,19 @@
                     <p style="color:var(--text-dim);">No active single-use links.</p>
                     {% endfor %}
 
-            <h4 style="margin-top: 24px;">Message Pinning Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-message-pinning-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Message Pinning Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Members with one of these roles can use the bot's pin command. Administrators always have access.
             </p>
             <form action="/dashboard/access/add-pin-message-role" method="POST" class="access-form">
@@ -181,8 +244,19 @@
                 <p style="color: var(--text-dim);">No roles configured — only administrators can pin through the bot.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 24px;">Carry Team Application Verdict Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-carry-team-application-verdict-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Carry Team Application Verdict Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Members with these roles can accept or deny applications from the Discord review card. A reason is required for every verdict. Administrators always have access; if no roles are configured, only administrators can decide.
             </p>
             <form action="/dashboard/access/add-carry-application-verdict-role" method="POST" class="access-form">
@@ -208,8 +282,19 @@
                 <p style="color: var(--text-dim);">No verdict roles configured.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 24px;">Carry Team Application Notifications</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-carry-team-application-notifications">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Carry Team Application Notifications</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 The portal is <a href="{{ url_for('carry_application', _external=True) }}" target="_blank" rel="noopener">available here</a>. Bot delivery posts the review card directly. Webhook delivery posts the result through your webhook and the bot adds a separate interactive verdict card in the same channel. Verdict controls are disabled after a decision while the response remains viewable.
             </p>
             <p class="card-subtitle">
@@ -245,8 +330,19 @@
                 <button type="submit" class="btn-view">Save Application Settings</button>
             </form>
 
-                    <h4 style="margin-top: 20px;">Allowed Users</h4>
-            <form action="/dashboard/access/add-user" method="POST" class="access-form">
+            </div>
+        </details>
+
+        <details class="card" id="access-allowed-users">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Allowed Users</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<form action="/dashboard/access/add-user" method="POST" class="access-form">
                 <div>
                     <label>Discord User ID:</label>
                     <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
@@ -264,8 +360,19 @@
                 <p style="color: var(--text-dim);">No users added yet.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Allowed Roles</h4>
-            <form action="/dashboard/access/add-role" method="POST" class="access-form">
+            </div>
+        </details>
+
+        <details class="card" id="access-allowed-roles">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Allowed Roles</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<form action="/dashboard/access/add-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
                     <select name="role_id" required>
@@ -288,8 +395,19 @@
                 <p style="color: var(--text-dim);">No roles added yet.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Carry Manager Settings Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-carry-manager-settings-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Carry Manager Settings Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Only members with one of these roles (or admins) can view and use the Carry Manager Settings page. Leave empty to allow anyone with dashboard access.
             </p>
             <form action="/dashboard/access/add-carry-manager-role" method="POST" class="access-form">
@@ -315,8 +433,19 @@
                 <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can use Carry Manager Settings.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Transcripts Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-transcripts-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Transcripts Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Only members with one of these roles (or admins) can view the Transcripts page. Leave empty to allow anyone with dashboard access.
             </p>
             <form action="/dashboard/access/add-transcripts-role" method="POST" class="access-form">
@@ -342,8 +471,19 @@
                 <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Transcripts.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Analytics Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-analytics-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Analytics Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Only members with one of these roles (or admins) can view the Analytics page. Leave empty to allow anyone with dashboard access.
             </p>
             <form action="/dashboard/access/add-analytics-role" method="POST" class="access-form">
@@ -369,8 +509,19 @@
                 <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Analytics.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Remove Cooldown Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-remove-cooldown-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Remove Cooldown Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Only members with one of these roles (or admins) can see and use the "Remove Cooldown" button on the Overview page. Leave empty to allow anyone with dashboard access.
             </p>
             <form action="/dashboard/access/add-remove-cooldown-role" method="POST" class="access-form">
@@ -396,8 +547,19 @@
                 <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can remove cooldowns.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Ticket Blacklist Role</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-ticket-blacklist-role">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Ticket Blacklist Role</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Members holding any of these roles are blocked from creating new tickets. Add another role below to blacklist more than one.
             </p>
             <form action="/dashboard/access/add-blacklist-role" method="POST" class="access-form">
@@ -423,8 +585,19 @@
                 <p style="color: var(--text-dim);">No ticket blacklist roles added yet.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Ticket Viewer Roles</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-ticket-viewer-roles">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Ticket Viewer Roles</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Roles added here can see and chat in every ticket, with permission to send embeds and attachments. This is separate from the single Support Role set on the panel — add as many as you need.
             </p>
             <form action="/dashboard/access/add-viewer-role" method="POST" class="access-form">
@@ -450,8 +623,19 @@
                 <p style="color: var(--text-dim);">No ticket viewer roles added yet.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Powerful Command Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-powerful-command-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Powerful Command Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Controls who can use <code>/move</code>, <code>/ticketnumber</code>, <code>/addticketblacklist</code>, and <code>/removeticketblacklist</code> — on top of the normal Manage Channels requirement for the first two. <code>/addticketblacklist</code> and <code>/removeticketblacklist</code> stay admin-only until you add a role or user ID here; <code>/move</code>/<code>/ticketnumber</code> stay open to anyone with Manage Channels until configured.
             </p>
             <form action="/dashboard/access/add-powerful-command-role" method="POST" class="access-form">
@@ -495,8 +679,19 @@
                 <p style="color: var(--text-dim);">No user IDs added yet.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Moderation Command Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-moderation-command-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Moderation Command Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Controls who can use <code>/w1</code>, <code>/w2</code>, <code>/w3</code>, and <code>/unwarn</code>. These stay open to <strong>everyone</strong> in the server until you add at least one role or user ID here — once configured, only matching roles/users (and admins) can issue or revoke warnings.
             </p>
             <form action="/dashboard/access/add-moderation-command-role" method="POST" class="access-form">
@@ -540,8 +735,19 @@
                 <p style="color: var(--text-dim);">No user IDs added yet.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Basic Command Access</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-basic-command-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Basic Command Access</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Controls who can use <code>/close</code>, <code>/requestclose</code>, <code>/autoclose</code>, <code>/add</code>, <code>/remove</code>, and <code>/rename</code> — on top of the normal Manage Channels requirement. These stay open to anyone with Manage Channels until you add a role or user ID here; once configured, only matching roles/users (or admins) can use them.
             </p>
             <form action="/dashboard/access/add-basic-command-role" method="POST" class="access-form">
@@ -585,8 +791,19 @@
                 <p style="color: var(--text-dim);">No user IDs added yet.</p>
             {% endfor %}
 
-            <h4 style="margin-top: 20px;">Ticket Activity Log Channel</h4>
-            <p class="card-subtitle">Opened and closed tickets get posted here. Leave unset to disable.</p>
+            </div>
+        </details>
+
+        <details class="card" id="access-ticket-activity-log-channel">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Ticket Activity Log Channel</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">Opened and closed tickets get posted here. Leave unset to disable.</p>
             <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
                 <div>
                     <label>Channel:</label>
@@ -600,8 +817,19 @@
                 <button type="submit" class="btn-view">Save</button>
             </form>
 
-            <h4 style="margin-top: 20px;">Blacklist Log Channel</h4>
-            <p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
+            </div>
+        </details>
+
+        <details class="card" id="access-blacklist-log-channel">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Blacklist Log Channel</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
             <form action="/dashboard/access/set-blacklist-log-channel" method="POST" class="access-form">
                 <div>
                     <label>Channel:</label>
@@ -615,8 +843,19 @@
                 <button type="submit" class="btn-view">Save</button>
             </form>
 
-            <h4 style="margin-top: 20px;">Warning Log Channel</h4>
-            <p class="card-subtitle">Separate from the channels above — only /w1, /w2, /w3, and /unwarn post here. Leave unset to disable.</p>
+            </div>
+        </details>
+
+        <details class="card" id="access-warning-log-channel">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Warning Log Channel</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">Separate from the channels above — only /w1, /w2, /w3, and /unwarn post here. Leave unset to disable.</p>
             <form action="/dashboard/access/set-warning-log-channel" method="POST" class="access-form">
                 <div>
                     <label>Channel:</label>
@@ -630,8 +869,19 @@
                 <button type="submit" class="btn-view">Save</button>
             </form>
 
-            <h4 style="margin-top: 20px;">Linked Roles (Discord Connections)</h4>
-            <p class="card-subtitle">
+            </div>
+        </details>
+
+        <details class="card" id="access-linked-roles-discord-connections">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Linked Roles (Discord Connections)</h3>
+                    
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
                 Lets members verify by agreeing to the Rules &amp; Regulations through Discord's own Connections screen — the bot shows up under "Apps" just like other Linked Roles integrations. Needs no privileged intents at all.
             </p>
             <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; font-size: 0.88em; color: var(--text-dim);">
@@ -646,7 +896,8 @@
             <form action="/dashboard/linked-role/register-metadata" method="POST">
                 <button type="submit" class="btn-view">Register Metadata</button>
             </form>
-        </div>
+            </div>
+        </details>
         <details class="card">
             <summary>
                 <div class="card-head-text">

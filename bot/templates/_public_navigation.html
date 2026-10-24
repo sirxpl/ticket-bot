@@ -1,0 +1,28 @@
+<a class="public-skip" href="#page-content">Skip to content</a>
+<header class="topbar public-topbar">
+  <button type="button" id="publicMenuButton" class="public-menu" aria-label="Toggle navigation" aria-controls="publicMobileNav" aria-expanded="false">☰</button>
+  <a class="brand" href="{{ url_for('docs') }}"><span class="stub" aria-hidden="true"></span><span>Carry <span class="brand-gradient">Ticket Bot</span></span></a>
+  <div class="topbar-right">
+    <nav class="topnav" aria-label="Website navigation">
+      <a href="{{ url_for('docs') }}" {% if request.endpoint == 'docs' %}class="active" aria-current="page"{% endif %}>Docs</a>
+      <a href="{{ url_for('rules') }}" {% if request.endpoint == 'rules' %}class="active" aria-current="page"{% endif %}>Rules &amp; Regulations</a>
+      <a href="{{ url_for('guidelines') }}" {% if request.endpoint == 'guidelines' %}class="active" aria-current="page"{% endif %}>Carry Guidelines</a>
+      <a href="{{ url_for('privacy_policy') }}" {% if request.endpoint == 'privacy_policy' %}class="active" aria-current="page"{% endif %}>Privacy</a>
+      <a href="{{ url_for('status_page') }}" {% if request.endpoint == 'status_page' %}class="active" aria-current="page"{% endif %}>Status</a>
+      <a href="{{ url_for('downtime_page') }}" {% if request.endpoint == 'downtime_page' %}class="active" aria-current="page"{% endif %}>Downtime</a>
+    </nav>
+    <div class="top-actions">
+      <a href="{{ url_for('home', page='overview') }}">Dashboard</a>
+      {% if session.get('user') %}<a href="{{ url_for('logout') }}">Log out</a>{% else %}<a href="{{ url_for('login') }}">Log in</a>{% endif %}
+    </div>
+  </div>
+</header>
+<nav class="public-mobile-nav" id="publicMobileNav" aria-label="Mobile navigation" hidden>
+  <a href="{{ url_for('docs') }}">Docs</a>
+  <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
+  <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
+  <a href="{{ url_for('privacy_policy') }}">Privacy</a>
+  <a href="{{ url_for('status_page') }}">Status</a>
+  <a href="{{ url_for('downtime_page') }}">Downtime &amp; Offline Schedule</a>
+  <a href="{{ url_for('home', page='overview') }}">Dashboard</a>
+</nav>

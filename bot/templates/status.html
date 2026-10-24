@@ -116,21 +116,15 @@
 
   .note{color:var(--muted); font-size:13px; text-align:center; margin-top:28px;}
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/public-pages.css') }}">
 </head>
-<body>
+<body class="public-page status-page">
 
-<div class="topbar">
-  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
-  <div class="topnav">
-    <a href="{{ url_for('docs') }}">Docs</a>
-    <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
-    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
-    <a href="{{ url_for('privacy_policy') }}">Privacy</a>
-    <a href="{{ url_for('status_page') }}" class="active">Status</a>
-  </div>
-</div>
+{% include '_public_navigation.html' %}
 
-<main>
+
+<main id="page-content">
+  <div class="doc-header"><div class="eyebrow">Service health</div><h1 class="doctitle">System Status</h1><p class="rev">Live connectivity, scheduled downtime, and service notices.</p></div>
   <div class="status-card">
     <div><span class="status-icon" id="statusIcon">●</span><span class="status-label" id="statusLabel">Checking...</span></div>
     <div class="status-sub" id="statusSub">Loading current status</div>
@@ -173,6 +167,30 @@
       <div class="bar-detail-status" id="barDetailStatus"></div>
     </div>
   </div>
+
+  <section class="downtime-card" id="downtime" aria-labelledby="downtime-heading">
+    <div class="eyebrow">Planned availability</div>
+    <h2 id="downtime-heading">Downtime &amp; Offline Schedule</h2>
+    <p>Scheduled downtime temporarily takes the Discord bot offline while this website remains available.</p>
+    <p><strong>Schedule:</strong> {{ 'Enabled' if schedule_enabled else 'Disabled' }}
+      · <strong>Currently:</strong> {{ 'Inside a downtime window' if schedule_active else 'Outside scheduled downtime' }}
+      · <strong>Timezone:</strong> {{ schedule_timezone }}</p>
+    <div class="downtime-grid">
+      <div>{% for day in schedule_days[:4] %}
+        <div class="downtime-day"><strong>{{ day.name|capitalize }}</strong>
+          {% if day.entries %}{% for entry in day.entries %}
+          <span class="downtime-entry">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
+          {% endfor %}{% else %}<span class="downtime-empty">No scheduled downtime</span>{% endif %}
+        </div>{% endfor %}</div>
+      <div>{% for day in schedule_days[4:] %}
+        <div class="downtime-day"><strong>{{ day.name|capitalize }}</strong>
+          {% if day.entries %}{% for entry in day.entries %}
+          <span class="downtime-entry">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
+          {% endfor %}{% else %}<span class="downtime-empty">No scheduled downtime</span>{% endif %}
+        </div>{% endfor %}</div>
+    </div>
+    <p style="margin:18px 0 0"><a href="{{ url_for('downtime_page') }}">Open detailed downtime schedule →</a></p>
+  </section>
 
   <div class="notices">
     <h2>Notice History</h2>
@@ -328,7 +346,8 @@ setInterval(refresh, 15000);
 setInterval(refreshHistory, 60000);
 </script>
 
-{% include "_fake_ads.html" %}
-{% include "_bot_status_section.html" %}
+
+
+<script src="{{ url_for('static', filename='js/public-pages.js') }}" defer></script>
 </body>
 </html>
