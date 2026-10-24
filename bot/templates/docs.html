@@ -407,16 +407,26 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
     <section class="page" id="page-commands">
       <div class="eyebrow yellow">Staff Commands</div>
       <h1 class="title">Slash Command Reference</h1>
-      <p class="lede">All commands below require the Manage Channels permission and only work inside an active ticket channel.</p>
+      <p class="lede">Ticket management commands are visible in Discord's slash-command picker, but can only be executed by authorized staff with Manage Channels, configured bot-admin access, or explicit Basic Command Access. Commands tied to a ticket require an active ticket channel.</p>
 
       <div class="cmd">
         <div class="sig">/close [reason]</div>
         <div class="desc">Closes the current ticket immediately. Reason is optional and gets logged in the transcript.</div>
       </div>
       <div class="cmd">
-        <div class="sig">/requestclose</div>
-        <div class="desc">Sends the ticket opener a Yes/No prompt to confirm the close.</div>
-        <div class="note">Only the ticket opener can respond — staff cannot force the close through this command.</div>
+        <div class="sig">/request-close [reason]</div>
+        <div class="desc">Staff send a Components V2 close-approval panel to the ticket opener, with Approve and Decline buttons. Only the opener can respond.</div>
+        <div class="note">This is blocked while the ticket is in progress. The existing /requestclose command remains available as an alias.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/start-ticket</div>
+        <div class="desc">Staff mark the ticket as in progress, preventing the opener from closing it via the channel's Close Ticket button, a pending close approval, or other owner-initiated close routes.</div>
+        <div class="note">The lock persists in the active ticket record; authorized staff may still close the ticket.</div>
+      </div>
+      <div class="cmd">
+        <div class="sig">/end-ticket</div>
+        <div class="desc">Staff finish the in-progress state and restore the ticket opener's ability to close it.</div>
+        <div class="note">Old close-approval prompts become invalid after a lock transition; send a fresh /request-close prompt if needed.</div>
       </div>
       <div class="cmd">
         <div class="sig">/rename &lt;name&gt;</div>
