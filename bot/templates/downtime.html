@@ -72,7 +72,7 @@
           <h3>{{ day.name }}</h3>
           {% if day.entries %}
             {% for entry in day.entries %}
-            <span class="dt-entry {% if not entry.enabled %}disabled{% endif %}">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
+            <span class="dt-entry {% if entry.enabled is defined and not entry.enabled %}disabled{% endif %}">{{ entry.start }}–{{ entry.end }}{% if entry.enabled is defined and not entry.enabled %} (disabled){% endif %}</span>
             {% endfor %}
           {% else %}
             <span class="dt-empty">No scheduled downtime</span>
