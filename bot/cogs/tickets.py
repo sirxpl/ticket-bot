@@ -35,6 +35,7 @@ from utils.storage import (
     remove_active_ticket,
     render_ticket_template,
     set_autoclose_disabled,
+    set_ticket_owner_close_locked,
     set_category_counter,
     slugify,
     touch_ticket_activity,
@@ -374,11 +375,22 @@ class ConfirmView(discord.ui.View):
     async def confirm(
         self, inter: discord.Interaction, btn: discord.ui.Button
     ):
+        if owner_close_locked(get_active_ticket(self.target_channel.id), inter.user.id):
+            await inter.response.send_message(
+                "🔒 This ticket is in progress. Staff must run /end-ticket first.",
+                ephemeral=True,
+            )
+            return
         await inter.response.defer(ephemeral=True)
         try:
-            await self.cog.do_close(
+            closed = await self.cog.do_close(
                 self.target_channel, inter.user, "Closed via button"
             )
+            if not closed:
+                await inter.followup.send(
+                    "⚠️ Could not close ticket; already closing or locked.",
+                    ephemeral=True,
+                )
         except Exception as e:
             try:
                 await inter.followup.send(
@@ -403,53 +415,128 @@ class ConfirmView(discord.ui.View):
         )
 
 
-class RequestCloseView(discord.ui.View):
-    """Sent when staff run /requestclose. Only the ticket opener can respond
-    — staff cannot force the close through this view."""
+def owner_close_locked(ticket, user_id):
+    """Ticket opener may not close their own in-progress ticket."""
+    return bool(ticket and ticket.get("owner_close_locked")
+                and str(ticket.get("user_id")) == str(user_id))
 
-    def __init__(self, cog, target_channel, creator_id, reason: str = None):
+
+def can_manage_ticket(member):
+    """Managers and explicitly allowed staff; no open-list permission bypass."""
+    from utils.access import get_access_settings, is_admin
+    if member.guild_permissions.manage_channels or is_admin(member.id):
+        return True
+    config = get_access_settings()
+    allowed_users = {str(x) for x in config.get("basic_command_users", [])}
+    allowed_roles = {str(x) for x in config.get("basic_command_roles", [])}
+    return str(member.id) in allowed_users or bool(
+        allowed_roles.intersection(str(role.id) for role in getattr(member, "roles", []))
+    )
+
+
+def ticket_notice(title, description, *, okay=True):
+    """Components V2 status announcement."""
+    view = discord.ui.LayoutView()
+    container = discord.ui.Container(
+        accent_color=discord.Color.green() if okay else discord.Color.orange()
+    )
+    container.add_item(discord.ui.TextDisplay("## " + title))
+    container.add_item(discord.ui.Separator())
+    container.add_item(discord.ui.TextDisplay(description))
+    view.add_item(container)
+    return view
+
+
+class CloseRequestButton(discord.ui.Button):
+    def __init__(self, panel, accept):
+        super().__init__(
+            label="Yes, close it" if accept else "No, keep it open",
+            style=discord.ButtonStyle.danger if accept else discord.ButtonStyle.secondary,
+            custom_id=f"reqclose:{panel.channel.id}:{panel.revision}:{int(accept)}",
+        )
+        self.panel = panel
+        self.accept = accept
+
+    async def callback(self, interaction):
+        await self.panel.decide(interaction, self.accept)
+
+
+class RequestCloseView(discord.ui.LayoutView):
+    """Components V2 close prompt. Only the ticket opener may answer."""
+
+    def __init__(self, cog, channel, creator_id, staff, reason, revision):
         super().__init__(timeout=600)
         self.cog = cog
-        self.target_channel = target_channel
+        self.channel = channel
         self.creator_id = str(creator_id)
         self.reason = reason
+        self.revision = int(revision)
+        self.decided = False
+        container = discord.ui.Container(accent_color=discord.Color.orange())
+        container.add_item(discord.ui.TextDisplay("## 🔐 Ticket Close Request"))
+        container.add_item(discord.ui.Separator())
+        safe_reason = discord.utils.escape_mentions(reason) if reason else "No reason provided"
+        container.add_item(discord.ui.TextDisplay(
+            f"<@{creator_id}>, {staff.mention} has requested to close this ticket.\n\n"
+            f"**Reason:** {safe_reason}\n\n"
+            "Only the ticket opener can approve or decline."
+        ))
+        container.add_item(discord.ui.ActionRow(
+            CloseRequestButton(self, True), CloseRequestButton(self, False)
+        ))
+        self.add_item(container)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    async def interaction_check(self, interaction):
         if str(interaction.user.id) != self.creator_id:
             await interaction.response.send_message(
-                "❌ Only the person who opened this ticket can respond to this request.",
+                "❌ Only the ticket opener may respond.", ephemeral=True
+            )
+            return False
+        ticket = get_active_ticket(self.channel.id)
+        if not ticket or str(ticket.get("user_id")) != self.creator_id:
+            await interaction.response.send_message(
+                "⚠️ This ticket is no longer active.", ephemeral=True
+            )
+            return False
+        if self.decided or int(ticket.get("owner_close_revision", 0)) != self.revision:
+            await interaction.response.send_message(
+                "⚠️ This request is outdated. Ask staff to send a new one.",
+                ephemeral=True,
+            )
+            return False
+        if owner_close_locked(ticket, interaction.user.id):
+            await interaction.response.send_message(
+                "🔒 This ticket is in progress. Staff must use /end-ticket first.",
                 ephemeral=True,
             )
             return False
         return True
 
-    @discord.ui.button(label="Yes, close it", style=discord.ButtonStyle.danger)
-    async def confirm(self, inter: discord.Interaction, btn: discord.ui.Button):
-        for child in self.children:
-            child.disabled = True
-        await inter.response.edit_message(content="✅ Closing ticket...", view=self)
-        close_reason = (
-            f"Closed by opener via /requestclose — reason: {self.reason}"
-            if self.reason
-            else "Closed by opener via /requestclose"
+    async def decide(self, interaction, accept):
+        self.decided = True
+        self.stop()
+        await interaction.response.edit_message(
+            view=ticket_notice(
+                "✅ Close Approved" if accept else "🛑 Close Declined",
+                f"{interaction.user.mention} approved the request. Closing…"
+                if accept else f"{interaction.user.mention} declined; ticket stays open.",
+                okay=not accept,
+            )
         )
+        if not accept:
+            return
+        close_reason = (f"Opener accepted /request-close: {self.reason}" if self.reason
+                        else "Opener accepted /request-close")
         try:
-            await self.cog.do_close(self.target_channel, inter.user, close_reason)
-        except Exception as e:
-            try:
-                await inter.followup.send(
-                    f"❌ Failed to close ticket: {e}", ephemeral=True
+            closed = await self.cog.do_close(self.channel, interaction.user, close_reason)
+            if not closed:
+                await interaction.followup.send(
+                    "⚠️ Could not close this ticket. It may be locked or already closing.",
+                    ephemeral=True,
                 )
-            except Exception:
-                pass
-
-    @discord.ui.button(label="No, keep it open", style=discord.ButtonStyle.secondary)
-    async def decline(self, inter: discord.Interaction, btn: discord.ui.Button):
-        for child in self.children:
-            child.disabled = True
-        await inter.response.edit_message(
-            content="Ticket will stay open.", view=self
-        )
+        except Exception:
+            logger.exception("Request-close acceptance failed")
+            await interaction.followup.send("❌ Closing failed. Ask staff for help.", ephemeral=True)
 
 
 def build_rename_announcement(old_name: str, new_name: str, executor: discord.abc.User):
@@ -525,26 +612,22 @@ class CloseConfirmView(discord.ui.View):
             )
             return
 
-        perms = interaction.user.guild_permissions
-        from utils.storage import get_logs_for_ticket
-
-        creator_id = None
-        try:
-            logs = get_logs_for_ticket(str(interaction.channel.id))
-            created = next(
-                (l for l in logs if l.get("action") == "created"), None
-            )
-            if created and created.get("creator"):
-                creator_id = created.get("creator").get("id")
-        except Exception:
-            creator_id = None
-
-        if not (
-            perms.manage_channels
-            or (creator_id and str(interaction.user.id) == str(creator_id))
-        ):
+        ticket = get_active_ticket(interaction.channel.id)
+        if not ticket:
             await interaction.response.send_message(
-                "❌ You don't have permission to close this ticket.",
+                "❌ This ticket is not active.", ephemeral=True
+            )
+            return
+        if owner_close_locked(ticket, interaction.user.id):
+            await interaction.response.send_message(
+                "🔒 Ticket is in progress. Wait for staff to use /end-ticket.",
+                ephemeral=True,
+            )
+            return
+        if (str(interaction.user.id) != str(ticket.get("user_id"))
+                and not can_manage_ticket(interaction.user)):
+            await interaction.response.send_message(
+                "❌ Only the opener or authorized staff can close this ticket.",
                 ephemeral=True,
             )
             return
@@ -1635,17 +1718,10 @@ class TicketsCog(commands.Cog):
         if not await self._require_ticket_channel(interaction):
             return False
 
-        from utils.access import has_basic_command_access
-
-        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
-        has_list_access = has_basic_command_access(interaction.user.id, member_role_ids)
-        has_manage_channels = interaction.user.guild_permissions.manage_channels
-
-        if not (has_list_access or has_manage_channels):
+        if not can_manage_ticket(interaction.user):
             await interaction.response.send_message(
-                "❌ You need either the **Manage Channels** permission or a role/user ID "
-                "granted in the Basic Command Access list to use this command.",
-                ephemeral=True,
+                "❌ Only authorized staff (Manage Channels or explicit Basic Command "
+                "Access) may manage tickets.", ephemeral=True
             )
             return False
         return True
