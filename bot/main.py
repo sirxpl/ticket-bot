@@ -210,34 +210,9 @@ _BOT_STATUS_SECTION_HTML = """<section class="ctb-status-section" aria-label="Bo
 })();
 </script>"""
 
-@app.after_request
-def _inject_public_bot_status(response):
-    """Add the public status/downtime section to every HTML page except the dashboard."""
-    try:
-        # No floating status panel on documentation and policy pages.
-        quiet_pages = {"/", "/docs", "/terms", "/rules", "/guidelines", "/privacy"}
-        if request.path in quiet_pages or "text/html" not in response.content_type:
-            return response
-        body = response.get_data(as_text=True)
-        if "ctb-status-section" in body or "Downtime &amp; Offline Schedule" in body:
-            return response
-        api_left = api_block_seconds_left()
-        status_active = bool(bot.is_ready()) and not bot.is_closed() and not bot_sleeping and not _offline_schedule_is_active() and api_left <= 0
-        status_text = "API Limited" if api_left > 0 else ("Active" if status_active else "Inactive")
-        status_class = "ctb-offline" if api_left > 0 else ("ctb-online" if status_active else "ctb-offline")
-        api_block_until = str(int(api_block_until_ts())) if api_left > 0 else "0"
-        api_block_text = f"Discord API blocked — retrying in {format_duration(api_left)}" if api_left > 0 else ""
-        section = (_BOT_STATUS_SECTION_HTML
-                   .replace("__STATUS_CLASS__", status_class)
-                   .replace("__STATUS_TEXT__", status_text)
-                   .replace("__API_BLOCK_UNTIL__", api_block_until)
-                   .replace("__API_BLOCK_TEXT__", api_block_text))
-        if "</body>" in body:
-            body = body.replace("</body>", section + "\n</body>", 1)
-            response.set_data(body)
-        return response
-    except Exception:
-        return response
+# The old fixed Bot Status overlay was retired. The live status, incidents,
+# offline schedule and rate-limit information now belong to /status and
+# /downtime rather than being injected into every page.
 
 
 def current_base_url():
@@ -1247,8 +1222,8 @@ def api_status_history():
     })
 
 
-@app.route("/downtime")
-def downtime_page():
+def _public_schedule_context():
+    """Shared status-page context, reading the configured schedule once."""
     schedule = get_offline_schedule()
     try:
         schedule_timezone = schedule.get("timezone") or "America/New_York"
@@ -1260,24 +1235,29 @@ def downtime_page():
         {"name": day, "entries": schedule.get("days", {}).get(day, []) or []}
         for day in day_names
     ]
-    schedule_active = _offline_schedule_is_active()
-    bot_active = bool(bot.is_ready()) and not bot.is_closed()
-    return render_template(
-        "downtime.html",
-        schedule_days=schedule_days,
-        schedule_timezone=schedule_timezone,
-        schedule_active=schedule_active,
-        bot_active=bot_active,
-        api_blocked=api_block_seconds_left() > 0,
-        api_retry_in_seconds=api_block_seconds_left(),
-        api_retry_at=api_block_until_ts(),
-        bot_sleeping=bot_sleeping,
-    )
+    schedule_active = _offline_schedule_is_active(schedule=schedule)
+    api_retry_in_seconds = api_block_seconds_left()
+    return {
+        "schedule_days": schedule_days,
+        "schedule_timezone": schedule_timezone,
+        "schedule_enabled": bool(schedule.get("enabled", False)),
+        "schedule_active": schedule_active,
+        "bot_active": bool(bot.is_ready()) and not bot.is_closed(),
+        "api_blocked": api_retry_in_seconds > 0,
+        "api_retry_in_seconds": api_retry_in_seconds,
+        "api_retry_at": api_block_until_ts(),
+        "bot_sleeping": bot_sleeping,
+    }
+
+
+@app.route("/downtime")
+def downtime_page():
+    return render_template("downtime.html", **_public_schedule_context())
 
 
 @app.route("/status")
 def status_page():
-    return render_template("status.html")
+    return render_template("status.html", **_public_schedule_context())
 
 
 DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "blacklists", "warnings", "carry-settings", "trial-schedules", "warning-builder", "access-control"}
@@ -2869,9 +2849,10 @@ def run_flask():
 _offline_schedule_active = False
 
 
-def _offline_schedule_is_active(now=None):
+def _offline_schedule_is_active(now=None, schedule=None):
     """Return True when the current local time falls inside a configured window."""
-    schedule = get_offline_schedule()
+    if schedule is None:
+        schedule = get_offline_schedule()
     if not schedule.get("enabled"):
         return False
     try:
