@@ -1,91 +1,156 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Downtime & Offline Schedule — Carry Ticket Bot</title>
-<style>
-:root{--bg:#0b0c12;--surface:#14151f;--surface2:#191b28;--border:#25273a;--text:#eef0f7;--muted:#8d90a8;--yellow:#ffc93c;--indigo:#7c6cf0;--green:#3fd68c;--red:#f1556c}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -10%,#202347 0,#0b0c12 48%);color:var(--text);font:15px/1.6 Inter,system-ui,-apple-system,sans-serif}
-a{color:inherit}.wrap{width:min(980px,calc(100% - 36px));margin:0 auto;padding:34px 0 100px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:28px}.brand{font-weight:800;text-decoration:none}.back{color:var(--muted);text-decoration:none}.back:hover{color:var(--yellow)}
-.hero{padding:28px;border:1px solid var(--border);border-radius:16px;background:var(--surface);margin-bottom:18px}.eyebrow{color:var(--yellow);font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.hero h1{margin:7px 0 8px;font-size:34px;line-height:1.15}.hero p{margin:0;color:var(--muted)}
-.grid{display:grid;grid-template-columns:1fr 1.5fr;gap:18px}.card{padding:22px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}.card h2{font-size:18px;margin:0 0 14px}.state{display:inline-flex;align-items:center;gap:9px;padding:8px 12px;border-radius:9px;background:var(--surface2);font-weight:800}.dot{width:10px;height:10px;border-radius:50%}.online{background:var(--green);box-shadow:0 0 10px #3fd68c88}.offline{background:var(--red);box-shadow:0 0 10px #f1556c66}.meta{margin-top:15px;color:var(--muted);font-size:13px}.tz{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);word-break:break-word}
-.day{padding:13px 0;border-bottom:1px solid var(--border)}.day:last-child{border-bottom:0}.day-name{font-weight:800;text-transform:capitalize;margin-bottom:7px}.entry{display:inline-block;margin:3px 6px 3px 0;padding:5px 9px;border-radius:7px;background:var(--surface2);color:#cfd2e2;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}.disabled{opacity:.45;text-decoration:line-through}.empty{color:var(--muted);font-size:13px}.note{margin-top:18px;padding:13px 15px;border-left:3px solid var(--yellow);background:#1e1d29;color:#c9cbd8;border-radius:8px;font-size:13px}
-@media(max-width:760px){.grid{grid-template-columns:1fr}.hero h1{font-size:29px}.top{align-items:flex-start;flex-direction:column}}
-</style>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/public-pages.css') }}">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#090d17">
+  <meta name="description" content="Carry Ticket Bot status, downtime schedule, and maintenance windows.">
+  <title>Downtime &amp; Offline Schedule — Carry Ticket Bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/public-pages.css') }}">
 </head>
 <body class="public-page downtime-page">
 {% include '_public_navigation.html' %}
-<main class="wrap" id="page-content">
-  <div class="top"><span class="eyebrow">Status details</span><a class="back" href="{{ url_for('status_page') }}#downtime">← Back to status</a></div>
-<section class="hero">
-    <div class="eyebrow">Downtime Center</div>
-    <h1>Downtime &amp; Offline Schedule</h1>
-    <p>See whether the bot is active, when scheduled downtime applies, and which timezone the schedule uses.</p>
-  </section>
-  <div class="grid">
-    <section class="card">
-      <h2>Current Status</h2>
-      <div class="state" id="bot-state" data-api-block-until="{{ api_retry_at or 0 }}">
-        <span class="dot {% if api_blocked %}offline{% elif bot_active and not schedule_active and not bot_sleeping %}online{% else %}offline{% endif %}" id="bot-state-dot"></span>
-        <span id="bot-state-text">{% if api_blocked %}API Limited{% elif bot_active and not schedule_active and not bot_sleeping %}Active{% else %}Inactive{% endif %}</span>
+
+<div class="layout">
+  <button type="button" class="public-toc-toggle" id="publicTocButton" aria-controls="publicToc" aria-expanded="false">On this page ▾</button>
+  <aside class="toc" id="publicToc" aria-label="Downtime navigation">
+    <nav aria-label="Downtime sections">
+      <h4 class="toc-title">Service Status</h4>
+      <a href="#current-status"><span class="public-toc-icon" aria-hidden="true">◉</span>Current Bot Status</a>
+      <a href="#weekly-schedule"><span class="public-toc-icon" aria-hidden="true">◷</span>Weekly Offline Schedule</a>
+      <a href="#about-downtime"><span class="public-toc-icon" aria-hidden="true">ⓘ</span>How Downtime Works</a>
+      <h4 class="toc-title">Resources</h4>
+      <a href="{{ url_for('status_page') }}"><span class="public-toc-icon" aria-hidden="true">↗</span>System Status</a>
+      <a href="{{ url_for('docs') }}#downtime"><span class="public-toc-icon" aria-hidden="true">▤</span>Downtime Guide</a>
+    </nav>
+  </aside>
+
+  <main id="page-content">
+    <header class="doc-header">
+      <p class="eyebrow">Service Health / Availability</p>
+      <h1 class="doctitle">Downtime &amp; Offline Schedule</h1>
+      <p class="dt-lede">Check when Carry Ticket Bot is available, view planned downtime, and explore the configured weekly schedule.</p>
+      <div class="dt-quick-links">
+        <a href="{{ url_for('status_page') }}">← System Status</a>
+        <a href="{{ url_for('docs') }}#downtime">Read the Downtime Guide →</a>
       </div>
-      <div class="meta" id="api-countdown">{% if api_blocked %}Discord API blocked — retrying in <strong id="api-countdown-value">loading…</strong>{% endif %}</div>
-      <div class="meta">Schedule currently {% if schedule_active %}active{% else %}inactive{% endif %}.</div>
-      <div class="meta">Configured timezone:<br><span class="tz">{{ schedule_timezone }}</span></div>
-      <div class="meta">Your browser timezone:<br><span class="tz" id="browser-tz">Detecting…</span></div>
-      <div class="note">Scheduled downtime disconnects the Discord bot while the web/status pages remain available.</div>
+    </header>
+
+    <section class="dt-section" id="current-status" aria-labelledby="dt-status-heading">
+      <h2 id="dt-status-heading">Current Bot Status</h2>
+      <div class="dt-card dt-status-card">
+        <div class="dt-status-row">
+          <span class="dt-status-symbol" aria-hidden="true">◉</span>
+          <div>
+            <h3>Discord Bot Availability</h3>
+            <p>Updates automatically every 10 seconds.</p>
+          </div>
+          <div class="dt-status-pill" id="bot-state" role="status" aria-live="polite" data-api-block-until="{{ api_retry_at or 0 }}">
+            <span class="dt-dot {% if not api_blocked and bot_active and not schedule_active and not bot_sleeping %}online{% else %}offline{% endif %}" id="bot-state-dot" aria-hidden="true"></span>
+            <span id="bot-state-text">{% if api_blocked %}API Limited{% elif schedule_active %}Scheduled Offline{% elif bot_sleeping %}Sleeping{% elif bot_active %}Active{% else %}Inactive{% endif %}</span>
+          </div>
+        </div>
+        <p class="dt-countdown" id="api-countdown">{% if api_blocked %}Discord API limited — checking retry time…{% endif %}</p>
+      </div>
+      <div class="dt-meta-grid">
+        <div class="dt-meta"><span class="dt-label">Schedule</span><strong>{{ 'Enabled' if schedule_enabled else 'Disabled' }}</strong></div>
+        <div class="dt-meta"><span class="dt-label">Scheduled window</span><strong>{{ 'In progress' if schedule_active else 'Not active' }}</strong></div>
+        <div class="dt-meta"><span class="dt-label">Configured timezone</span><strong>{{ schedule_timezone }}</strong></div>
+        <div class="dt-meta"><span class="dt-label">Your browser timezone</span><strong id="browser-tz">Detecting…</strong></div>
+        <div class="dt-meta"><span class="dt-label">Last checked</span><strong id="last-checked">Checking…</strong></div>
+      </div>
     </section>
-    <section class="card">
-      <h2>Weekly Schedule</h2>
-      {% for day in schedule_days %}
-        <div class="day">
-          <div class="day-name">{{ day.name }}</div>
+
+    <section class="dt-section" id="weekly-schedule" aria-labelledby="dt-weekly-heading">
+      <h2 id="dt-weekly-heading">Weekly Offline Schedule</h2>
+      <p class="dt-section-intro">The configured windows are shown using {{ schedule_timezone }}. Disabled entries are crossed out, and times may run past midnight.</p>
+      <div class="dt-week-grid">
+        {% for day in schedule_days %}
+        <article class="dt-day">
+          <h3>{{ day.name }}</h3>
           {% if day.entries %}
             {% for entry in day.entries %}
-              <span class="entry {% if not entry.enabled %}disabled{% endif %}">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
+            <span class="dt-entry {% if not entry.enabled %}disabled{% endif %}">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
             {% endfor %}
           {% else %}
-            <span class="empty">No scheduled downtime</span>
+            <span class="dt-empty">No scheduled downtime</span>
           {% endif %}
-        </div>
-      {% endfor %}
+        </article>
+        {% endfor %}
+      </div>
     </section>
-  </div>
-</main>
+
+    <section class="dt-section" id="about-downtime" aria-labelledby="dt-about-heading">
+      <h2 id="dt-about-heading">How Downtime Works</h2>
+      <div class="dt-info">
+        Scheduled downtime temporarily disconnects the Discord bot, while this website and the public Status page may remain available. A Discord API rate limit is a separate, unplanned condition.
+        Administrators can edit the schedule in <strong>Dashboard → Access Control → Bot Offline Schedule</strong>. To learn more, see the
+        <a href="{{ url_for('docs') }}#downtime">Downtime documentation</a>.
+      </div>
+    </section>
+  </main>
+</div>
+
 <script>
-(function(){
-  const el=document.getElementById("browser-tz");
-  try{el.textContent=Intl.DateTimeFormat().resolvedOptions().timeZone||"Unknown";}catch(e){el.textContent="Unknown";}
-})();
-const apiCountdown=document.getElementById("api-countdown");
-const apiCountdownValue=document.getElementById("api-countdown-value");
-const stateText=document.getElementById("bot-state-text");
-const stateDot=document.getElementById("bot-state-dot");
-function fmt(s){s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return h?String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0"):String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0");}
-async function refreshStatus(){
-  try{
-    const r=await fetch("/api/status",{cache:"no-store"}); const d=await r.json();
-    const left=Number(d.api_retry_in_seconds||0);
-    if(left>0){
-      stateText.textContent="API Limited"; stateDot.className="dot offline";
-      apiCountdown.innerHTML='Discord API blocked — retrying in <strong id="api-countdown-value">'+fmt(left)+"</strong>";
-    }else{
-      const active=!!d.online && !d.sleeping;
-      stateText.textContent=active?"Active":"Inactive"; stateDot.className="dot "+(active?"online":"offline");
-      apiCountdown.textContent="";
-    }
-  }catch(e){}
-}
-function tick(){
-  const until=Number(document.querySelector("[data-api-block-until]")?.dataset.apiBlockUntil||0);
-  if(until>0){
-    const left=Math.max(0,until-Math.floor(Date.now()/1000));
-    if(left>0 && apiCountdownValue) apiCountdownValue.textContent=fmt(left);
+(() => {
+  const state = document.getElementById('bot-state');
+  const stateText = document.getElementById('bot-state-text');
+  const stateDot = document.getElementById('bot-state-dot');
+  const countdown = document.getElementById('api-countdown');
+  const lastChecked = document.getElementById('last-checked');
+  const browserTimezone = document.getElementById('browser-tz');
+
+  try {
+    browserTimezone.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown';
+  } catch (_) {
+    browserTimezone.textContent = 'Unknown';
   }
-}
-setInterval(tick,1000); setInterval(refreshStatus,10000); tick();
+
+  function formatDuration(seconds) {
+    const value = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    const remaining = value % 60;
+    const parts = [minutes, remaining].map(n => String(n).padStart(2, '0'));
+    if (hours) parts.unshift(String(hours).padStart(2, '0'));
+    return parts.join(':');
+  }
+
+  function tick() {
+    const until = Number(state.dataset.apiBlockUntil || 0);
+    const remaining = Math.max(0, until - Math.floor(Date.now() / 1000));
+    countdown.textContent = remaining > 0
+      ? 'Discord API limited — retrying in ' + formatDuration(remaining)
+      : '';
+  }
+
+  async function refreshStatus() {
+    try {
+      const response = await fetch('/api/status', {cache: 'no-store'});
+      if (!response.ok) throw new Error('Status request failed');
+      const info = await response.json();
+      const limited = Boolean(info.api_blocked || Number(info.api_retry_in_seconds || 0) > 0);
+      const sleeping = Boolean(info.sleeping);
+      const online = Boolean(info.online) && !limited && !sleeping;
+      const label = limited ? 'API Limited' : sleeping ? 'Sleeping' : online ? 'Active' : 'Inactive';
+
+      stateText.textContent = label;
+      stateDot.className = 'dt-dot ' + (online ? 'online' : 'offline');
+      state.dataset.apiBlockUntil = limited ? String(Number(info.api_retry_at || 0)) : '0';
+      tick();
+      lastChecked.textContent = new Date().toLocaleTimeString();
+    } catch (_) {
+      lastChecked.textContent = 'Unable to refresh';
+    }
+  }
+
+  tick();
+  refreshStatus();
+  setInterval(tick, 1000);
+  setInterval(refreshStatus, 10000);
+})();
 </script>
 <script src="{{ url_for('static', filename='js/public-pages.js') }}" defer></script>
 </body>
