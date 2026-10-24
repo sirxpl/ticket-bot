@@ -3,16 +3,40 @@
 A running changelog for the **Carry Ticket Bot** Discord commands, ticket system, web dashboard, documentation, and reliability fixes. Newest updates appear first.
 
 **Last updated:** October 24, 2026  
-**Most recent merged feature set:** [PR #40 — Dashboard, documentation, and ticket workflow](https://github.com/sirxpl/ticket-bot/pull/40) (merged to `main` on October 24, 2026)  
+**Most recent merged UI update:** [PR #42 — Public pages, Status, and collapsible settings](https://github.com/sirxpl/ticket-bot/pull/42) (merged to `main` on October 24, 2026)  
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
 
 ---
 
 ## October 2026
 
+### 2026-10-24 — Downtime documentation, page consistency, and Docs logo correction (PR #43)
+
+**Status:** Changes committed to [PR #43](https://github.com/sirxpl/ticket-bot/pull/43), which is **open and not yet merged**. They are not verified on the live website.
+
+- **Missing Docs guide:** Added **Downtime & Offline Schedule** to the `/docs` sidebar, top navigation, and Quick Reference, with a new clock icon and dedicated guide at `/docs#downtime`.
+- **Documentation content:** Explains the weekly offline schedule, configured timezone, windows spanning midnight, staff-only configuration in Access Control, and the difference between scheduled downtime, service outages, and Discord API rate limits.
+- **Inconsistent Downtime UI:** Rebuilt `/downtime` using the shared Docs/Status layout, left sidebar, dark responsive cards, and matching spacing, typography, and navigation.
+- **Preserved behavior:** Live status polling, API-limit countdown, weekly schedule, and server/browser timezone labels remain available.
+- **Legacy schedule display fix:** Schedule windows with no explicit `enabled` field now display as enabled rather than incorrectly appearing disabled on Status/Downtime.
+- **Docs header issue:** Fixed the extra space between **Carry** and **Ticket Bot** by grouping the wordmark into one text element, consistent with the shared public-page header.
+- **Regression coverage:** Added tests for the Downtime documentation/sidebar, matching page layout, and consistent header wordmark.
+- **Verification needed:** Merge and deploy PR #43, then check `/docs#downtime`, `/downtime`, `/status#downtime`, mobile navigation, and logo alignment.
+
+### 2026-10-24 — Shared website UI, downtime status, and collapsed settings (PR #42)
+
+**Status:** [PR #42](https://github.com/sirxpl/ticket-bot/pull/42) merged to `main` on October 24, 2026. Live deployment and browser testing have not been independently confirmed.
+
+- Updated **Rules & Regulations**, **Carry Guidelines**, **Privacy**, **Status**, and the detailed **Downtime** page to use a shared Docs-inspired dark header and mobile navigation.
+- Added the configured weekly **Downtime & Offline Schedule** to `/status`, including timezone, enabled state, and current schedule-window status.
+- Removed the automatic floating **Bot Status / Downtime & Offline Schedule** widget from other pages; the information now lives on its dedicated pages.
+- Made all seven **Carry Manager Settings** panels collapsed by default while preserving settings and forms. Ad Gag deep links can still open the intended panel.
+- Reorganized **Access Control** into 24 independently collapsible panels, preserving its 42 existing forms and authorization logic.
+- Added structural regression checks for template compilation, public navigation, Status data, and settings accordions.
+
 ### 2026-10-24 — Carry Manager Settings rendering bug (PR #41)
 
-**Status:** Fix committed to the PR branch; **production recovery still requires merge, deployment, and browser verification**.
+**Status:** Fix merged to `main` in [PR #41](https://github.com/sirxpl/ticket-bot/pull/41) on October 24, 2026; **production deployment and browser verification remain unconfirmed here**.
 
 - **Affected route:** `GET /dashboard/carry-settings` on Render returned **HTTP 500** (observed at 00:32 UTC on October 24, 2026).
 - **Root cause:** The admin-only `dashboard_pages/_ad_gag_settings.html` partial had a compressed CSS media query on line 33 beginning with `{#ad-gag-settings`. Jinja2 interprets `{#` as an opening template comment, causing `TemplateSyntaxError: Missing end of comment tag` when Carry Manager Settings includes the partial.
