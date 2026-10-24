@@ -179,13 +179,13 @@
       <div>{% for day in schedule_days[:4] %}
         <div class="downtime-day"><strong>{{ day.name|capitalize }}</strong>
           {% if day.entries %}{% for entry in day.entries %}
-          <span class="downtime-entry">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
+          <span class="downtime-entry">{{ entry.start }}–{{ entry.end }}{% if entry.enabled is defined and not entry.enabled %} (disabled){% endif %}</span>
           {% endfor %}{% else %}<span class="downtime-empty">No scheduled downtime</span>{% endif %}
         </div>{% endfor %}</div>
       <div>{% for day in schedule_days[4:] %}
         <div class="downtime-day"><strong>{{ day.name|capitalize }}</strong>
           {% if day.entries %}{% for entry in day.entries %}
-          <span class="downtime-entry">{{ entry.start }}–{{ entry.end }}{% if not entry.enabled %} (disabled){% endif %}</span>
+          <span class="downtime-entry">{{ entry.start }}–{{ entry.end }}{% if entry.enabled is defined and not entry.enabled %} (disabled){% endif %}</span>
           {% endfor %}{% else %}<span class="downtime-empty">No scheduled downtime</span>{% endif %}
         </div>{% endfor %}</div>
     </div>
