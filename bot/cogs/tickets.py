@@ -1812,35 +1812,133 @@ class TicketsCog(commands.Cog):
             except Exception:
                 pass
 
-    # Slash Command: /requestclose — asks the opener to confirm; staff can't force it
+    # Publicly discoverable slash commands; staff authorization is checked
+    # at execution, not hidden in Discord's command picker.
+    @app_commands.command(
+        name="request-close",
+        description="Ask the ticket opener to approve or decline closing it",
+    )
+    @app_commands.describe(reason="Optional reason for the request")
+    async def request_close_command(self, interaction: discord.Interaction, reason: str = None):
+        await self._send_request_close(interaction, reason)
+
     @app_commands.command(
         name="requestclose",
-        description="Ask the ticket opener to confirm closing this ticket",
+        description="Legacy alias for request-close",
     )
-    @app_commands.describe(reason="Reason for requesting this ticket be closed (shown to the opener)")
-    async def request_close_command(
-        self, interaction: discord.Interaction, reason: str = None
-    ):
+    @app_commands.describe(reason="Optional reason for the request")
+    async def request_close_legacy(self, interaction: discord.Interaction, reason: str = None):
+        await self._send_request_close(interaction, reason)
+
+    async def _send_request_close(self, interaction, reason=None):
         if not await self._basic_command_check(interaction):
             return
-
         ticket = get_active_ticket(interaction.channel.id)
-        creator_id = ticket.get("user_id") if ticket else None
-        if not creator_id:
+        if not ticket or not ticket.get("user_id"):
             await interaction.response.send_message(
-                "❌ Couldn't find who opened this ticket.", ephemeral=True
+                "❌ Could not determine the ticket opener.", ephemeral=True
             )
             return
+        if ticket.get("owner_close_locked"):
+            await interaction.response.send_message(
+                view=ticket_notice(
+                    "🔒 Ticket In Progress",
+                    "The opener cannot approve a close until staff use /end-ticket.",
+                    okay=False,
+                ), ephemeral=True,
+            )
+            return
+        reason = (reason.strip()[:400] if reason and reason.strip() else None)
+        await interaction.response.send_message(view=RequestCloseView(
+            self, interaction.channel, ticket["user_id"], interaction.user,
+            reason, ticket.get("owner_close_revision", 0),
+        ))
 
-        message = (
-            f"<@{creator_id}>, {interaction.user.mention} has requested to close "
-            f"this ticket"
-            f"{f' — reason: {reason}' if reason else ''}. Do you want to close it?"
-        )
-        await interaction.response.send_message(
-            message,
-            view=RequestCloseView(self, interaction.channel, creator_id, reason),
-        )
+    @app_commands.command(
+        name="start-ticket",
+        description="Start ticket work and block the opener from closing it",
+    )
+    async def start_ticket_command(self, interaction: discord.Interaction):
+        if not await self._basic_command_check(interaction):
+            return
+        ticket = get_active_ticket(interaction.channel.id)
+        if ticket and ticket.get("owner_close_locked"):
+            await interaction.response.send_message(
+                view=ticket_notice(
+                    "🔒 Ticket Already In Progress",
+                    "Owner closing is already disabled. Finish with /end-ticket.",
+                    okay=False,
+                ), ephemeral=True,
+            )
+            return
+        try:
+            changed = set_ticket_owner_close_locked(interaction.channel.id, True)
+        except RuntimeError:
+            await interaction.response.send_message(
+                "❌ Could not save the ticket lock. Please retry.", ephemeral=True
+            )
+            return
+        if not changed:
+            await interaction.response.send_message(
+                "⚠️ Ticket state changed. Please retry.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(view=ticket_notice(
+            "🔒 Ticket In Progress",
+            f"**Started by:** {interaction.user.mention}\n"
+            "**Ticket opener:** Cannot close\n"
+            "**Authorized staff:** Can still close\n\n"
+            "Use /end-ticket to allow the opener to close again.",
+        ))
+        append_ticket_log({
+            "ticket_id": str(interaction.channel.id),
+            "action": "ticket_started",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
+        })
+
+    @app_commands.command(
+        name="end-ticket",
+        description="Finish ticket work and allow the opener to close again",
+    )
+    async def end_ticket_command(self, interaction: discord.Interaction):
+        if not await self._basic_command_check(interaction):
+            return
+        ticket = get_active_ticket(interaction.channel.id)
+        if not ticket or not ticket.get("owner_close_locked"):
+            await interaction.response.send_message(
+                view=ticket_notice(
+                    "✅ Ticket Not In Progress",
+                    "The opener may already close. Use /start-ticket to lock it.",
+                    okay=False,
+                ), ephemeral=True,
+            )
+            return
+        try:
+            changed = set_ticket_owner_close_locked(interaction.channel.id, False)
+        except RuntimeError:
+            await interaction.response.send_message(
+                "❌ Could not save the ticket state. Please retry.", ephemeral=True
+            )
+            return
+        if not changed:
+            await interaction.response.send_message(
+                "⚠️ Ticket state changed. Please retry.", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(view=ticket_notice(
+            "✅ Ticket Work Finished",
+            f"**Finished by:** {interaction.user.mention}\n"
+            "**Ticket opener:** Can close again\n"
+            "**Authorized staff:** Can still close\n\n"
+            "Old close requests expire. Staff may send a new /request-close.",
+        ))
+        append_ticket_log({
+            "ticket_id": str(interaction.channel.id),
+            "action": "ticket_finished",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
+        })
 
     # Slash Command: /autoclose — staff-only, toggles the 24h-inactivity
     # autoclose for this specific ticket on or off
@@ -2582,6 +2680,9 @@ class TicketsCog(commands.Cog):
         cannot be read, so a ticket is never deleted without its transcript.
         """
         ticket_id = str(getattr(channel, "id", ""))
+        if owner_close_locked(get_active_ticket(ticket_id), getattr(executor, "id", executor)):
+            logger.info("Blocked opener close for in-progress ticket=%s", ticket_id)
+            return False
         if ticket_id in self._closing_ticket_ids:
             logger.info("Ignoring duplicate close request for channel=%s", ticket_id)
             return False
