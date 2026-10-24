@@ -30,7 +30,10 @@
           #ad-gag-settings .ad-head strong {font-size:.95em;}
           #ad-gag-settings .save-bar {display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-top:16px;}
           #ad-gag-settings textarea {resize:vertical;}
-          @media(max-width:680px) {#ad-gag-settings .row {grid-template-columns:1fr;} #ad-gag-settings .save-bar .btn {width:100%;}}
+          @media (max-width: 680px) {
+            #ad-gag-settings .row { grid-template-columns: 1fr; }
+            #ad-gag-settings .save-bar .btn { width: 100%; }
+          }
         </style>
 
     <p class="card-sub">
@@ -75,7 +78,7 @@
       <hr style="border:0; border-top:1px solid var(--border); margin:20px 0 16px;">
 
       <div id="adList"></div>
-      <button type="button" class="btn btn-add" onclick="addAd()">＋ Add Ad</button>
+      <button type="button" class="btn btn-add" onclick="addAprilFoolsAd()">＋ Add Ad</button>
 
       <input type="hidden" name="ads_json" id="adsJson">
       <div class="save-bar">
