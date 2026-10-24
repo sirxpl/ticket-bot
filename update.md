@@ -3,12 +3,23 @@
 A running changelog for the **Carry Ticket Bot** Discord commands, ticket system, web dashboard, documentation, and reliability fixes. Newest updates appear first.
 
 **Last updated:** October 24, 2026  
-**Latest code change:** [PR #40 — Dashboard, documentation, and ticket workflow](https://github.com/sirxpl/ticket-bot/pull/40) (merged to `main` on October 24, 2026)  
+**Most recent merged feature set:** [PR #40 — Dashboard, documentation, and ticket workflow](https://github.com/sirxpl/ticket-bot/pull/40) (merged to `main` on October 24, 2026)  
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
 
 ---
 
 ## October 2026
+
+### 2026-10-24 — Carry Manager Settings rendering bug (PR #41)
+
+**Status:** Fix committed to the PR branch; **production recovery still requires merge, deployment, and browser verification**.
+
+- **Affected route:** `GET /dashboard/carry-settings` on Render returned **HTTP 500** (observed at 00:32 UTC on October 24, 2026).
+- **Root cause:** The admin-only `dashboard_pages/_ad_gag_settings.html` partial had a compressed CSS media query on line 33 beginning with `{#ad-gag-settings`. Jinja2 interprets `{#` as an opening template comment, causing `TemplateSyntaxError: Missing end of comment tag` when Carry Manager Settings includes the partial.
+- **Primary fix:** Put the media query's opening brace and `#ad-gag-settings` CSS selectors on separate lines, preventing Jinja from mistaking CSS for a comment. The layout and responsive behavior remain unchanged.
+- **Additional bug found:** The **Add Ad** button called an undefined `addAd()` function even though the script exposes `addAprilFoolsAd()`. Updated the button to call the existing function without changing saved ad data.
+- **Observed scope:** During the same log window, `/dashboard/trial-schedules`, `/dashboard/warning-builder`, and `/dashboard/access-control` returned HTTP 200. Discord successfully loaded all six cogs and synchronized 26 slash commands. No evidence in these logs indicates a MongoDB write or data-loss issue.
+- **Verification needed:** After merging/deploying, load Carry Manager Settings as an authorized admin, confirm HTTP 200, add and remove an advertisement, save settings, refresh to confirm persistence, and test the layout on mobile. Confirm non-admin users cannot access the Ad Gag editor.
 
 ### 2026-10-24 — Major dashboard and ticket workflow update
 
