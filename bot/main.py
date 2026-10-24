@@ -214,7 +214,9 @@ _BOT_STATUS_SECTION_HTML = """<section class="ctb-status-section" aria-label="Bo
 def _inject_public_bot_status(response):
     """Add the public status/downtime section to every HTML page except the dashboard."""
     try:
-        if request.path == "/" or "text/html" not in response.content_type:
+        # No floating status panel on documentation and policy pages.
+        quiet_pages = {"/", "/docs", "/terms", "/rules", "/guidelines", "/privacy"}
+        if request.path in quiet_pages or "text/html" not in response.content_type:
             return response
         body = response.get_data(as_text=True)
         if "ctb-status-section" in body or "Downtime &amp; Offline Schedule" in body:
@@ -1166,7 +1168,7 @@ def privacy_policy():
 
 @app.route("/docs")
 def docs():
-    return render_template("docs.html")
+    return render_template("docs.html", user=session.get("user"))
 
 
 @app.route("/rules")

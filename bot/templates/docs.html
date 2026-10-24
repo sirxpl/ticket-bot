@@ -145,76 +145,113 @@
     .grid{grid-template-columns:1fr;}
     main{padding:28px 20px;}
   }
+
+
+/* 2026 documentation visual refresh; retains existing reference content. */
+:root{color-scheme:dark;--bg:#090d17;--surface:#111625;--surface-2:#171d2e;--border:#283047;--text:#f6f8ff;--muted:#a5b4d7;--indigo:#956cff;--indigo-dim:#956cff25;--yellow:#ffc942;--radius:14px}
+html{scroll-behavior:smooth}body{min-width:320px;background:radial-gradient(ellipse at 80% 90%,#26194444,transparent 46%),var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+h1,h2,h3,.brand,.navlink,.card h3{font-family:Inter,system-ui,sans-serif}
+.topbar{height:62px;background:#0b0e18f0;border-color:var(--border);padding:0 33px 0 30px;gap:15px;backdrop-filter:blur(14px)}
+.brand{font-weight:800;font-size:16px}.brand .stub{width:26px;height:20px}.brand .stub:after{border-color:#0d102088}
+.brand-gradient,.title-gradient{background:linear-gradient(94deg,#41bafb 0%,#8978fa 60%,#ba73fb 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:21px;min-width:0}
+.topnav{margin-left:auto;gap:22px;font-size:12.5px;font-weight:600;white-space:nowrap}.topnav a{display:inline-flex;align-items:center;height:62px;border-bottom:2px solid transparent;color:var(--muted)}.topnav a.active{color:#b48dff;border-bottom-color:#9c72ff}.topnav a:hover{color:var(--text)}
+.top-actions{display:flex;align-items:center;gap:9px}.top-actions a{padding:8px 14px;white-space:nowrap;border:1px solid #353d53;border-radius:9px;text-decoration:none;font-size:12px;font-weight:800}.top-actions a:hover{background:#20253a}
+.layout{display:grid;grid-template-columns:282px minmax(0,1fr);width:100%;max-width:none;min-height:calc(100vh - 62px)}
+.sidebar{width:auto;height:calc(100vh - 62px);top:62px;border-right:1px solid var(--border);background:linear-gradient(170deg,#0b0f19,#0d101b 82%,#180e2d);padding:25px 12px 52px 20px;font-size:13px}
+.sidebar h4{font-size:11px;letter-spacing:.1em;color:#9aadd9;margin:25px 8px 10px}.sidebar h4:first-child{margin-top:8px}
+.navlink{display:flex;align-items:center;gap:12px;min-height:43px;padding:8px 11px;border:0;border-radius:9px;color:#acbcde;font-size:13px;font-weight:550}.navlink:hover{background:#181e2c;color:white}.navlink.active{background:linear-gradient(100deg,#322769,#28215c);color:white;font-weight:750}
+.navlink .nav-ico{display:grid;place-items:center;width:23px;height:23px;flex:0 0 23px}.nav-ico svg{width:20px;height:20px;fill:none;stroke:#aabff2;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.active .nav-ico svg{stroke:white}
+main{max-width:1370px;width:100%;margin:0 auto;padding:43px clamp(22px,5vw,80px) 110px}
+.page.active{animation:doc-in .15s ease-out}@keyframes doc-in{from{opacity:.7;transform:translateY(3px)}to{opacity:1;transform:none}}
+.eyebrow{color:#b27aff;font-size:11px;font-weight:850;letter-spacing:.13em;text-transform:uppercase;margin-bottom:14px}
+h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em;margin-bottom:12px}.lede{font-size:15px;max-width:850px;color:var(--muted);line-height:1.8;margin-bottom:24px}
+.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:22px}.card{min-width:0;background:linear-gradient(145deg,#121727,#101522);border-color:var(--border);padding:20px;border-radius:14px}.card:hover{border-color:#625d9a}
+.card .icon{width:54px;height:54px;border-radius:12px;background:#262244;font-size:24px;margin-bottom:13px}.card:nth-child(3) .icon{background:#173358;color:#45b8ff}.card:nth-child(4) .icon{background:#173c31;color:#5de3a8}.card h3{font-size:16px}.card p{font-size:13px;line-height:1.75;color:var(--muted)}
+.card-link{text-decoration:none;display:block;color:inherit}.card-link:focus-visible,.navlink:focus-visible,.topnav a:focus-visible,.updates-card:focus-visible{outline:2px solid #56b9ff;outline-offset:2px}
+.next-link{margin-top:8px;font-size:13px}.next-link:hover{color:#bca7ff}
+.updates{border-top:1px solid var(--border);padding-top:25px;margin-top:28px}.updates h2{font-size:26px;margin:2px 0 3px}.updates .intro{font-size:13px;color:var(--muted);margin-bottom:13px}
+.updates-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.updates-card{display:flex;gap:12px;align-items:flex-start;padding:15px;min-width:0;border:1px solid var(--border);border-radius:12px;text-decoration:none;background:#121727}.updates-card:hover{border-color:#7d69c0;background:#1b2031}.updates-card .mini{flex:0 0 41px;width:41px;height:41px;display:grid;place-items:center;border-radius:9px;background:#272046;font-size:19px}.updates-card:nth-child(2) .mini{background:#18382e}.updates-card:nth-child(3) .mini{background:#1b3054}.updates-card .date{font-size:10px;color:#8b9abd}.updates-card strong{display:block;font-size:12px;color:white;margin:3px 0}.updates-card p{font-size:11px;color:var(--muted);line-height:1.55}.updates-card .move{color:#9d9dff;flex:none}
+.doc-list li::before{background:#aa7cff}.cmd .sig{color:#c0a2ff}.callout{border-left-color:#9d73ff}table.ref th{background:#181e2b}.page code{color:#b9abff}
+.nav-toggle{display:none;background:#181d2e;color:white;border:1px solid var(--border);border-radius:9px;padding:7px;cursor:pointer}.nav-toggle svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.mobile-overlay{display:none}.skip-link{position:absolute;top:-100px;left:12px;z-index:999;background:#7151d5;padding:10px 13px;color:white;border-radius:8px}.skip-link:focus{top:12px}
+@media(max-width:1100px){.layout{grid-template-columns:248px minmax(0,1fr)}.sidebar{padding-left:12px}.topnav{gap:12px}.topbar{padding:0 17px}.updates-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.layout{display:block}.topnav{display:none}.nav-toggle{display:grid;place-items:center}.sidebar{display:block;position:fixed;left:0;top:62px;bottom:0;height:auto;width:min(310px,82vw);padding:25px 16px;background:#0c101c;z-index:42;transform:translateX(-105%);transition:transform .2s;box-shadow:14px 0 30px #0005}.docs-nav-open .sidebar{transform:translateX(0)}.docs-nav-open .mobile-overlay{display:block;position:fixed;inset:62px 0 0;background:#050915ad;z-index:41}main{padding:32px clamp(16px,4vw,36px) 90px}}
+@media(max-width:600px){.topbar{padding:0 13px;gap:8px}.brand{font-size:13px}.top-actions{gap:5px}.top-actions a{padding:7px 9px;font-size:11px}.grid,.updates-grid{grid-template-columns:1fr}main{padding-top:26px}.card .icon{width:44px;height:44px}.updates h2{font-size:22px}.lede{font-size:14px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <a href="{{ url_for('home') }}" class="brand"><span class="stub"></span> Carry Ticket Bot</a>
-  <div class="topnav">
-    <a href="{{ url_for('docs') }}" class="active">Docs</a>
-    <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
-    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
-    <a href="{{ url_for('privacy_policy') }}">Privacy</a>
-    <a href="{{ url_for('status_page') }}">Status</a>
+<a href="#content" class="skip-link">Skip to documentation</a>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute;overflow:hidden">
+<symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10h-6v-7H9v7H3z"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6zM14 2v6h5M9 12h7M9 16h7"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 21h18M7 15v4M12 9v10M17 4v15"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h8l2 3h8v11H3z"/></symbol>
+<symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4zM8 10h.01M12 10h.01M16 10h.01"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 21 6v6c0 5-3 8.5-9 10-6-1.5-9-5-9-10V6z"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 6 6 6-6 6M12 18h8"/></symbol>
+<symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5c-3-2-6-2-9-1v16c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zM12 5v16"/></symbol>
+<symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></symbol>
+</svg>
+<header class="topbar">
+  <button id="docsMenu" class="nav-toggle" type="button" aria-label="Toggle documentation sidebar" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  <a class="brand" href="{{ url_for('docs') }}"><span class="stub" aria-hidden="true"></span>Carry <span class="brand-gradient">Ticket Bot</span></a>
+  <div class="topbar-right">
+    <nav class="topnav" aria-label="Site navigation">
+      <a href="{{ url_for('docs') }}" class="active" aria-current="page">Docs</a>
+      <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
+      <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
+      <a href="{{ url_for('privacy_policy') }}">Privacy</a>
+      <a href="{{ url_for('status_page') }}">Status</a>
+    </nav>
+    <div class="top-actions"><a href="{{ url_for('home', page='overview') }}">Dashboard</a>{% if user %}<a href="{{ url_for('logout') }}">Log out</a>{% else %}<a href="{{ url_for('login') }}">Log in</a>{% endif %}</div>
   </div>
-</div>
-
-<div class="layout">
-  <aside class="sidebar" id="sidebar">
-    <h4>Getting Started</h4>
-    <a class="navlink active" data-page="welcome">Welcome</a>
-    <a class="navlink" data-page="lifecycle">How a Ticket Works</a>
-    <a class="navlink" data-page="dashboard">Dashboard Overview</a>
-
-    <h4>Dashboard</h4>
-    <a class="navlink" data-page="categories">Ticket Categories</a>
-    <a class="navlink" data-page="ticketmessages">Ticket Messages</a>
-    <a class="navlink" data-page="panelbuilder">Panel Builder</a>
-    <a class="navlink" data-page="blacklist">Blacklist</a>
-    <a class="navlink" data-page="access">Access Control</a>
-    <a class="navlink" data-page="transcripts">Transcripts</a>
-
-    <h4>Staff Commands</h4>
-    <a class="navlink" data-page="commands">Slash Commands</a>
-
-    <h4>Reference</h4>
-    <a class="navlink" data-page="quickref">Quick Reference</a>
-    <a class="navlink" data-page="persistence">Data &amp; Persistence</a>
-  </aside>
-
-  <main>
-
+</header>
+<div id="docsOverlay" class="mobile-overlay" aria-hidden="true"></div>
+<div class="layout"><aside class="sidebar" id="sidebar" aria-label="Documentation sidebar"><nav aria-label="Documentation sections">
+<h4>Getting Started</h4>
+<a href="#welcome" class="navlink active" data-page="welcome" aria-current="page"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-home"></use></svg></span><span>Welcome</span></a>
+<a href="#lifecycle" class="navlink" data-page="lifecycle"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-file"></use></svg></span><span>How a Ticket Works</span></a>
+<a href="#dashboard" class="navlink" data-page="dashboard"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-chart"></use></svg></span><span>Dashboard Overview</span></a>
+<h4>Dashboard</h4>
+<a href="#categories" class="navlink" data-page="categories"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-folder"></use></svg></span><span>Ticket Categories</span></a>
+<a href="#ticketmessages" class="navlink" data-page="ticketmessages"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-chat"></use></svg></span><span>Ticket Messages</span></a>
+<a href="#panelbuilder" class="navlink" data-page="panelbuilder"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-grid"></use></svg></span><span>Panel Builder</span></a>
+<a href="#blacklist" class="navlink" data-page="blacklist"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-ban"></use></svg></span><span>Blacklist</span></a>
+<a href="#access" class="navlink" data-page="access"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-shield"></use></svg></span><span>Access Control</span></a>
+<a href="#transcripts" class="navlink" data-page="transcripts"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-file"></use></svg></span><span>Transcripts</span></a>
+<h4>Staff Commands</h4>
+<a href="#commands" class="navlink" data-page="commands"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-terminal"></use></svg></span><span>Slash Commands</span></a>
+<h4>Reference</h4>
+<a href="#quickref" class="navlink" data-page="quickref"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-book"></use></svg></span><span>Quick Reference</span></a>
+<a href="#persistence" class="navlink" data-page="persistence"><span class="nav-ico"><svg aria-hidden="true"><use href="#i-db"></use></svg></span><span>Data &amp; Persistence</span></a>
+</nav></aside><main id="content">
     <!-- WELCOME -->
     <section class="page active" id="page-welcome">
-      <div class="eyebrow">Getting Started</div>
-      <h1 class="title">Welcome to Carry Ticket Bot</h1>
-      <p class="lede">A full ticket & carry-request platform for your Discord server — category-based tickets, staff commands, transcripts, and a web dashboard for configuring everything in one place.</p>
-
+      <p class="eyebrow">Getting Started</p>
+      <h1 class="title">Welcome to <span class="title-gradient">Carry Ticket Bot</span></h1>
+      <p class="lede">Your complete documentation hub for Carry Ticket Bot — a Discord ticket and carry-request platform with a staff dashboard, ticket transcripts, moderation tools, and configurable workflows.</p>
       <div class="grid">
-        <div class="card">
-          <div class="icon">🎫</div>
-          <h3>Open a Ticket</h3>
-          <p>Members pick a category from the panel dropdown, answer a short modal, and get a private channel auto-named for that category.</p>
-        </div>
-        <div class="card">
-          <div class="icon">⚙️</div>
-          <h3>Configure the Dashboard</h3>
-          <p>Set categories, the support role, viewer roles, blacklists, and where activity gets logged — all from the web dashboard.</p>
-        </div>
-        <div class="card">
-          <div class="icon">📜</div>
-          <h3>Transcripts</h3>
-          <p>Every closed ticket saves a styled transcript, and the opener is DMed a signed link the moment it closes.</p>
-        </div>
-        <div class="card">
-          <div class="icon">🧭</div>
-          <h3>Staff Commands</h3>
-          <p>Close, rename, move, or resume numbering on any ticket right from the channel with slash commands.</p>
-        </div>
+        <a class="card card-link" href="#lifecycle" data-goto="lifecycle"><div class="icon">🎟️</div><h3>Open a Ticket</h3><p>Members choose a ticket category, complete ticket questions, and get a private channel.</p></a>
+        <a class="card card-link" href="#dashboard" data-goto="dashboard"><div class="icon">⚙️</div><h3>Configure the Dashboard</h3><p>Set categories, support roles, permissions, messages and ticket panels through the web dashboard.</p></a>
+        <a class="card card-link" href="#transcripts" data-goto="transcripts"><div class="icon">📃</div><h3>Transcripts</h3><p>Browse saved ticket conversations with protected links and pagination.</p></a>
+        <a class="card card-link" href="#commands" data-goto="commands"><div class="icon">👥</div><h3>Staff Commands</h3><p>Close, rename, move and manage tickets using the available slash commands.</p></a>
       </div>
-
-      <a class="next-link" href="#" data-goto="lifecycle">How a ticket works <span class="arrow">›</span></a>
+      <a class="next-link" href="#lifecycle" data-goto="lifecycle">How a ticket works <span class="arrow">›</span></a>
+      <section class="updates" aria-labelledby="updates-heading">
+        <p class="eyebrow">Stay up to date</p><h2 id="updates-heading">Latest Documentation Updates</h2>
+        <p class="intro">October 2026 guides reflect the dashboard refactor under review. Draft features won't be live until deployed.</p>
+        <div class="updates-grid">
+          <a class="updates-card" href="#dashboard" data-goto="dashboard"><span class="mini">📖</span><span><span class="date">October 2026</span><strong>Separate dashboard pages</strong><p>Dedicated URLs and a clearer interface.</p></span><span class="move">→</span></a>
+          <a class="updates-card" href="#access" data-goto="access"><span class="mini">🛡️</span><span><span class="date">October 2026</span><strong>Access Control &amp; ad settings</strong><p>Roles, admin permissions and the merged Ad Gag editor.</p></span><span class="move">→</span></a>
+          <a class="updates-card" href="#transcripts" data-goto="transcripts"><span class="mini">📃</span><span><span class="date">October 2026</span><strong>Transcript browsing</strong><p>Permission-aware, paginated transcript lists.</p></span><span class="move">→</span></a>
+        </div>
+      </section>
     </section>
 
     <!-- LIFECYCLE -->
@@ -249,17 +286,21 @@
 
     <!-- DASHBOARD OVERVIEW -->
     <section class="page" id="page-dashboard">
-      <div class="eyebrow">Dashboard</div>
-      <h1 class="title">Dashboard Overview</h1>
-      <p class="lede">Everything you configure lives across a few pages in the web dashboard.</p>
+      <p class="eyebrow">Dashboard</p><h1 class="title">Dashboard Overview</h1>
+      <p class="lede">The public welcome page is at <code>/</code>; authorized staff work under <code>/dashboard</code>. The page structure below is part of the current draft and has not been deployed yet.</p>
       <table class="ref">
-        <tr><th>Page</th><th>What it does</th></tr>
-        <tr><td>Overview</td><td>Total lifetime tickets, currently open tickets, and active cooldowns</td></tr>
-        <tr><td>Carry Manager Settings</td><td>Ticket categories &amp; the panel builder — restricted to admins/carry managers</td></tr>
-        <tr><td>Blacklist</td><td>Individually blacklisted users, plus a read-only list of members blocked via role</td></tr>
-        <tr><td>Transcripts</td><td>Saved HTML transcripts for every closed ticket</td></tr>
-        <tr><td>Access Control</td><td>Who can log in, viewer/blacklist roles, and the activity log channel — admin only</td></tr>
+        <tr><th>Section</th><th>Purpose</th></tr>
+        <tr><td>Overview</td><td>Active tickets, ticket totals and cooldowns</td></tr>
+        <tr><td>Analytics</td><td>Ticket activity reporting</td></tr>
+        <tr><td>Transcripts</td><td>Saved transcripts, with 50 entries per page</td></tr>
+        <tr><td>Blacklists</td><td>Blocked users and blacklist roles</td></tr>
+        <tr><td>Warnings</td><td>Moderation warning records</td></tr>
+        <tr><td>Carry Manager Settings</td><td>Ticket categories, messages, Components V2 panel builder and admin-only Ad Gag editor</td></tr>
+        <tr><td>Trial Schedules</td><td>Schedule configuration</td></tr>
+        <tr><td>Warning Builder</td><td>Warning presets and messages</td></tr>
+        <tr><td>Access Control</td><td>Staff permissions, administrative IDs and logging</td></tr>
       </table>
+      <div class="callout">Discord authentication is required for protected sections; admin-only pages are validated on the server.</div>
     </section>
 
     <!-- CATEGORIES -->
@@ -313,12 +354,13 @@
     <section class="page" id="page-panelbuilder">
       <div class="eyebrow">Dashboard</div>
       <h1 class="title">Advanced Panel Builder</h1>
-      <p class="lede">Deploys the ticket panel embed to a channel of your choice.</p>
+      <p class="lede">Creates and deploys interactive Components V2 ticket panels to a selected channel.</p>
       <ul class="doc-list">
         <li>Target channel &amp; default category for opened tickets</li>
         <li>Support Role &amp; embed accent color</li>
         <li>Panel title, description, image, thumbnail, footer</li>
-        <li>Custom embed fields</li>
+        <li>Configurable Components V2 embeds, buttons, dropdowns, text and dividers</li>
+        <li>Save Draft before deploying the finished panel</li>
       </ul>
     </section>
 
@@ -335,23 +377,30 @@
 
     <!-- ACCESS CONTROL -->
     <section class="page" id="page-access">
-      <div class="eyebrow">Dashboard</div>
-      <h1 class="title">Access Control</h1>
-      <p class="lede">Admin-only — controls who can do what.</p>
+      <p class="eyebrow">Dashboard</p><h1 class="title">Access Control</h1>
+      <p class="lede">Admin-only settings for dashboard access, role permissions, ticket blacklists and logging.</p>
       <ul class="doc-list">
-        <li><b>Allowed Users / Roles</b> — who can log into the dashboard at all</li>
-        <li><b>Carry Manager Settings Access</b> — which roles can use Carry Manager Settings</li>
-        <li><b>Ticket Blacklist Role</b> — roles blocked from creating any ticket, server-wide. Supports multiple.</li>
-        <li><b>Ticket Viewer Roles</b> — roles that get view + chat access on every ticket, with embed/attachment permissions, separate from the single Support Role</li>
-        <li><b>Ticket Activity Log Channel</b> — where opened/closed events get logged</li>
+        <li><b>Allowed users and roles</b> control access to the dashboard.</li>
+        <li><b>Page permissions</b> govern Analytics, Carry Manager Settings and Transcripts.</li>
+        <li><b>Ticket viewer and blacklist roles</b> control ticket visibility and opening restrictions.</li>
+        <li><b>Staff command permissions</b> determine which users and roles may use available command groups.</li>
+        <li><b>Logging channels</b> control ticket, blacklist and warning records.</li>
+        <li><b>Configured Bot Admin IDs</b> are read-only and provided through <code>ADMIN_USER_IDS</code> on the host.</li>
       </ul>
+      <h2 class="section-h">April Fools Ad Gag</h2>
+      <p class="body-p">The draft dashboard places the Ad Gag editor in Carry Manager Settings. Admins can configure image/video-style joke advertisements, countdown (1–120 seconds), shuffle settings, sponsors, headlines and links. The legacy <code>/admin</code> address redirects to the integrated editor.</p>
     </section>
 
     <!-- TRANSCRIPTS -->
     <section class="page" id="page-transcripts">
-      <div class="eyebrow">Dashboard</div>
-      <h1 class="title">Transcripts</h1>
-      <p class="lede">Every closed ticket generates a saved HTML transcript, styled like Discord, listing messages, embeds, and attachments. The ticket creator is also DMed a signed, short-lived link the moment their ticket closes.</p>
+      <p class="eyebrow">Dashboard</p><h1 class="title">Transcripts</h1>
+      <p class="lede">A saved HTML record of a closed ticket's supported message history. Viewing transcript data remains permission-restricted.</p>
+      <ul class="doc-list">
+        <li><b>Protected access</b> — staff permissions and signed link checks remain in place for saved transcripts.</li>
+        <li><b>Pagination</b> — the draft dashboard loads up to 50 transcripts per page, with next/previous controls.</li>
+        <li><b>Search</b> — the search field filters the entries on the visible page, not the entire archive.</li>
+        <li><b>Storage</b> — MongoDB is used for transcript HTML when available; local HTML fallback may be used otherwise.</li>
+      </ul>
     </section>
 
     <!-- COMMANDS -->
@@ -384,8 +433,8 @@
       </div>
       <div class="cmd">
         <div class="sig">/ticketnumber &lt;number&gt;</div>
-        <div class="desc">Resumes this ticket's category counter from the given number.</div>
-        <div class="note">The next new ticket in that category becomes number + 1, then keeps counting up automatically.</div>
+        <div class="desc">Adjusts the shared ticket numbering that is used across categories.</div>
+        <div class="note">The next ticket uses the updated shared counter; confirm the resulting number before changing a live sequence.</div>
       </div>
       <div class="cmd">
         <div class="sig">/move &lt;category&gt;</div>
@@ -419,56 +468,47 @@
 
     <!-- DATA & PERSISTENCE -->
     <section class="page" id="page-persistence">
-      <div class="eyebrow">Reference</div>
-      <h1 class="title">Data &amp; Persistence</h1>
-      <p class="lede">Where your settings actually live, and why they do (or don't) survive a redeploy.</p>
-
-      <h3 class="sub-h">Two storage backends</h3>
-      <p class="body-p">The bot can store its settings in either of two places:</p>
-      <ul class="doc-list">
-        <li><b>MongoDB</b> — used automatically whenever a <code>MONGODB_URI</code> environment variable is configured on the bot's host. This is a real database, so it survives restarts, redeploys, and moving hosts entirely.</li>
-        <li><b>Local file</b> (<code>data/settings.json</code>) — used automatically whenever MongoDB isn't configured, or as a safety fallback if a Mongo write ever fails.</li>
-      </ul>
-
-      <div class="callout">
-        You don't choose between these — the bot checks for <code>MONGODB_URI</code> on every read and write and picks automatically. If it's set, Mongo is the source of truth.
-      </div>
-
-      <h3 class="sub-h">Why this matters on Render</h3>
-      <p class="body-p">Most hosts — including a typical Render web service without a persistent disk attached — wipe the local filesystem back to whatever's in the repo on every redeploy or routine restart. If your settings were only ever written to <code>data/settings.json</code> on a host like that, anything changed from the dashboard would quietly reset the next time the bot redeploys.</p>
-      <p class="body-p">Connecting MongoDB removes that risk entirely for the settings covered below.</p>
-
-      <h3 class="sub-h">What's covered by this</h3>
-      <p class="body-p">Everything read through the bot's main settings store, including:</p>
-      <ul class="doc-list">
-        <li>Enable/disable ticket creation toggle</li>
-        <li>Ticket dropdown categories</li>
-        <li>The "Ticket created" redirect message and the ticket-channel welcome message</li>
-        <li>The saved Advanced Panel Builder draft</li>
-      </ul>
-      <p class="body-p">Access Control (allowed users/roles, blacklist roles, log channel) and ticket data (active tickets, transcripts, logs) already use their own similarly Mongo-aware storage, independent of this.</p>
-
-      <h3 class="sub-h">How to check which one you're on</h3>
-      <p class="body-p">If <code>MONGODB_URI</code> is set in your bot's environment variables, you're on the persistent path — no further action needed. If it isn't set, settings changes made from the dashboard will only last until the next redeploy or restart, unless your host provides a persistent disk mounted over the bot's working directory.</p>
+      <p class="eyebrow">Reference</p><h1 class="title">Data &amp; Persistence</h1>
+      <p class="lede">The bot supports MongoDB for ticket records, settings, transcripts, access control and logs. Some legacy features still use local files.</p>
+      <h3 class="sub-h">MongoDB</h3>
+      <p class="body-p">Configure <code>MONGODB_URI</code> on the host. Check the logs to confirm a working connection; an environment variable alone does not guarantee one.</p>
+      <h3 class="sub-h">Local files and fallback</h3>
+      <p class="body-p">Individual ticket blacklist entries are currently stored in local JSON. Other functions may use <code>data/*.json</code> or local HTML transcript files when MongoDB is unavailable. Ephemeral hosting can lose local data on redeploy.</p>
+      <div class="callout">Back up MongoDB and any local-only data before changing hosting. Some features do not automatically synchronize local files with MongoDB.</div>
+      <h3 class="sub-h">Dashboard speed</h3>
+      <p class="body-p">The draft page refactor fetches data only for the selected section, reuses settings during one HTTP request, and retrieves transcripts in batches. These optimizations have not yet been benchmarked on the live service.</p>
     </section>
-
   </main>
 </div>
 
 <script>
-  const links = document.querySelectorAll('.navlink');
-  const pages = document.querySelectorAll('.page');
-  function goTo(id){
-    links.forEach(l => l.classList.toggle('active', l.dataset.page === id));
-    pages.forEach(p => p.classList.toggle('active', p.id === 'page-' + id));
-    window.scrollTo({top:0, behavior:'instant'});
+(() => {
+  const links = [...document.querySelectorAll('.navlink')];
+  const pages = [...document.querySelectorAll('main .page')];
+  const ids = new Set(pages.map(page => page.id.slice(5)));
+  const menu = document.getElementById('docsMenu');
+  const overlay = document.getElementById('docsOverlay');
+  function closeMenu(){document.body.classList.remove('docs-nav-open');menu.setAttribute('aria-expanded','false')}
+  function navigate(id, push=false){
+    if(!ids.has(id)) id='welcome';
+    links.forEach(link => {const selected=link.dataset.page===id;link.classList.toggle('active',selected);if(selected)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')});
+    pages.forEach(page => page.classList.toggle('active',page.id==='page-'+id));
+    if(push) history.pushState(null,'','#'+id);
+    closeMenu();
+    if(push) window.scrollTo({top:0,behavior:'instant'});
   }
-  links.forEach(l => l.addEventListener('click', () => goTo(l.dataset.page)));
-  document.querySelectorAll('[data-goto]').forEach(el => {
-    el.addEventListener('click', e => { e.preventDefault(); goTo(el.dataset.goto); });
-  });
+  document.querySelectorAll('[data-page],[data-goto]').forEach(link => link.addEventListener('click',event => {
+    const id=link.dataset.page || link.dataset.goto;
+    if(!ids.has(id))return;
+    event.preventDefault();navigate(id,true);
+  }));
+  menu.addEventListener('click',()=>{const open=document.body.classList.toggle('docs-nav-open');menu.setAttribute('aria-expanded',String(open))});
+  overlay.addEventListener('click',closeMenu);
+  document.addEventListener('keydown',event=>{if(event.key==='Escape')closeMenu()});
+  window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));
+  navigate(location.hash.slice(1)||'welcome');
+})();
 </script>
 
-{% include "_fake_ads.html" %}
 </body>
 </html>
