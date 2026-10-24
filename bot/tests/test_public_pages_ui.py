@@ -30,6 +30,25 @@ class PublicPagesLayoutTests(unittest.TestCase):
                 self.assertIn("public-pages.js", text)
                 self.assertIn('id="page-content"', text)
 
+    def test_docs_has_downtime_sidebar_and_content(self):
+        docs = (TEMPLATES / "docs.html").read_text(encoding="utf-8")
+        self.assertIn('href="#downtime" class="navlink"', docs)
+        self.assertIn('id="page-downtime"', docs)
+        self.assertIn('href="#i-clock"', docs)
+        self.assertIn("url_for('downtime_page')", docs)
+        self.assertIn("url_for('status_page')", docs)
+        self.assertIn("Bot Offline Schedule", docs)
+
+    def test_downtime_uses_same_public_layout(self):
+        markup = (TEMPLATES / "downtime.html").read_text(encoding="utf-8")
+        for expected in ('class="layout"', 'class="toc"', 'id="page-content"',
+                         'class="doc-header"', 'id="weekly-schedule"',
+                         'id="current-status"'):
+            self.assertIn(expected, markup)
+        self.assertIn('url_for(\'docs\')', markup)
+        self.assertIn('id="browser-tz"', markup)
+        self.assertIn('id="bot-state-text"', markup)
+
     def test_status_contains_offline_schedule(self):
         status = (TEMPLATES / "status.html").read_text(encoding="utf-8")
         self.assertIn('id="downtime"', status)
