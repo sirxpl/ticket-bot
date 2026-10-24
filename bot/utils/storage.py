@@ -416,9 +416,53 @@ def update_active_ticket(channel_id,**kwargs):
 def add_active_ticket(ticket_id,channel_id,user_id,ticket_number=None):
     d=get_tickets_data()
     if not any(t.get("ticket_id")==str(ticket_id) for t in d["active_tickets"]):
-        now=time.time();e={"ticket_id":str(ticket_id),"channel_id":str(channel_id),"user_id":str(user_id),"created_at":now,"last_activity":now,"autoclose_disabled":False,"reminder_sent":False};
+        now=time.time();e={"ticket_id":str(ticket_id),"channel_id":str(channel_id),"user_id":str(user_id),"created_at":now,"last_activity":now,"autoclose_disabled":False,"reminder_sent":False,"owner_close_locked":False,"owner_close_revision":0};
         if ticket_number is not None:e["ticket_number"]=int(ticket_number)
         d["active_tickets"].append(e);_save_tickets_data(d)
+def set_ticket_owner_close_locked(channel_id, locked):
+    """Persist the owner-close lock and invalidate outstanding close prompts.
+
+    Uses a positional Mongo update so toggling the lock does not rewrite all
+    tickets or overwrite unrelated ticket changes. Each state transition
+    increments a revision; pending /request-close prompts can check it.
+    """
+    channel_id = str(channel_id)
+    locked = bool(locked)
+    db = get_db()
+    if db is not None:
+        try:
+            result = db.tickets_data.update_one(
+                {
+                    "_id": "singleton",
+                    "active_tickets": {
+                        "$elemMatch": {
+                            "channel_id": channel_id,
+                            "owner_close_locked": {"$ne": locked},
+                        }
+                    },
+                },
+                {
+                    "$set": {"active_tickets.$.owner_close_locked": locked},
+                    "$inc": {"active_tickets.$.owner_close_revision": 1},
+                },
+            )
+            return result.modified_count == 1
+        except Exception:
+            logger.exception("Cannot update ticket owner-close lock in MongoDB")
+            raise RuntimeError("Could not save ticket lock to MongoDB")
+    # Local-file mode only: ticket state must still exist and be saved.
+    data = get_tickets_data()
+    for ticket in data.get("active_tickets", []):
+        if str(ticket.get("channel_id")) == channel_id:
+            if bool(ticket.get("owner_close_locked", False)) == locked:
+                return False
+            ticket["owner_close_locked"] = locked
+            ticket["owner_close_revision"] = int(ticket.get("owner_close_revision", 0)) + 1
+            if not _save_tickets_data(data):
+                raise RuntimeError("Could not save ticket lock to local storage")
+            return True
+    return False
+
 def touch_ticket_activity(channel_id):update_active_ticket(channel_id,last_activity=time.time(),reminder_sent=False)
 def set_autoclose_disabled(channel_id,disabled=True):update_active_ticket(channel_id,autoclose_disabled=bool(disabled))
 def remove_active_ticket(ticket_id):d=get_tickets_data();d["active_tickets"]=[t for t in d.get("active_tickets",[]) if str(t.get("ticket_id"))!=str(ticket_id)];_save_tickets_data(d)
