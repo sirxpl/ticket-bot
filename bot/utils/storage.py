@@ -8,6 +8,7 @@ import datetime
 
 from pymongo import ReturnDocument
 from utils.db import get_db
+from flask import g, has_request_context, request
 
 logger = logging.getLogger('ticket_storage')
 if not logger.handlers:
@@ -31,16 +32,32 @@ if not os.path.exists(TICKET_LOGS_FILE):
 
 
 def get_settings():
+    # Scope memoization to a single GET /dashboard request (not writes or bot jobs).
+    memo = has_request_context() and request.endpoint == "home" and request.method == "GET"
+    if memo and hasattr(g, "_dashboard_bot_settings"):
+        return g._dashboard_bot_settings
     db=get_db()
     if db is not None:
         try:
             doc=db.bot_settings.find_one({"_id":"singleton"})
-            if doc: doc.pop("_id",None); return doc
-        except Exception: logger.exception("get_settings Mongo read failed")
-    if not os.path.exists(SETTINGS_FILE): return {"tickets_enabled":True}
-    try:
-        with open(SETTINGS_FILE) as f:return json.load(f)
-    except Exception:return {"tickets_enabled":True}
+            if doc:
+                doc.pop("_id", None)
+                if memo:
+                    g._dashboard_bot_settings = doc
+                return doc
+        except Exception:
+            logger.exception("get_settings Mongo read failed")
+    if not os.path.exists(SETTINGS_FILE):
+        result = {"tickets_enabled": True}
+    else:
+        try:
+            with open(SETTINGS_FILE) as f:
+                result = json.load(f)
+        except Exception:
+            result = {"tickets_enabled": True}
+    if memo:
+        g._dashboard_bot_settings = result
+    return result
 
 def save_settings(settings):
     db=get_db()
@@ -391,17 +408,87 @@ def increment_category_counter(prefix):s=get_settings();c=s.get("category_counte
 def is_ticket_channel(channel_id):return any(str(t.get("channel_id"))==str(channel_id) for t in get_tickets_data().get("active_tickets",[]))
 def get_active_ticket_for_user(user_id):return next((t for t in get_tickets_data().get("active_tickets",[]) if str(t.get("user_id"))==str(user_id)),None)
 def get_active_ticket(channel_id):return next((t for t in get_tickets_data().get("active_tickets",[]) if str(t.get("channel_id"))==str(channel_id)),None)
-def update_active_ticket(channel_id,**kwargs):
-    d=get_tickets_data()
-    for t in d.get("active_tickets",[]):
-        if str(t.get("channel_id"))==str(channel_id):t.update(kwargs)
-    _save_tickets_data(d)
+def update_active_ticket(channel_id, **kwargs):
+    """Update one ticket without replacing the whole MongoDB document.
+
+    In particular, activity updates cannot overwrite an unrelated owner-close
+    lock transition when a Discord message and a staff command overlap.
+    """
+    if not kwargs:
+        return False
+    channel_id = str(channel_id)
+    db = get_db()
+    if db is not None:
+        try:
+            fields = {f"active_tickets.$.{key}": value for key, value in kwargs.items()}
+            result = db.tickets_data.update_one(
+                {"_id": "singleton", "active_tickets.channel_id": channel_id},
+                {"$set": fields},
+            )
+            return result.matched_count == 1
+        except Exception:
+            logger.exception("Ticket MongoDB update failed")
+            return False
+    d = get_tickets_data()
+    for ticket in d.get("active_tickets", []):
+        if str(ticket.get("channel_id")) == channel_id:
+            ticket.update(kwargs)
+            return _save_tickets_data(d)
+    return False
 def add_active_ticket(ticket_id,channel_id,user_id,ticket_number=None):
     d=get_tickets_data()
     if not any(t.get("ticket_id")==str(ticket_id) for t in d["active_tickets"]):
-        now=time.time();e={"ticket_id":str(ticket_id),"channel_id":str(channel_id),"user_id":str(user_id),"created_at":now,"last_activity":now,"autoclose_disabled":False,"reminder_sent":False};
+        now=time.time();e={"ticket_id":str(ticket_id),"channel_id":str(channel_id),"user_id":str(user_id),"created_at":now,"last_activity":now,"autoclose_disabled":False,"reminder_sent":False,"owner_close_locked":False,"owner_close_revision":0};
         if ticket_number is not None:e["ticket_number"]=int(ticket_number)
         d["active_tickets"].append(e);_save_tickets_data(d)
+def set_ticket_owner_close_locked(channel_id, locked):
+    """Persist the owner-close lock and invalidate outstanding close prompts.
+
+    Uses a positional Mongo update so toggling the lock does not rewrite all
+    tickets or overwrite unrelated ticket changes. Each state transition
+    increments a revision; pending /request-close prompts can check it.
+    """
+    channel_id = str(channel_id)
+    locked = bool(locked)
+    db = get_db()
+    if db is not None:
+        try:
+            result = db.tickets_data.update_one(
+                {
+                    "_id": "singleton",
+                    "active_tickets": {
+                        "$elemMatch": {
+                            "channel_id": channel_id,
+                            "owner_close_locked": {"$ne": locked},
+                        }
+                    },
+                },
+                {
+                    "$set": {"active_tickets.$.owner_close_locked": locked},
+                    "$inc": {"active_tickets.$.owner_close_revision": 1},
+                },
+            )
+            return result.modified_count == 1
+        except Exception:
+            logger.exception("Cannot update ticket owner-close lock in MongoDB")
+            raise RuntimeError("Could not save ticket lock to MongoDB")
+    # When MongoDB is configured but disconnected, don't announce a lock
+    # saved only to an ephemeral fallback file; it would vanish on reconnect.
+    if os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is unavailable; ticket lock cannot be saved")
+    # Local-file mode only: ticket state must still exist and be saved.
+    data = get_tickets_data()
+    for ticket in data.get("active_tickets", []):
+        if str(ticket.get("channel_id")) == channel_id:
+            if bool(ticket.get("owner_close_locked", False)) == locked:
+                return False
+            ticket["owner_close_locked"] = locked
+            ticket["owner_close_revision"] = int(ticket.get("owner_close_revision", 0)) + 1
+            if not _save_tickets_data(data):
+                raise RuntimeError("Could not save ticket lock to local storage")
+            return True
+    return False
+
 def touch_ticket_activity(channel_id):update_active_ticket(channel_id,last_activity=time.time(),reminder_sent=False)
 def set_autoclose_disabled(channel_id,disabled=True):update_active_ticket(channel_id,autoclose_disabled=bool(disabled))
 def remove_active_ticket(ticket_id):d=get_tickets_data();d["active_tickets"]=[t for t in d.get("active_tickets",[]) if str(t.get("ticket_id"))!=str(ticket_id)];_save_tickets_data(d)
@@ -494,6 +581,53 @@ def get_ticket_analytics(days=30):
     return {"all_time_created":len(created),"all_time_closed":len(closed),"last_24h_created":sum(1 for l in created if (ts(l) or 0)>=last24),"last_24h_closed":sum(1 for l in closed if (ts(l) or 0)>=last24),"daily":daily,"response_daily":response_daily,"avg_response_seconds":round(sum(vals)/len(vals)) if vals else None,"response_count":len(vals),"staff_leaderboard":board[:10]}
 
 # --- Transcripts ---
+
+def get_transcript_page(page=1, per_page=50):
+    """Paginate transcript names and fetch all their creator metadata in one query."""
+    page = max(1, int(page))
+    per_page = max(1, min(100, int(per_page)))
+    offset = (page - 1) * per_page
+    db = get_db()
+    if db is not None:
+        try:
+            total = db.transcripts.count_documents({})
+            filenames = [
+                record["_id"] for record in
+                db.transcripts.find({}, {"_id": 1}).sort("_id", -1)
+                .skip(offset).limit(per_page)
+            ]
+            keys = [name.removeprefix("ticket-").removesuffix(".html") for name in filenames]
+            ids = list(keys) + [int(key) for key in keys if key.isdigit()]
+            logs = list(db.ticket_logs.find(
+                {"action": "created", "ticket_id": {"$in": ids}},
+                {"_id": 0, "ticket_id": 1, "creator": 1, "ticket_number": 1},
+            )) if ids else []
+        except Exception:
+            logger.exception("Transcript page Mongo read failed")
+            return [], 0
+    else:
+        all_names = sorted(list_transcript_filenames(), reverse=True)
+        total = len(all_names)
+        filenames = all_names[offset:offset + per_page]
+        logs = [entry for entry in get_ticket_logs() if entry.get("action") == "created"]
+    by_id = {}
+    for entry in logs:
+        ticket_id = str(entry.get("ticket_id") or "")
+        if ticket_id:
+            by_id.setdefault(ticket_id, entry)
+    rows = []
+    for filename in filenames:
+        ticket_id = filename.removeprefix("ticket-").removesuffix(".html")
+        created = by_id.get(ticket_id) or {}
+        creator = created.get("creator") or {}
+        rows.append({
+            "filename": filename,
+            "ticket_number": created.get("ticket_number"),
+            "username": creator.get("name") or "Unknown User",
+            "user_id": creator.get("id"),
+        })
+    return rows, total
+
 def get_transcript_info(filename):
     tid=filename.removeprefix("ticket-").removesuffix(".html");c=next((l for l in get_logs_for_ticket(tid) if l.get("action")=="created"),None);cr=(c or {}).get("creator") or {};return {"filename":filename,"username":cr.get("name") or "Unknown User","ticket_number":(c or {}).get("ticket_number")}
 def list_transcript_filenames():

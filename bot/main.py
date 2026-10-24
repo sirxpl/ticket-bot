@@ -26,7 +26,8 @@ from flask import (
     url_for, 
     jsonify, 
     send_from_directory,
-    Response
+    Response,
+    abort
 )
 from requests_oauthlib import OAuth2Session
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -47,6 +48,7 @@ from utils.storage import (
     get_ticket_logs,
     get_logs_for_ticket,
     get_transcript_info,
+    get_transcript_page,
     get_transcript_html,
     list_transcript_filenames,
     get_ticket_categories,
@@ -212,7 +214,9 @@ _BOT_STATUS_SECTION_HTML = """<section class="ctb-status-section" aria-label="Bo
 def _inject_public_bot_status(response):
     """Add the public status/downtime section to every HTML page except the dashboard."""
     try:
-        if request.path == "/" or "text/html" not in response.content_type:
+        # No floating status panel on documentation and policy pages.
+        quiet_pages = {"/", "/docs", "/terms", "/rules", "/guidelines", "/privacy"}
+        if request.path in quiet_pages or "text/html" not in response.content_type:
             return response
         body = response.get_data(as_text=True)
         if "ctb-status-section" in body or "Downtime &amp; Offline Schedule" in body:
@@ -538,7 +542,7 @@ def get_member_role_ids(user_id):
 _username_cache = {}
 
 
-def resolve_username(guild, user_id):
+def resolve_username(guild, user_id, cached_only=False):
     """Best-effort username lookup for display purposes (e.g. showing a name
     next to a raw user ID on the dashboard). Returns None if it can't be
     resolved — callers should fall back to showing the raw ID.
@@ -559,7 +563,7 @@ def resolve_username(guild, user_id):
     except (TypeError, ValueError):
         return None
 
-    if not member:
+    if not member and not cached_only:
         try:
             future = asyncio.run_coroutine_threadsafe(
                 guild.fetch_member(int(user_id)), bot.loop
@@ -569,7 +573,10 @@ def resolve_username(guild, user_id):
             member = None
 
     name = str(member) if member else None
-    _username_cache[key] = name
+    # A cache-only lookup must not permanently cache a missing member and
+    # prevent another part of the bot from performing a real lookup later.
+    if name is not None or not cached_only:
+        _username_cache[key] = name
     return name
 
 
@@ -1161,7 +1168,7 @@ def privacy_policy():
 
 @app.route("/docs")
 def docs():
-    return render_template("docs.html")
+    return render_template("docs.html", user=session.get("user"))
 
 
 @app.route("/rules")
@@ -1273,12 +1280,30 @@ def status_page():
     return render_template("status.html")
 
 
+DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "blacklists", "warnings", "carry-settings", "trial-schedules", "warning-builder", "access-control"}
+
+
 @app.route("/")
-def home():
+def landing():
+    """Public product introduction; the existing panel lives at /dashboard."""
+    return render_template("landing.html", user=session.get("user"))
+
+
+@app.route("/dashboard")
+@app.route("/dashboard/<page>")
+def home(page="overview"):
+    if page not in DASHBOARD_PAGES:
+        abort(404)
     user_data = session.get("user", None)
     if not user_data:
+        if page not in ("overview", "transcripts"):
+            return redirect(url_for("home", page="overview"))
         return render_template(
             "dashboard.html",
+            active_page=page,
+            transcripts_page=1,
+            transcripts_total_pages=1,
+            transcripts_total=1,
             user=None,
             preview_mode=True,
             guild_name="Carry Ticket Bot Demo",
@@ -1321,35 +1346,32 @@ def home():
         session.pop("user", None)
         return redirect(url_for("home"))
 
-    role_ids = get_member_role_ids(user_data["id"])
+    # An ID-based admin requires no blocking Discord role fetch just to view the dashboard.
+    role_ids = [] if is_admin(user_data["id"]) else get_member_role_ids(user_data["id"])
     if not has_dashboard_access(user_data["id"], role_ids):
         flash("⛔ You don't have permission to view this dashboard. Ask an admin to add your user ID or role in Access Control.", "danger")
         session.pop("user", None)
         return redirect(url_for("home"))
 
     guild = bot.guilds[0] if bot.guilds else None
-    channels = guild.text_channels if guild else []
-    categories = guild.categories if guild else []
-    roles = guild.roles if guild else []
-    
-    tickets_info = get_tickets_data()
-    blacklist_info = get_blacklist_data()
-    settings = get_settings()
-    warning_presets = get_premade_warning_reasons()
-    warning_builder = get_warning_builder()
-    warning_records = get_all_warnings()
-    # Treat the generated-link dialog as a one-time handoff. The link itself
-    # remains available in the active-links list, but a refresh must not
-    # reopen the modal or expose the full URL again.
-    generated_unblock_link = session.pop("generated_unblock_link", None)
+    # Only populate channel and role lists on pages that actually render them.
+    channels = guild.text_channels if guild and page in ("carry-settings", "trial-schedules", "access-control") else []
+    categories = guild.categories if guild and page == "carry-settings" else []
+    roles = guild.roles if guild and page in ("carry-settings", "warning-builder", "access-control") else []
+
+    # Never read unrelated collections while opening a single dashboard page.
+    tickets_info = get_tickets_data() if page == "overview" else {}
+    blacklist_info = get_blacklist_data() if page == "blacklists" else {}
+    settings = get_settings() if page in ("carry-settings", "access-control") else {}
+    warning_presets = get_premade_warning_reasons() if page == "warning-builder" else []
+    warning_builder = get_warning_builder() if page == "warning-builder" else {}
+    warning_records = get_all_warnings() if page == "warnings" else []
+    generated_unblock_link = session.pop("generated_unblock_link", None) if page == "access-control" else None
     active_unblock_links = [
-        {
-            **entry,
-            "url": external_url("terms_unblock", token=entry["token"]),
-        }
+        {**entry, "url": external_url("terms_unblock", token=entry["token"])}
         for entry in get_active_terms_unblock_tokens()
-    ]
-    access_settings = get_access_settings()
+    ] if page == "access-control" else []
+    access_settings = get_access_settings() if page in ("access-control", "blacklists") else {}
 
     allowed_users = []
     for uid in access_settings.get("allowed_users", []):
@@ -1405,9 +1427,19 @@ def home():
     can_remove_cooldown = has_remove_cooldown_access(user_data["id"], role_ids)
     can_access_analytics = has_analytics_access(user_data["id"], role_ids)
 
+    # Pages are separate URLs: enforce the same restrictions server-side.
+    if page in ("warnings", "warning-builder", "access-control") and not is_admin_user:
+        abort(403)
+    if page in ("carry-settings", "trial-schedules") and not (is_admin_user and can_access_carry_settings):
+        abort(403)
+    if page == "analytics" and not can_access_analytics:
+        abort(403)
+    if page == "transcripts" and not can_access_transcripts:
+        abort(403)
+
     analytics = None
     analytics_period = 7
-    if can_access_analytics:
+    if page == "analytics" and can_access_analytics:
         try:
             analytics_period = int(request.args.get("analytics_period", 7))
         except (TypeError, ValueError):
@@ -1447,7 +1479,7 @@ def home():
     # members who are blocked from creating tickets via a Ticket Blacklist Role
     # (in addition to the individually-blacklisted user IDs above)
     role_blacklisted_members = []
-    if guild:
+    if guild and page == "blacklists":
         blacklist_role_id_set = {str(rid) for rid in access_settings.get("blacklist_roles", [])}
         if blacklist_role_id_set:
             for member in guild.members:
@@ -1464,30 +1496,38 @@ def home():
     active_tickets = []
     for t in tickets_info.get("active_tickets", []):
         t = dict(t)
-        t["username"] = resolve_username(guild, t.get("user_id"))
+        t["username"] = resolve_username(guild, t.get("user_id"), cached_only=True) or t.get("username")
         active_tickets.append(t)
 
     cooldowns = []
     for cd in tickets_info.get("cooldowns", []):
         cd = dict(cd)
-        cd["username"] = resolve_username(guild, cd.get("user_id"))
+        cd["username"] = resolve_username(guild, cd.get("user_id"), cached_only=True) or cd.get("username")
         cooldowns.append(cd)
 
     transcripts = []
-    for filename in list_transcript_filenames():
-        transcript = get_transcript_info(filename)
-        if transcript:
-            transcripts.append(transcript)
+    transcripts_page = 1
+    transcripts_total_pages = 1
+    transcripts_total = 0
+    if page == "transcripts":
+        try:
+            transcripts_page = max(1, int(request.args.get("transcripts_page", 1)))
+        except (TypeError, ValueError):
+            transcripts_page = 1
+        transcripts, transcripts_total = get_transcript_page(transcripts_page, per_page=50)
+        transcripts_total_pages = max(1, (transcripts_total + 49) // 50)
+        if transcripts_page > transcripts_total_pages:
+            return redirect(url_for("home", page="transcripts", transcripts_page=transcripts_total_pages))
 
     blacklisted_users = []
     for entry in blacklist_info.get("blacklisted_users", []):
         if isinstance(entry, dict):
             entry = dict(entry)
-            entry["username"] = resolve_username(guild, entry.get("user_id"))
+            entry["username"] = resolve_username(guild, entry.get("user_id"), cached_only=True) or entry.get("username")
         else:
             entry = {
                 "user_id": str(entry),
-                "username": resolve_username(guild, entry),
+                "username": resolve_username(guild, entry, cached_only=True),
                 "reason": None,
                 "expires_ts": None,
             }
@@ -1495,16 +1535,22 @@ def home():
 
     return render_template(
         "dashboard.html",
+        active_page=page,
         user=user_data,
         guild_name=guild.name if guild else None,
         channels=channels,
         categories=categories,
         roles=roles,
         tickets_enabled=settings.get("tickets_enabled", True),
-        april_fools_enabled=get_april_fools_enabled(),
+        april_fools_enabled=get_april_fools_enabled() if page == "carry-settings" else False,
+        ad_config=get_april_fools_ad_config() if page == "carry-settings" else {},
+        admin_ids=get_admin_ids(),
         total_tickets=tickets_info.get("ticket_counter", 0),
         active_tickets=active_tickets,
         transcripts=transcripts,
+        transcripts_page=transcripts_page,
+        transcripts_total_pages=transcripts_total_pages,
+        transcripts_total=transcripts_total,
         cooldowns=cooldowns,
         blacklisted_users=blacklisted_users,
         role_blacklisted_members=role_blacklisted_members,
@@ -1532,20 +1578,20 @@ def home():
         can_access_analytics=can_access_analytics,
         analytics=analytics,
         analytics_period=analytics_period,
-        ticket_categories=get_ticket_categories(),
-        ticket_badge_config=get_ticket_badge_config(),
-        panel_draft=get_ticket_panel_draft(),
-        redirect_message=get_redirect_message(),
-        welcome_message=get_welcome_message(),
-        trial_schedule=get_trial_schedule_settings(),
+        ticket_categories=get_ticket_categories() if page == "carry-settings" else [],
+        ticket_badge_config=get_ticket_badge_config() if page == "carry-settings" else {},
+        panel_draft=get_ticket_panel_draft() if page == "carry-settings" else {},
+        redirect_message=get_redirect_message() if page == "carry-settings" else {},
+        welcome_message=get_welcome_message() if page == "carry-settings" else {},
+        trial_schedule=get_trial_schedule_settings() if page == "trial-schedules" else {},
         warning_presets=warning_presets,
         warning_builder=warning_builder,
         warning_records=warning_records,
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
-        offline_schedule=get_offline_schedule(),
-        globally_blocked_users=get_globally_blocked_users(),
+        offline_schedule=get_offline_schedule() if page == "access-control" else {},
+        globally_blocked_users=get_globally_blocked_users() if page == "access-control" else [],
         generated_unblock_link=generated_unblock_link,
         active_unblock_links=active_unblock_links,
     )
@@ -1559,7 +1605,7 @@ def save_trial_schedule_route():
 
     if enabled and not channel_id:
         flash("❌ Choose a channel before enabling Trial Schedules.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="trial-schedules"))
 
     old = get_trial_schedule_settings()
     # When the configured channel changes, forget the old message ID so the
@@ -1593,7 +1639,7 @@ def save_trial_schedule_route():
     else:
         flash("✅ Trial Schedule settings saved.", "success")
 
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="trial-schedules"))
 
 
 @app.route("/login")
@@ -1642,7 +1688,7 @@ def callback():
     application_return_to = session.pop("application_return_to", None)
     if application_return_to and application_return_to.startswith("/carry-application"):
         return redirect(application_return_to)
-    return redirect(url_for('home'))
+    return redirect(url_for('home', page="overview"))
 
 
 @app.route("/logout")
@@ -1666,7 +1712,7 @@ def add_warning_preset_route():
         app.logger.exception("Failed to add warning preset")
         flash("Could not add the warning preset.", "danger")
 
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="warning-builder"))
 
 
 @app.route("/dashboard/warnings/save-builder/<tier>", methods=["POST"])
@@ -1687,7 +1733,7 @@ def save_warning_builder_route(tier):
     except Exception:
         app.logger.exception("Failed to save warning builder settings")
         flash("Could not save warning builder settings.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="warning-builder"))
 
 
 @app.route("/dashboard/warnings/edit-preset/<int:preset_id>", methods=["POST"])
@@ -1703,7 +1749,7 @@ def edit_warning_preset_route(preset_id):
     else:
         flash("Could not update that warning preset.", "danger")
 
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="warning-builder"))
 
 
 @app.route("/dashboard/warnings/delete-preset/<int:preset_id>", methods=["POST"])
@@ -1714,7 +1760,7 @@ def delete_warning_preset_route(preset_id):
     else:
         flash("Could not find that warning preset.", "danger")
 
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="warning-builder"))
 
 @app.route("/dashboard/toggle-tickets", methods=["POST"])
 @carry_manager_required
@@ -1724,7 +1770,7 @@ def toggle_tickets():
     
     status_text = "enabled" if is_enabled else "disabled"
     flash(f"⚙️ Ticket creation has been {status_text}.", "success" if is_enabled else "warning")
-    return redirect("/")
+    return redirect(url_for("home", page="overview"))
 
 
 @app.route("/dashboard/toggle-april-fools", methods=["POST"])
@@ -1735,7 +1781,7 @@ def toggle_april_fools():
 
     status_text = "enabled" if is_enabled else "disabled"
     flash(f"📺 April Fools ad gag has been {status_text}.", "success" if is_enabled else "warning")
-    return redirect("/")
+    return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
 
 # --- April Fools: web ad gate before a ticket form opens ---
@@ -1835,16 +1881,12 @@ def ticket_ad_complete(token):
 @app.route("/admin")
 @admin_required
 def admin_panel():
-    return render_template(
-        "admin_panel.html",
-        user=session.get("user"),
-        admin_ids=get_admin_ids(),
-        april_fools_enabled=get_april_fools_enabled(),
-        ad_config=get_april_fools_ad_config(),
-    )
+    # Redirect old /admin bookmarks into the integrated dashboard settings.
+    return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
 
 @app.route("/admin/april-fools", methods=["POST"])
+@app.route("/dashboard/ad-gag/save", methods=["POST"])
 @admin_required
 def admin_save_april_fools():
     try:
@@ -1872,7 +1914,7 @@ def admin_save_april_fools():
 
     if not ads:
         flash("❌ Add at least one ad with some content before saving.", "danger")
-        return redirect(url_for("admin_panel"))
+        return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
     save_april_fools_ad_config(
         ads=ads,
@@ -1880,7 +1922,7 @@ def admin_save_april_fools():
         randomize=request.form.get("randomize") in ("on", "true", "True"),
     )
     flash(f"📺 Saved {len(ads)} April Fools ad(s).", "success")
-    return redirect(url_for("admin_panel"))
+    return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
 
 
 @app.route("/transcripts/<path:filename>")
@@ -2049,7 +2091,7 @@ def save_ticket_panel_draft_route():
     draft = _panel_draft_from_form()
     save_ticket_panel_draft(draft)
     flash("💾 Panel draft saved. It'll be pre-filled next time you open this builder.", "success")
-    return redirect("/")
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/tickets", methods=["POST"])
@@ -2066,7 +2108,7 @@ def deploy_ticket_panel():
 
     if not channel_id:
         flash("❌ Please select a valid target channel.", "danger")
-        return redirect("/")
+        return redirect(url_for("home", page="carry-settings"))
 
     title = draft["title"]
     description = draft["description"]
@@ -2105,7 +2147,7 @@ def deploy_ticket_panel():
     else:
         flash("❌ Ticket cog not found.", "danger")
 
-    return redirect("/")
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/access/add-user", methods=["POST"])
@@ -2117,7 +2159,7 @@ def access_add_user():
         flash("✅ User added to the dashboard allow-list.", "success")
     else:
         flash("❌ Please enter a valid numeric Discord user ID.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-global-block", methods=["POST"])
@@ -2128,7 +2170,7 @@ def access_add_global_block():
         flash("✅ User globally blocked from slash commands and dashboard access.", "success")
     else:
         flash("❌ Enter a valid, non-duplicate numeric Discord user ID.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-global-block/<user_id>", methods=["POST"])
@@ -2138,7 +2180,7 @@ def access_remove_global_block(user_id):
         flash("✅ Global block removed.", "success")
     else:
         flash("❌ That user is not globally blocked.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/generate-unblock-link", methods=["POST"])
@@ -2152,7 +2194,7 @@ def access_generate_unblock_link():
         flash(f"Terms unblock link generated for {user_id}.", "success")
     except ValueError as error:
         flash(str(error), "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/revoke-unblock-link", methods=["POST"])
@@ -2167,7 +2209,7 @@ def access_revoke_unblock_link():
         flash("✅ Terms unblock link revoked.", "success")
     else:
         flash("❌ That link is already used, expired, or revoked.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-user/<user_id>", methods=["POST"])
@@ -2175,7 +2217,7 @@ def access_revoke_unblock_link():
 def access_remove_user(user_id):
     remove_allowed_user(user_id)
     flash("🗑️ User removed from the allow-list.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-role", methods=["POST"])
@@ -2187,7 +2229,7 @@ def access_add_role():
         flash("✅ Role added to the dashboard allow-list.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-role/<role_id>", methods=["POST"])
@@ -2195,7 +2237,7 @@ def access_add_role():
 def access_remove_role(role_id):
     remove_allowed_role(role_id)
     flash("🗑️ Role removed from the allow-list.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-blacklist-role", methods=["POST"])
@@ -2207,7 +2249,7 @@ def access_add_blacklist_role():
         flash("✅ Role added to the Ticket Blacklist.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-blacklist-role/<role_id>", methods=["POST"])
@@ -2215,7 +2257,7 @@ def access_add_blacklist_role():
 def access_remove_blacklist_role(role_id):
     remove_blacklist_role(role_id)
     flash("🗑️ Role removed from the Ticket Blacklist.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-viewer-role", methods=["POST"])
@@ -2227,7 +2269,7 @@ def access_add_viewer_role():
         flash("✅ Role added as a Ticket Viewer Role.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-viewer-role/<role_id>", methods=["POST"])
@@ -2235,7 +2277,7 @@ def access_add_viewer_role():
 def access_remove_viewer_role(role_id):
     remove_ticket_viewer_role(role_id)
     flash("🗑️ Role removed from Ticket Viewer Roles.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-powerful-command-role", methods=["POST"])
@@ -2247,7 +2289,7 @@ def access_add_powerful_command_role():
         flash("✅ Role added to Powerful Command Access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-powerful-command-role/<role_id>", methods=["POST"])
@@ -2255,7 +2297,7 @@ def access_add_powerful_command_role():
 def access_remove_powerful_command_role(role_id):
     remove_powerful_command_role(role_id)
     flash("🗑️ Role removed from Powerful Command Access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-powerful-command-user", methods=["POST"])
@@ -2267,7 +2309,7 @@ def access_add_powerful_command_user():
         flash("✅ User added to Powerful Command Access.", "success")
     else:
         flash("❌ Please enter a valid user ID.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-powerful-command-user/<user_id>", methods=["POST"])
@@ -2275,7 +2317,7 @@ def access_add_powerful_command_user():
 def access_remove_powerful_command_user(user_id):
     remove_powerful_command_user(user_id)
     flash("🗑️ User removed from Powerful Command Access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-moderation-command-role", methods=["POST"])
@@ -2287,7 +2329,7 @@ def access_add_moderation_command_role():
         flash("✅ Role added to Moderation Command Access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-moderation-command-role/<role_id>", methods=["POST"])
@@ -2295,7 +2337,7 @@ def access_add_moderation_command_role():
 def access_remove_moderation_command_role(role_id):
     remove_moderation_command_role(role_id)
     flash("🗑️ Role removed from Moderation Command Access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-moderation-command-user", methods=["POST"])
@@ -2307,7 +2349,7 @@ def access_add_moderation_command_user():
         flash("✅ User added to Moderation Command Access.", "success")
     else:
         flash("❌ Please enter a valid user ID.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-moderation-command-user/<user_id>", methods=["POST"])
@@ -2315,7 +2357,7 @@ def access_add_moderation_command_user():
 def access_remove_moderation_command_user(user_id):
     remove_moderation_command_user(user_id)
     flash("🗑️ User removed from Moderation Command Access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-basic-command-role", methods=["POST"])
@@ -2327,7 +2369,7 @@ def access_add_basic_command_role():
         flash("✅ Role added to Basic Command Access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-basic-command-role/<role_id>", methods=["POST"])
@@ -2335,7 +2377,7 @@ def access_add_basic_command_role():
 def access_remove_basic_command_role(role_id):
     remove_basic_command_role(role_id)
     flash("🗑️ Role removed from Basic Command Access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-basic-command-user", methods=["POST"])
@@ -2347,7 +2389,7 @@ def access_add_basic_command_user():
         flash("✅ User added to Basic Command Access.", "success")
     else:
         flash("❌ Please enter a valid user ID.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-basic-command-user/<user_id>", methods=["POST"])
@@ -2355,7 +2397,7 @@ def access_add_basic_command_user():
 def access_remove_basic_command_user(user_id):
     remove_basic_command_user(user_id)
     flash("🗑️ User removed from Basic Command Access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/ticket-badge/save", methods=["POST"])
@@ -2364,10 +2406,10 @@ def save_ticket_badge_route():
     badge_id=request.form.get("ticket_badge_id", "").strip()
     if badge_id and not badge_id.isdigit():
         flash("❌ Badge ID must contain numbers only.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="carry-settings"))
     save_ticket_badge_config(badge_id)
     flash("✅ Ticket badge verification settings saved.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/ticket-badge/add", methods=["POST"])
@@ -2376,12 +2418,12 @@ def add_ticket_blocked_badge_route():
     badge_id=request.form.get("blocked_badge_id", "").strip()
     if not badge_id.isdigit():
         flash("❌ Blocked badge ID must contain numbers only.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="carry-settings"))
     if add_blocked_ticket_badge(badge_id):
         flash(f"✅ Badge {badge_id} added to the blocked badge list.", "success")
     else:
         flash("ℹ️ That badge is already in the blocked badge list.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/ticket-badge/remove/<badge_id>", methods=["POST"])
@@ -2391,7 +2433,7 @@ def remove_ticket_blocked_badge_route(badge_id):
         flash(f"🗑️ Badge {badge_id} removed from the blocked badge list.", "info")
     else:
         flash("❌ That badge was not found in the blocked badge list.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/ticket-categories/save", methods=["POST"])
@@ -2458,7 +2500,7 @@ def save_ticket_categories_route():
 
     if not categories:
         flash("❌ Add at least one category with a label.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="carry-settings"))
 
     if len(categories) > 25:
         categories = categories[:25]
@@ -2466,7 +2508,7 @@ def save_ticket_categories_route():
 
     save_ticket_categories(categories)
     flash("✅ Ticket dropdown categories saved. New panels you deploy will use them; existing panels update after the bot restarts.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/ticket-messages/save-redirect", methods=["POST"])
@@ -2475,10 +2517,10 @@ def save_redirect_message_route():
     content = request.form.get("redirect_content", "").strip()
     if not content:
         flash("❌ Redirect message can't be empty.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="carry-settings"))
     save_redirect_message(content[:1000])
     flash("✅ 'Ticket created' redirect message saved.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/ticket-messages/save-welcome", methods=["POST"])
@@ -2499,7 +2541,7 @@ def save_welcome_message_route():
     }
     save_welcome_message(data)
     flash("✅ Ticket-channel welcome message saved.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="carry-settings"))
 
 
 @app.route("/dashboard/access/add-carry-manager-role", methods=["POST"])
@@ -2511,7 +2553,7 @@ def access_add_carry_manager_role():
         flash("✅ Role added to Carry Manager Settings access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-carry-manager-role/<role_id>", methods=["POST"])
@@ -2519,7 +2561,7 @@ def access_add_carry_manager_role():
 def access_remove_carry_manager_role(role_id):
     remove_carry_manager_role(role_id)
     flash("🗑️ Role removed from Carry Manager Settings access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-transcripts-role", methods=["POST"])
@@ -2531,7 +2573,7 @@ def access_add_transcripts_role():
         flash("✅ Role added to Transcripts access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-transcripts-role/<role_id>", methods=["POST"])
@@ -2539,7 +2581,7 @@ def access_add_transcripts_role():
 def access_remove_transcripts_role(role_id):
     remove_transcripts_role(role_id)
     flash("🗑️ Role removed from Transcripts access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-analytics-role", methods=["POST"])
@@ -2551,7 +2593,7 @@ def access_add_analytics_role():
         flash("✅ Role added to Analytics access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-analytics-role/<role_id>", methods=["POST"])
@@ -2559,7 +2601,7 @@ def access_add_analytics_role():
 def access_remove_analytics_role(role_id):
     remove_analytics_role(role_id)
     flash("🗑️ Role removed from Analytics access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-pin-message-role", methods=["POST"])
@@ -2571,7 +2613,7 @@ def access_add_pin_message_role_route():
         flash("✅ Role granted message-pinning access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-pin-message-role/<role_id>", methods=["POST"])
@@ -2579,7 +2621,7 @@ def access_add_pin_message_role_route():
 def access_remove_pin_message_role_route(role_id):
     remove_pin_message_role(role_id)
     flash("🗑️ Role removed from message-pinning access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-carry-application-verdict-role", methods=["POST"])
@@ -2591,7 +2633,7 @@ def access_add_carry_application_verdict_role():
         flash("✅ Role can now decide Carry Team applications.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route(
@@ -2602,7 +2644,7 @@ def access_add_carry_application_verdict_role():
 def access_remove_carry_application_verdict_role(role_id):
     remove_carry_application_verdict_role(role_id)
     flash("🗑️ Role removed from Carry Team application verdict access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/carry-application-delivery", methods=["POST"])
@@ -2614,7 +2656,7 @@ def save_carry_application_delivery_route():
     clear_webhook = request.form.get("clear_webhook") == "yes"
     if mode not in {"bot", "webhook"}:
         flash("❌ Choose Bot or Webhook delivery.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="access-control"))
 
     if webhook_url:
         parsed = urlsplit(webhook_url)
@@ -2640,14 +2682,14 @@ def save_carry_application_delivery_route():
             or webhook_port not in {None, 443}
         ):
             flash("❌ Enter a valid HTTPS Discord webhook URL.", "danger")
-            return redirect(url_for("home"))
+            return redirect(url_for("home", page="access-control"))
 
     if mode == "bot":
         guild = bot.guilds[0] if bot.guilds else None
         channel = guild.get_channel(int(channel_id)) if guild and channel_id.isdigit() else None
         if channel is None or not isinstance(channel, discord.TextChannel):
             flash("❌ Select a text channel in the connected Carry server.", "danger")
-            return redirect(url_for("home"))
+            return redirect(url_for("home", page="access-control"))
 
     settings = get_settings()
     delivery = dict(settings.get("carry_application_delivery") or {})
@@ -2660,13 +2702,13 @@ def save_carry_application_delivery_route():
         delivery["webhook_url"] = webhook_url
     if mode == "webhook" and not delivery.get("webhook_url"):
         flash("❌ Configure a webhook URL before selecting Webhook delivery.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="access-control"))
     try:
         save_carry_application_delivery(delivery)
     except Exception:
         app.logger.exception("Failed to save Carry Team application delivery settings")
         flash("❌ Could not save the application delivery settings.", "danger")
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="access-control"))
     try:
         reset_pending_application_notifications()
     except Exception:
@@ -2675,9 +2717,9 @@ def save_carry_application_delivery_route():
             "✅ Settings saved. Pending notices will retry on their existing schedule.",
             "warning",
         )
-        return redirect(url_for("home"))
+        return redirect(url_for("home", page="access-control"))
     flash("✅ Carry Team application delivery settings saved.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/add-remove-cooldown-role", methods=["POST"])
@@ -2689,7 +2731,7 @@ def access_add_remove_cooldown_role():
         flash("✅ Role added to Remove Cooldown access.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/remove-remove-cooldown-role/<role_id>", methods=["POST"])
@@ -2697,7 +2739,7 @@ def access_add_remove_cooldown_role():
 def access_remove_remove_cooldown_role(role_id):
     remove_remove_cooldown_role(role_id)
     flash("🗑️ Role removed from Remove Cooldown access.", "info")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/set-log-channel", methods=["POST"])
@@ -2706,7 +2748,7 @@ def access_set_log_channel():
     channel_id = request.form.get("log_channel_id", "").strip()
     set_log_channel(channel_id or None)
     flash("✅ Ticket activity log channel updated.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/set-blacklist-log-channel", methods=["POST"])
@@ -2715,7 +2757,7 @@ def access_set_blacklist_log_channel():
     channel_id = request.form.get("blacklist_log_channel_id", "").strip()
     set_blacklist_log_channel(channel_id or None)
     flash("✅ Blacklist log channel updated.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/set-warning-log-channel", methods=["POST"])
@@ -2724,7 +2766,7 @@ def access_set_warning_log_channel():
     channel_id = request.form.get("warning_log_channel_id", "").strip()
     set_warning_log_channel(channel_id or None)
     flash("✅ Warning log channel updated.", "success")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 @app.route("/dashboard/access/save-offline-schedule", methods=["POST"])
@@ -2760,7 +2802,7 @@ def access_save_offline_schedule():
     except Exception as exc:
         app.logger.exception("Failed to save bot offline schedule")
         flash(f"❌ Could not save the offline schedule: {exc}", "danger")
-    return redirect(url_for("home"))
+    return redirect(url_for("home", page="access-control"))
 
 
 # --- BOT EVENT HANDLERS & RUNNER ---

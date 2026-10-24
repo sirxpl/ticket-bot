@@ -1,0 +1,177 @@
+{# Original /admin advertisement editor, moved inside the existing dashboard. #}
+<details class="card" id="ad-gag-settings" open>
+    <summary>
+        <div class="card-head-text">
+            <h3><span class="card-icon">📺</span> April Fools Ad Gag Settings</h3>
+            <p class="card-subtitle">Manage the joke ads, countdown and shuffle settings in one place.</p>
+        </div>
+        <span class="card-chevron">▾</span>
+    </summary>
+    <div class="card-body">
+        <style>
+          #ad-gag-settings .card-sub {color:var(--text-dim);font-size:.9em;margin:0 0 17px;}
+          #ad-gag-settings .status {display:flex;align-items:center;flex-wrap:wrap;gap:6px;background:var(--raised);border:1px solid var(--border);padding:12px 14px;border-radius:10px;margin-bottom:18px;font-size:.9em;}
+          #ad-gag-settings .dot {width:9px;height:9px;border-radius:50%;background:var(--text-dim);display:inline-block;flex:none;}
+          #ad-gag-settings .dot.on {background:var(--success);}
+          #ad-gag-settings .preview-link {color:var(--accent);text-decoration:none;}
+          #ad-gag-settings .preview-link:hover {text-decoration:underline;}
+          #ad-gag-settings .row {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+          #ad-gag-settings .row > div {min-width:0;}
+          #ad-gag-settings .toggle-line {display:flex;align-items:flex-start;gap:11px;font-size:.9em;cursor:pointer;margin:18px 0;}
+          #ad-gag-settings .toggle-line input {width:18px;height:18px;flex:none;margin:3px 0 0;accent-color:var(--accent);}
+          #ad-gag-settings .btn {background:var(--accent);border:1px solid transparent;border-radius:9px;color:white;cursor:pointer;font-weight:700;font-size:.9em;padding:11px 19px;}
+          #ad-gag-settings .btn:hover {filter:brightness(1.12);}
+          #ad-gag-settings .btn-add {background:var(--raised);border:1px dashed var(--border);color:var(--text);width:100%;margin:8px 0;}
+          #ad-gag-settings .btn-add:hover {border-color:var(--accent);color:var(--accent);}
+          #ad-gag-settings .btn-rm {background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--danger);cursor:pointer;font-weight:600;padding:6px 10px;}
+          #ad-gag-settings .btn-rm:hover {border-color:var(--danger);}
+          #ad-gag-settings .ad-row {background:var(--raised);border:1px solid var(--border);border-radius:12px;padding:16px;margin:14px 0;}
+          #ad-gag-settings .ad-head {display:flex;align-items:center;justify-content:space-between;gap:10px;}
+          #ad-gag-settings .ad-head strong {font-size:.95em;}
+          #ad-gag-settings .save-bar {display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-top:16px;}
+          #ad-gag-settings textarea {resize:vertical;}
+          @media(max-width:680px) {#ad-gag-settings .row {grid-template-columns:1fr;} #ad-gag-settings .save-bar .btn {width:100%;}}
+        </style>
+
+    <p class="card-sub">
+      Controls the joke "ad" page members see before the ticket form opens.
+      Add as many ads as you like — one is picked per ticket.
+    </p>
+
+    <div class="status">
+      <span class="dot {% if april_fools_enabled %}on{% else %}off{% endif %}"></span>
+      April Fools mode is <strong>{% if april_fools_enabled %}ON{% else %}OFF{% endif %}</strong>
+      &nbsp;·&nbsp;
+      <span class="preview-link">Toggle it in System Settings above</span>
+    </div>
+
+    <form action="{{ url_for('admin_save_april_fools') }}" method="POST" id="afForm">
+      <div class="row">
+        <div>
+          <label>Countdown seconds <span class="hint">(1–120)</span></label>
+          <input type="number" name="countdown_seconds" min="1" max="120"
+                 value="{{ ad_config.countdown_seconds }}">
+        </div>
+        <div>
+          <label>Ads configured</label>
+          <input type="text" id="adCount" value="" readonly
+                 style="color:var(--muted); background:var(--bg);">
+        </div>
+      </div>
+
+      <label class="toggle-line">
+        <input type="checkbox" name="randomize" value="true"
+               {% if ad_config.randomize %}checked{% endif %}>
+        <span>
+          <strong>Shuffle ads</strong> — pick a random ad for each ticket.
+          Turn this off to always show the first one.
+          <br><span style="color:var(--muted); font-size:13px;">
+            The chosen ad stays fixed for that member's countdown, so reloading
+            the page won't swap it mid-view.
+          </span>
+        </span>
+      </label>
+
+      <hr style="border:0; border-top:1px solid var(--border); margin:20px 0 16px;">
+
+      <div id="adList"></div>
+      <button type="button" class="btn btn-add" onclick="addAd()">＋ Add Ad</button>
+
+      <input type="hidden" name="ads_json" id="adsJson">
+      <div class="save-bar">
+        <button class="btn" type="submit">💾 Save Ad Settings</button>
+        <span style="color:var(--muted); font-size:13px;">Blank rows are dropped on save.</span>
+      </div>
+    </form>
+    </div>
+</details>
+<script>
+(function () {
+  var ads = {{ ad_config.ads | tojson }};
+  var list = document.getElementById('adList');
+  var counter = 0;
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renumber() {
+    var rows = list.querySelectorAll('.ad-row');
+    rows.forEach(function (row, i) {
+      row.querySelector('.ad-index').textContent = 'Ad #' + (i + 1);
+    });
+    document.getElementById('adCount').value =
+      rows.length + (rows.length === 1 ? ' ad' : ' ads');
+  }
+
+  window.removeAprilFoolsAd = function (id) {
+    var el = document.getElementById(id);
+    if (el) el.remove();
+    renumber();
+  };
+
+  window.addAprilFoolsAd = function (data) {
+    data = data || {};
+    counter += 1;
+    var id = 'ad_' + counter;
+    var isImage = data.type === 'image';
+
+    var row = document.createElement('div');
+    row.className = 'ad-row';
+    row.id = id;
+    row.innerHTML =
+      '<div class="ad-head">' +
+        '<strong class="ad-index">Ad</strong>' +
+        '<button type="button" class="btn-rm" onclick="removeAprilFoolsAd(\'' + id + '\')">Remove</button>' +
+      '</div>' +
+      '<label>Ad type</label>' +
+      '<select class="f-type">' +
+        '<option value="video"' + (isImage ? '' : ' selected') + '>Video link</option>' +
+        '<option value="image"' + (isImage ? ' selected' : '') + '>Picture + text (no video)</option>' +
+      '</select>' +
+      '<label>Headline</label>' +
+      '<input type="text" class="f-headline" maxlength="120" value="' + esc(data.headline) + '" placeholder="A word from our sponsor">' +
+      '<label>Body text <span class="hint">(optional)</span></label>' +
+      '<textarea class="f-body" maxlength="600" placeholder="Your ticket will open right after this short message.">' + esc(data.body) + '</textarea>' +
+      '<label>Image URL <span class="hint">(optional)</span></label>' +
+      '<input type="url" class="f-image" value="' + esc(data.image_url) + '" placeholder="https://example.com/banner.png">' +
+      '<div class="row">' +
+        '<div>' +
+          '<label>Link URL <span class="hint">(optional)</span></label>' +
+          '<input type="url" class="f-link" value="' + esc(data.link_url) + '" placeholder="https://youtu.be/...">' +
+        '</div>' +
+        '<div>' +
+          '<label>Link button text</label>' +
+          '<input type="text" class="f-linklabel" maxlength="60" value="' + esc(data.link_label) + '" placeholder="Learn more">' +
+        '</div>' +
+      '</div>' +
+      '<label>Sponsor name <span class="hint">(footer)</span></label>' +
+      '<input type="text" class="f-sponsor" maxlength="80" value="' + esc(data.sponsor) + '" placeholder="Tickety Ad Network">';
+
+    list.appendChild(row);
+    renumber();
+  };
+
+  document.getElementById('afForm').addEventListener('submit', function () {
+    var out = [];
+    list.querySelectorAll('.ad-row').forEach(function (row) {
+      function v(sel) { return (row.querySelector(sel).value || '').trim(); }
+      out.push({
+        type: v('.f-type'),
+        headline: v('.f-headline'),
+        body: v('.f-body'),
+        image_url: v('.f-image'),
+        link_url: v('.f-link'),
+        link_label: v('.f-linklabel'),
+        sponsor: v('.f-sponsor')
+      });
+    });
+    document.getElementById('adsJson').value = JSON.stringify(out);
+  });
+
+  if (ads.length) { ads.forEach(function (a) { addAprilFoolsAd(a); }); }
+  else { addAprilFoolsAd(); }
+})();
+</script>

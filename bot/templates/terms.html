@@ -102,14 +102,34 @@
             aside { position: static; order: -1; }
             main { padding-top: 42px; }
         }
-    </style>
+    
+
+header{position:sticky;top:0;z-index:30;background:#0b0e18f0;backdrop-filter:blur(12px)}
+header .shell.nav{width:100%;max-width:none;min-height:62px;padding:0 32px}
+header .brand{display:inline-flex;align-items:center;gap:10px;font-size:16px}
+header .brand .stub{width:26px;height:20px;background:#ffc942;border-radius:5px;display:inline-block;position:relative}
+header .brand .stub:after{content:"";position:absolute;top:-3px;bottom:-3px;left:59%;border-left:2px dashed #0d102088}
+header .nav-actions{margin-left:auto}header .doc-nav-items{display:flex;gap:19px;align-items:center;margin-right:12px}
+header .doc-nav-items a{font-size:12px;font-weight:600;color:#a5b4d7;text-decoration:none;white-space:nowrap}
+header .doc-nav-items a:hover{color:#ad8dff}header .nav-link{border-color:#353d53;font-size:12px}header .button{background:#443377;border:1px solid #7760be;font-size:12px}
+@media(max-width:1020px){header .doc-nav-items{display:none}}
+@media(max-width:580px){header .shell.nav{padding:0 13px}header .brand{font-size:13px}header .nav-actions{gap:5px}header .nav-link,header .button{font-size:11px;padding:8px}}
+
+</style>
 </head>
 <body>
     <header>
         <div class="shell nav">
-            <a class="brand" href="{{ url_for('home') }}">Carry <span>Ticket Bot</span></a>
+            <a class="brand" href="{{ url_for('docs') }}"><span class="stub" aria-hidden="true"></span>Carry <span>Ticket Bot</span></a>
             <div class="nav-actions">
-                <a class="nav-link" href="{{ url_for('home') }}">Dashboard</a>
+                <nav class="doc-nav-items" aria-label="Site navigation">
+                    <a href="{{ url_for('docs') }}">Docs</a>
+                    <a href="{{ url_for('rules') }}">Rules &amp; Regulations</a>
+                    <a href="{{ url_for('guidelines') }}">Carry Guidelines</a>
+                    <a href="{{ url_for('privacy_policy') }}">Privacy</a>
+                    <a href="{{ url_for('status_page') }}">Status</a>
+                </nav>
+                <a class="nav-link" href="{{ url_for('home', page='overview') }}">Dashboard</a>
                 {% if user %}
                     <a class="nav-link" href="{{ url_for('logout') }}">Log out</a>
                 {% else %}
@@ -131,7 +151,7 @@
             <aside>
                 <h2>Need access help?</h2>
                 <p>If you received a single-use terms link, use that link to verify your Discord account and accept the terms.</p>
-                <a class="button" href="{{ url_for('home') }}">Return to dashboard</a>
+                <a class="button" href="{{ url_for('home', page='overview') }}">Return to dashboard</a>
             </aside>
         </section>
     </main>
@@ -139,7 +159,6 @@
     <footer>
         <div class="shell">Carry Ticket Bot &middot; Terms and Conditions</div>
     </footer>
-{% include "_fake_ads.html" %}
-{% include "_bot_status_section.html" %}
+
 </body>
 </html>
