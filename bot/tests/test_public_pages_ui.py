@@ -30,6 +30,13 @@ class PublicPagesLayoutTests(unittest.TestCase):
                 self.assertIn("public-pages.js", text)
                 self.assertIn('id="page-content"', text)
 
+    def test_docs_logo_uses_one_text_flex_item(self):
+        docs = (TEMPLATES / "docs.html").read_text(encoding="utf-8")
+        shared_nav = (TEMPLATES / "_public_navigation.html").read_text(encoding="utf-8")
+        logo = '<span class="stub" aria-hidden="true"></span><span>Carry <span class="brand-gradient">Ticket Bot</span></span>'
+        self.assertIn(logo, docs)
+        self.assertIn(logo, shared_nav)
+
     def test_docs_has_downtime_sidebar_and_content(self):
         docs = (TEMPLATES / "docs.html").read_text(encoding="utf-8")
         self.assertIn('href="#downtime" class="navlink"', docs)
