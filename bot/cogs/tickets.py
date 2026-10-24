@@ -1702,7 +1702,8 @@ class TicketsCog(commands.Cog):
 
     async def _basic_command_check(self, interaction: discord.Interaction) -> bool:
         """Extra guard for the non-dangerous ticket-management commands
-        (/close, /requestclose, /autoclose, /add, /remove, /rename).
+        (/close, /request-close, /requestclose, /start-ticket, /end-ticket,
+        /autoclose, /add, /remove, /rename).
 
         Allowed if EITHER:
         - the user has a role/user ID granted in Access Control's Basic
@@ -1801,9 +1802,14 @@ class TicketsCog(commands.Cog):
             ephemeral=True,
         )
         try:
-            await self.do_close(
+            closed = await self.do_close(
                 interaction.channel, interaction.user, reason or "No reason provided."
             )
+            if not closed:
+                await interaction.followup.send(
+                    "⚠️ This ticket could not be closed. It may be locked or "
+                    "already closing.", ephemeral=True
+                )
         except Exception as e:
             try:
                 await interaction.followup.send(
