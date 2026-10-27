@@ -2,13 +2,23 @@
 
 A running changelog for the **Carry Ticket Bot** Discord commands, ticket system, web dashboard, documentation, and reliability fixes. Newest updates appear first.
 
-**Last updated:** October 24, 2026  
+**Last updated:** October 26, 2026  
 **Most recent merged UI update:** [PR #42 — Public pages, Status, and collapsible settings](https://github.com/sirxpl/ticket-bot/pull/42) (merged to `main` on October 24, 2026)  
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
 
 ---
 
 ## October 2026
+
+### 2026-10-26 — Discord website domain verification
+
+**Status:** Committed to `main`; live Render deployment and Discord's ownership verification are not yet confirmed.
+
+- Added unauthenticated `GET /.well-known/discord` to the existing Flask app in `bot/main.py` for Discord profile Connections → Domain verification.
+- Returns the exact Discord-issued `dh=...` challenge as `text/plain`, without redirects or dashboard sign-in.
+- Added `bot/tests/test_discord_domain_verification.py` to check the HTTP 200 response, exact challenge content, content type, and HEAD support without starting the bot.
+- After Render deploys the new commit, open `https://ticket-bot-f184.onrender.com/.well-known/discord` to confirm the challenge before clicking **Verify** in Discord.
+
 
 ### 2026-10-24 — Downtime documentation, page consistency, and Docs logo correction (PR #43)
 
