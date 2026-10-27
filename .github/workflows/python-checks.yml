@@ -1,0 +1,28 @@
+name: Ticket bot Python checks
+
+on:
+  push:
+    branches:
+      - feature/intents-event-optimization-20261027
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-and-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r bot/requirements.txt
+      - name: Compile bot source
+        run: python -m compileall -q bot
+      - name: Run repository regression tests
+        run: python -m unittest discover -s bot/tests -p 'test_*.py' -v
