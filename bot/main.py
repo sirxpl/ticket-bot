@@ -255,19 +255,16 @@ def _remember_public_origin():
     remember_base_url(current_base_url())
 
 # Discord Bot
+def _privileged_intent_enabled(name: str) -> bool:
+    """Opt-in only after the matching intent is enabled in Discord's portal."""
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 intents = discord.Intents.default()
-# NOTE: message_content and members are privileged intents. This app is now
-# past Discord's "high user count" threshold and can't self-toggle them until
-# the Privileged Intents review is approved - temporarily disabled so the bot
-# can start. Ticket blacklist-role checks still work fine without these (they
-# read interaction.user.roles from the interaction payload, not the member
-# cache). What's degraded: real-time message-content event handlers would not
-# work, and the dashboard's "members blocked by role" preview list is empty.
-# Transcripts use REST history retrieval and continue to include message text.
-# Transcript message data is fetched from the channel-history REST endpoint,
-# so it does not depend on the Message Content gateway intent.
-intents.message_content = False
-intents.members = False
+# These privileged intents default OFF for production and for applications
+# that have not been granted permission in the Discord Developer Portal.
+intents.members = _privileged_intent_enabled("DISCORD_MEMBERS_INTENT")
+intents.message_content = _privileged_intent_enabled("DISCORD_MESSAGE_CONTENT_INTENT")
 class GlobalCommandTree(discord.app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if is_globally_blocked(interaction.user.id):
