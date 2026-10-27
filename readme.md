@@ -64,7 +64,7 @@ To run your own copy of this bot, fork the repository first rather than cloning 
 
    The app builds these URLs from whatever host the request came in on, so `http://localhost:5000/callback` works for local development without any config change.
 
-> **Privileged intents:** this bot runs with **Message Content** and **Server Members** intents both *disabled* by default, and the core ticket/dashboard system doesn't need them. You only need to enable **Message Content** if you want `chat-exporter` to include real message text in saved transcripts — without it, transcripts still generate, just with limited content.
+> **Privileged intents:** both **Message Content** and **Guild Members** remain *disabled by default*. In the Discord Developer Portal, first enable/obtain access to the matching intent, then set `DISCORD_MESSAGE_CONTENT_INTENT=true` and/or `DISCORD_MEMBERS_INTENT=true` in **only the new staging Render service**. Do not enable an unapproved intent: the Discord Gateway can reject the bot login. Guild Members enables an uncached member-departure event, with a 12-hour REST reconciliation in case the bot was offline; if disabled, membership checks continue every ~2 hours. The 12-hour ticket reminder and 24-hour inactivity close still run on a 10-minute schedule. Message Content improves access to message text and attachments in transcripts; Discord also restricts message fields in some REST responses without this intent. **Presence intent is not needed.**
 
 ### 2. Deploy on Render
 
@@ -107,6 +107,8 @@ If you don't want this feature, it's safe to leave unconfigured — nothing else
 | `DISCORD_BOT_TOKEN` | ✅ | Your bot's token from the Developer Portal |
 | `DISCORD_CLIENT_ID` | ✅ | Your application's Client ID (used for OAuth2 and Linked Roles) |
 | `DISCORD_CLIENT_SECRET` | ✅ | Your application's Client Secret |
+| `DISCORD_MEMBERS_INTENT` | Optional | `true` to receive uncached member-leave events; requires Guild Members access in Discord Portal (default `false`) |
+| `DISCORD_MESSAGE_CONTENT_INTENT` | Optional | `true` for message content and attachments; requires Message Content access in Discord Portal (default `false`) |
 | `OAUTH2_REDIRECT_URI` | Optional | Overrides the login callback URL. Auto-derived from the request host, so only set it if the app is reached through a host it can't see (e.g. a rewrite proxy) |
 | `PUBLIC_BASE_URL` | Optional | Forces the public origin (e.g. `https://tickets.example.com`) used for OAuth redirects, transcript links and site links. Auto-detected when unset |
 | `SECRET_KEY` | ✅ | Random string used to sign dashboard session cookies — **set your own**, don't rely on the code's fallback default |

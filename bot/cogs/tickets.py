@@ -1475,6 +1475,10 @@ class TicketsCog(commands.Cog):
         # Keep close operations idempotent while transcript generation and
         # channel deletion are still in progress.
         self._closing_ticket_ids = set()
+        # Prevent the leave event and periodic recovery job racing to close
+        # the same ticket. The do_close guard separately covers all close paths.
+        self._departing_ticket_ids = set()
+        self._last_member_reconciliation_at = 0.0
 
     def get_ticket_view(self):
         return TicketView(self.bot)
@@ -1515,18 +1519,63 @@ class TicketsCog(commands.Cog):
                 f"Failed to update ticket activity for channel={message.channel.id}"
             )
 
-    @tasks.loop(hours=2)
-    async def autoclose_watcher(self):
-        """Every 2 hours: close any ticket whose opener has left the
-        server, ping openers who've gone quiet for 12h with a heads-up,
-        then close tickets that hit 24h of inactivity with nobody having
-        disabled it via /autoclose disable.
+    async def _close_departed_ticket(self, channel):
+        """Close a departed owner's ticket once, preserving do_close's transcript safeguards."""
+        ticket_id = str(channel.id)
+        if ticket_id in self._departing_ticket_ids or ticket_id in self._closing_ticket_ids:
+            return
+        self._departing_ticket_ids.add(ticket_id)
+        try:
+            # A manual or simultaneous close might have removed the record.
+            if not get_active_ticket(ticket_id):
+                return
+            await channel.send(
+                "🔒 This ticket is being automatically closed because "
+                "the person who opened it is no longer in the server."
+            )
+            await self.do_close(
+                channel,
+                self.bot.user,
+                reason="Automatically closed — opener left the server.",
+            )
+        except Exception:
+            logger.exception("Failed to close departed owner's ticket channel=%s", ticket_id)
+        finally:
+            self._departing_ticket_ids.discard(ticket_id)
 
-        The "opener left" check uses a plain REST call (guild.fetch_member)
-        rather than the member-remove gateway event, since this bot runs
-        with the privileged Members intent disabled — see the intents note
-        in main.py. That means a departure is caught on the next loop tick,
-        not instantly, but it needs no privileged intent at all.
+    @commands.Cog.listener()
+    async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent):
+        """Use an uncached gateway leave event when Guild Members intent is enabled."""
+        if not self.bot.intents.members:
+            return
+        user_id = getattr(getattr(payload, "user", None), "id", None)
+        if user_id is None:
+            return
+        try:
+            tickets = list(get_tickets_data().get("active_tickets", []))
+        except Exception:
+            logger.exception("Failed to load tickets on member departure")
+            return
+        for ticket in tickets:
+            if str(ticket.get("user_id")) != str(user_id):
+                continue
+            try:
+                channel = self.bot.get_channel(int(ticket["channel_id"]))
+            except (KeyError, ValueError, TypeError):
+                continue
+            # Ticket channel IDs are globally unique. Match the guild too so
+            # a departure from an unrelated server never closes a ticket.
+            if not channel or getattr(getattr(channel, "guild", None), "id", None) != payload.guild_id:
+                continue
+            await self._close_departed_ticket(channel)
+
+    @tasks.loop(minutes=10)
+    async def autoclose_watcher(self):
+        """Check inactivity deadlines every 10m; separately reconcile missed departures.
+
+        With Guild Members intent: departures close via on_raw_member_remove;
+        verify membership every 12h to catch events missed while offline.
+        Without it: retain the REST membership check about every 2h.
         """
         try:
             data = get_tickets_data()
@@ -1535,6 +1584,13 @@ class TicketsCog(commands.Cog):
             return
 
         now = time.time()
+        membership_interval = 12 * 3600 if self.bot.intents.members else 2 * 3600
+        reconcile_members = (
+            now - self._last_member_reconciliation_at >= membership_interval
+        )
+        if reconcile_members:
+            self._last_member_reconciliation_at = now
+
         if AUTOCLOSE_TEST_MODE:
             REMINDER_AFTER = 30            # 30 seconds
             CLOSE_AFTER = 60                # 1 minute
@@ -1551,45 +1607,31 @@ class TicketsCog(commands.Cog):
                 continue
             guild = channel.guild
 
-            # --- opener left the server? close regardless of autoclose ---
-            # settings, since there's no point keeping the ticket open once
-            # the person it belongs to is gone.
-            try:
-                member = guild.get_member(int(user_id))
-                if member is None:
-                    # Members intent is disabled, so uncached members require
-                    # a REST lookup. Pace those lookups so a large ticket
-                    # list cannot create a request burst.
-                    try:
-                        await guild.fetch_member(int(user_id))
-                    except discord.NotFound:
+            # Event-driven departures are immediate when Guild Members is on.
+            # A periodic REST reconciliation still handles offline/missed events.
+            if reconcile_members:
+                try:
+                    member = guild.get_member(int(user_id))
+                    if member is None:
                         try:
-                            await channel.send(
-                                "🔒 This ticket is being automatically closed "
-                                "because the person who opened it is no longer "
-                                "in the server."
+                            await guild.fetch_member(int(user_id))
+                        except discord.NotFound:
+                            await self._close_departed_ticket(channel)
+                            continue
+                        except discord.HTTPException:
+                            # An API failure is not evidence that the user left.
+                            logger.warning(
+                                "Could not verify membership for ticket channel=%s",
+                                channel_id,
                             )
-                            await self.do_close(
-                                channel,
-                                self.bot.user,
-                                reason="Automatically closed — opener left the server.",
-                            )
-                        except Exception:
-                            logger.exception(
-                                f"autoclose_watcher: failed to close channel={channel_id} after opener left"
-                            )
-                        continue
-                    except discord.HTTPException:
-                        # transient API issue — don't assume they left, just
-                        # skip the rest of this tick's checks for this ticket
-                        pass
-                    finally:
-                        # Keep REST lookups sequential and deliberately paced.
-                        await asyncio.sleep(1.2)
-            except Exception:
-                logger.exception(
-                    f"autoclose_watcher: membership check failed for channel={channel_id}"
-                )
+                        finally:
+                            # Pace checks even with privileged intents enabled.
+                            await asyncio.sleep(1.2)
+                except Exception:
+                    logger.exception(
+                        "autoclose_watcher: membership check failed for channel=%s",
+                        channel_id,
+                    )
 
             if ticket.get("autoclose_disabled"):
                 continue

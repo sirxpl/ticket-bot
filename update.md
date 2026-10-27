@@ -2,13 +2,24 @@
 
 A running changelog for the **Carry Ticket Bot** Discord commands, ticket system, web dashboard, documentation, and reliability fixes. Newest updates appear first.
 
-**Last updated:** October 26, 2026  
-**Most recent merged UI update:** [PR #42 — Public pages, Status, and collapsible settings](https://github.com/sirxpl/ticket-bot/pull/42) (merged to `main` on October 24, 2026)  
+**Last updated:** October 27, 2026  
+**Most recent merged UI update:** [PR #43 — Docs downtime guide and page consistency](https://github.com/sirxpl/ticket-bot/pull/43) (merged to `main` on October 24, 2026)  
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
 
 ---
 
 ## October 2026
+
+### 2026-10-27 — Optional privileged intents and event-driven ticket departure checks (staging PR)
+
+**Status:** Proposed for the new staging bot; do not merge or deploy to the existing production bot before tests.
+
+- Added opt-in `DISCORD_MEMBERS_INTENT` and `DISCORD_MESSAGE_CONTENT_INTENT` environment variables, **both disabled by default** to avoid breaking old applications without privileged-intent approval.
+- Use `on_raw_member_remove` to close the departed member's active ticket immediately when Guild Members intent is available; match both user and server IDs.
+- Preserve transcript-first `do_close` safety, prevent overlapping departure closes, and keep REST membership reconciliation every 12 hours (every 2 hours when Guild Members intent is disabled).
+- Run 12-hour reminder and 24-hour inactivity checks every 10 minutes rather than every 2 hours; preserve `/autoclose disable`.
+- Keep scheduled warning expiration, trial updates, carry-application workers, watchdog, offline schedule, and status checks; they are not replaced by privileged intents.
+- Tests and real Render/Discord verification are required before rollout: unauthorized intents can cause Gateway close 4014, and the old and new bots must not share a writable MongoDB production database.
 
 ### 2026-10-26 — Discord website domain verification
 
@@ -22,7 +33,7 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 
 ### 2026-10-24 — Downtime documentation, page consistency, and Docs logo correction (PR #43)
 
-**Status:** Changes committed to [PR #43](https://github.com/sirxpl/ticket-bot/pull/43), which is **open and not yet merged**. They are not verified on the live website.
+**Status:** Changes committed to [PR #43](https://github.com/sirxpl/ticket-bot/pull/43), which was **merged** on October 24, 2026. Live deployment and browser verification remain unconfirmed.
 
 - **Missing Docs guide:** Added **Downtime & Offline Schedule** to the `/docs` sidebar, top navigation, and Quick Reference, with a new clock icon and dedicated guide at `/docs#downtime`.
 - **Documentation content:** Explains the weekly offline schedule, configured timezone, windows spanning midnight, staff-only configuration in Access Control, and the difference between scheduled downtime, service outages, and Discord API rate limits.
