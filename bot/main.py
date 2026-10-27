@@ -180,6 +180,16 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 # builds http:// URLs for an https:// site and Discord rejects the redirect.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
+# Discord profile Connections → Domain ownership verification.
+# This must be publicly readable at the exact URL, with no login or HTML.
+@app.get("/.well-known/discord")
+def discord_domain_verification():
+    return Response(
+        "dh=8a09c229f65a33f53c04b2cf31a4e98f48d2f317",
+        mimetype="text/plain",
+    )
+
+
 
 _BOT_STATUS_SECTION_HTML = """<section class="ctb-status-section" aria-label="Bot status and downtime">
   <div class="ctb-status-copy">
