@@ -151,6 +151,9 @@ from utils.carry_applications import (
     submit_application,
 )
 
+from utils.transcripts import render_preview_transcript, theme_saved_transcript
+
+
 # Environment & OAuth Setup
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN")
@@ -1958,14 +1961,14 @@ def get_transcript(filename):
         html = get_transcript_html(filename)
         if html is None:
             abort(404)
-        return Response(html, mimetype="text/html")
+        return Response(theme_saved_transcript(html), mimetype="text/html")
 
     return _serve()
 
 
 @app.route("/preview/transcript")
 def preview_transcript():
-    return render_template("preview_transcript.html")
+    return Response(render_preview_transcript(back_url=url_for("home", page="transcripts")), mimetype="text/html")
 
 
 @app.route("/tickets/logs")
@@ -3221,3 +3224,4 @@ if __name__ == "__main__":
         run_bot_with_cooldown()
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
+

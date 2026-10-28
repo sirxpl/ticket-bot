@@ -1,0 +1,86 @@
+{% macro icon(name) -%}<svg class="tr-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#tr-{{ name }}"/></svg>{%- endmacro %}
+<!doctype html>
+<html lang="en" data-transcript-theme="liquid-glass">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>{% if preview %}Sample transcript{% else %}Transcript{% endif %} · {{ channel_name }}</title>
+    <style>{{ transcript_css|safe }}</style>
+</head>
+<body class="transcript-page">
+<svg class="tr-symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="tr-archive" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="5" rx="2"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/></symbol>
+    <symbol id="tr-arrow" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6M8 12h12"/></symbol>
+    <symbol id="tr-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></symbol>
+    <symbol id="tr-print" viewBox="0 0 24 24"><path d="M7 8V3h10v5M7 17H4V9h16v8h-3M7 14h10v7H7zM17 11h.01"/></symbol>
+    <symbol id="tr-message" viewBox="0 0 24 24"><path d="M4 4h16v12H9l-5 4zM8 8h8M8 12h5"/></symbol>
+    <symbol id="tr-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 5"/></symbol>
+    <symbol id="tr-clip" viewBox="0 0 24 24"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/></symbol>
+    <symbol id="tr-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="tr-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+</defs></svg>
+<div class="tr-background" aria-hidden="true"></div>
+<header class="tr-topbar">
+    <div class="tr-topbar-inner">
+        <span class="tr-brand"><span class="tr-brand-mark">{{ icon('archive') }}</span>Carry <span class="tr-brand-muted">Ticket Bot</span></span>
+        <span class="tr-topbar-caption">Conversation archive</span>
+        {% if back_url %}<a class="tr-button tr-button-quiet" href="{{ back_url }}">{{ icon('arrow') }}<span>Back to transcripts</span></a>{% endif %}
+    </div>
+</header>
+<main class="tr-layout">
+    <section class="tr-hero tr-glass" aria-labelledby="tr-title">
+        <div class="tr-hero-top"><span class="tr-eyebrow">{% if preview %}Fictional sample{% else %}Saved transcript{% endif %}</span><span class="tr-status">{{ icon('check') }}Closed</span></div>
+        <h1 id="tr-title">{% if ticket_meta.ticket_number %}Ticket <span>#{{ ticket_meta.ticket_number }}</span>{% else %}{{ channel_name }}{% endif %}</h1>
+        <p class="tr-channel"># {{ channel_name }}</p>
+        <div class="tr-hero-bottom">
+            <div class="tr-details"><span>Opened by <strong>{{ creator.name or 'Unknown member' }}</strong></span>{% for key, label in [('timezone', 'Time zone'), ('display_name', 'Display name'), ('can_join', 'Can join')] %}{% if fields.get(key) %}<span>{{ label }} <strong>{{ fields[key] }}</strong></span>{% endif %}{% endfor %}</div>
+            <div class="tr-actions"><a class="tr-button" href="" download="{{ filename }}">{{ icon('download') }}Download HTML</a><button class="tr-button tr-print-button" type="button" hidden>{{ icon('print') }}Print</button></div>
+        </div>
+    </section>
+    {% if preview %}<div class="tr-notice" role="note">This is a fictional conversation for previewing transcripts. The sample attachment is illustrative.</div>{% endif %}
+    {% if omitted_messages %}<div class="tr-notice tr-notice-warning" role="note">This transcript includes the latest {{ '{:,}'.format(messages|length) }} messages. Older messages were omitted to protect API usage.</div>{% endif %}
+    <div class="tr-stats" aria-label="Conversation summary">
+        <div class="tr-stat tr-glass">{{ icon('message') }}<div><strong>{{ '{:,}'.format(messages|length) }}</strong><span>Messages</span></div></div>
+        <div class="tr-stat tr-glass">{{ icon('users') }}<div><strong>{{ participant_count }}</strong><span>Participants</span></div></div>
+        <div class="tr-stat tr-glass">{{ icon('clip') }}<div><strong>{{ attachment_count }}</strong><span>Attachments</span></div></div>
+    </div>
+    <section class="tr-conversation tr-glass" aria-label="Ticket conversation">
+        <div class="tr-conversation-head"><div><h2>Conversation</h2><p>Every message, in order.</p></div><span class="tr-count" data-tr-count aria-live="polite">{{ messages|length }} messages</span></div>
+        <div class="tr-search" role="search" hidden>{{ icon('search') }}<input type="search" id="tr-message-search" aria-label="Search messages or people" placeholder="Search messages or people…" autocomplete="off"></div>
+        <div class="tr-feed" id="tr-feed">
+        {% for message in messages %}
+            {% if message.day_start %}<div class="tr-day"><span>{{ message.time.day }}</span></div>{% endif %}
+            <article class="tr-message" id="message-{{ message.number }}" data-tr-message>
+                <div class="tr-avatar {{ 'tr-avatar-bot' if message.is_bot else '' }}" aria-hidden="true"><span>{{ message.initials }}</span>{% if message.avatar_url %}<img src="{{ message.avatar_url }}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% endif %}</div>
+                <div class="tr-message-body">
+                    <div class="tr-message-meta"><strong title="{{ message.author_id or '' }}">{{ message.author_name }}</strong>{% if message.is_bot %}<span class="tr-bot-badge">APP</span>{% endif %}<a class="tr-message-time" href="#message-{{ message.number }}" aria-label="Message {{ message.number }} at {{ message.time.full }}"><time datetime="{{ message.time.iso }}" title="{{ message.time.full }}">{{ message.time.label }}</time></a></div>
+                    {% if message.content %}<div class="tr-content">{{ message.content }}</div>{% endif %}
+                    {% for attachment in message.attachments %}
+                        {% if attachment.is_image and attachment.url %}<a class="tr-image-link" href="{{ attachment.url }}" target="_blank" rel="noopener noreferrer"><img class="tr-attachment-image" src="{{ attachment.url }}" alt="{{ attachment.filename or 'Image attachment' }}" loading="lazy" decoding="async"></a>
+                        {% else %}<div class="tr-file">{{ icon('clip') }}<div>{% if attachment.url %}<a href="{{ attachment.url }}" target="_blank" rel="noopener noreferrer">{{ attachment.filename or 'Download attachment' }}</a>{% else %}<strong>{{ attachment.filename or 'Attachment' }}</strong>{% endif %}<span>{{ 'Sample attachment' if preview and not attachment.url else 'File attachment' }}</span></div>{% if attachment.url %}<span aria-hidden="true">↗</span>{% endif %}</div>{% endif %}
+                    {% endfor %}
+                    {% for embed in message.embeds %}
+                    <div class="tr-embed" style="--embed-color:{{ embed.color_hex }}">
+                        {% if embed.thumbnail_url %}<img class="tr-embed-thumb" src="{{ embed.thumbnail_url }}" alt="" loading="lazy">{% endif %}
+                        {% if embed.author_name %}<div class="tr-embed-author">{% if embed.author_icon %}<img src="{{ embed.author_icon }}" alt="" loading="lazy">{% endif %}{{ embed.author_name }}</div>{% endif %}
+                        {% if embed.title %}<div class="tr-embed-title">{% if embed.url %}<a href="{{ embed.url }}" target="_blank" rel="noopener noreferrer">{{ embed.title }}</a>{% else %}{{ embed.title }}{% endif %}</div>{% endif %}
+                        {% if embed.description %}<div class="tr-embed-description">{{ embed.description }}</div>{% endif %}
+                        {% if embed.fields %}<div class="tr-embed-fields">{% for field in embed.fields %}<div class="tr-embed-field {{ 'tr-embed-field-full' if not field.inline else '' }}"><strong>{{ field.name }}</strong><span>{{ field.value }}</span></div>{% endfor %}</div>{% endif %}
+                        {% if embed.image_url %}<img class="tr-embed-image" src="{{ embed.image_url }}" alt="Embed image" loading="lazy">{% endif %}
+                        {% if embed.footer_text %}<div class="tr-embed-footer">{% if embed.footer_icon %}<img src="{{ embed.footer_icon }}" alt="" loading="lazy">{% endif %}{{ embed.footer_text }}</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                    {% for row in message.components %}<div class="tr-components" aria-label="Archived message controls">{% for button in row %}{% if button.style == 'link' and button.url %}<a class="tr-archived-control" href="{{ button.url }}" target="_blank" rel="noopener noreferrer">{{ button.emoji or '' }} {{ button.label or 'Open link' }} ↗</a>{% else %}<span class="tr-archived-control tr-control-{{ button.style }}" aria-disabled="true">{{ button.emoji or '' }} {{ button.label or 'Archived button' }}</span>{% endif %}{% endfor %}</div>{% endfor %}
+                </div>
+            </article>
+        {% else %}<div class="tr-empty">{{ icon('message') }}<h3>No messages captured</h3><p>This transcript has no saved messages.</p></div>{% endfor %}
+        </div>
+        <div class="tr-empty tr-search-empty" hidden><h3>No matching messages</h3><p>Try another name or phrase.</p></div>
+        <div class="tr-end"><span></span>{{ icon('check') }}End of conversation<span></span></div>
+    </section>
+    <footer class="tr-footer"><span>Carry Ticket Bot <span aria-hidden="true">·</span> Conversation archive</span><span>Generated <time datetime="{{ generated_at.iso }}">{{ generated_at.full }}</time></span></footer>
+</main>
+<script>{{ transcript_script|safe }}</script>
+</body>
+</html>
