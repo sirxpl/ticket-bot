@@ -13,6 +13,8 @@ from utils.access import (
 from utils.carry_applications import (
     decide_application,
     get_application,
+    get_application_config,
+    get_application_cooldown_end,
     get_pending_review_applications,
     get_queued_application_notifications,
     update_application_notification,
@@ -228,6 +230,7 @@ class ApplicationReviewView(discord.ui.LayoutView):
 
     async def finish_decision(self, interaction, verdict, reason):
         try:
+            application_config = get_application_config()
             application = decide_application(
                 self.application_id,
                 verdict,
@@ -264,13 +267,22 @@ class ApplicationReviewView(discord.ui.LayoutView):
                     "has been assigned automatically."
                 )
             else:
-                available_at = datetime.datetime.fromisoformat(
-                    application["decided_at"]
-                ) + datetime.timedelta(days=14)
+                available_at = get_application_cooldown_end(application, application_config)
                 description = (
                     "Your Carry Service Team application was not accepted. "
-                    f"You may apply again after **{discord.utils.format_dt(available_at, 'F')}**."
                 )
+                if application_config["denial_cooldown_days"] == 0:
+                    description += "\n\n**Next application:** No cooldown."
+                else:
+                    description += (
+                        f"\n\n**Next application:** {discord.utils.format_dt(available_at, 'R')}"
+                        f"\n**Eligible after:** {discord.utils.format_dt(available_at, 'F')}"
+                    )
+                if not application_config["accepting_responses"]:
+                    description += "\nResponses are currently closed; applications must reopen before you can apply again."
+            portal_url = get_dashboard_base_url()
+            if portal_url:
+                description += f"\n\n[Check your current application status]({portal_url}/carry-application)"
             result_view = discord.ui.LayoutView(timeout=None)
             result_container = discord.ui.Container(
                 accent_color=(
@@ -648,3 +660,4 @@ class CarryApplicationsCog(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(CarryApplicationsCog(bot))
+

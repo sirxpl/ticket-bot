@@ -2,13 +2,25 @@
 
 A running changelog for the **Carry Ticket Bot** Discord commands, ticket system, web dashboard, documentation, and reliability fixes. Newest updates appear first.
 
-**Last updated:** October 27, 2026  
+**Last updated:** October 28, 2026
+
 **Most recent merged UI update:** [PR #43 — Docs downtime guide and page consistency](https://github.com/sirxpl/ticket-bot/pull/43) (merged to `main` on October 24, 2026)  
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
 
 ---
 
 ## October 2026
+
+### 2026-10-28 — Carry Team Application management
+
+**Status:** Implemented for review; live Render and Discord verification remains pending.
+
+- Added **Carry Team Application** at `/dashboard/carry-applications` for admins and explicitly configured Carry Manager roles with dashboard access.
+- Added an accepting-responses switch and configurable 0–365 day denial cooldown (open / 14 days by default), stored through the existing MongoDB configuration. Closed responses are enforced on every application route and at submission storage.
+- Added applicant pending/accepted/closed status pages and a live **Next application in** denial countdown; denial DMs use the configured policy and a Discord relative timestamp.
+- Added status filters, 25-record pagination, and selected acceptance removal / denial cooldown clearing. Acceptance removal retains staff history and allows reapplication; cooldown clearing keeps the original denial and records the manager/time.
+- Settings changes update existing denied deadlines; cleared cooldowns remain cleared. Pending applications are protected from these management actions.
+- Added local-file and MongoDB-model policy tests, Flask permission/submission tests, and configurable DM timestamp checks. No additional Render environment variables are needed.
 
 ### 2026-10-27 — Optional privileged intents and event-driven ticket departure checks (staging PR)
 
@@ -199,3 +211,4 @@ These are ideas, **not** features claimed to exist in the current bot:
 ## Keeping this file current
 
 Add new dated sections **above** the older history. Separate shipped or merged changes from proposed work, and avoid marking features as live until deployment and smoke tests confirm they work. Describe any commands, configuration migrations, permission changes, and known limitations that server administrators need to know.
+

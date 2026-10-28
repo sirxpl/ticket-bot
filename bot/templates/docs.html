@@ -299,11 +299,15 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
         <tr><td>Blacklists</td><td>Blocked users and blacklist roles</td></tr>
         <tr><td>Warnings</td><td>Moderation warning records</td></tr>
         <tr><td>Carry Manager Settings</td><td>Ticket categories, messages, Components V2 panel builder and admin-only Ad Gag editor</td></tr>
+        <tr><td>Carry Team Application</td><td>Carry managers: open/close responses, adjust denial cooldowns, remove selected acceptances, and clear denied cooldowns</td></tr>
         <tr><td>Trial Schedules</td><td>Schedule configuration</td></tr>
         <tr><td>Warning Builder</td><td>Warning presets and messages</td></tr>
         <tr><td>Access Control</td><td>Staff permissions, administrative IDs and logging</td></tr>
       </table>
-      <div class="callout">Discord authentication is required for protected sections; admin-only pages are validated on the server.</div>
+      <div class="callout">Discord authentication is required for protected sections; admin-only pages are validated on the server. Carry Team Application requires an admin or an explicitly configured Carry Manager role, plus dashboard access.</div>
+      <h3 class="sub-h">Carry Team Application</h3>
+      <p class="body-p">At <code>/dashboard/carry-applications</code>, carry managers can pause responses and set the denial cooldown from 0 to 365 days (14 by default). Cooldown changes apply to existing denials from their decision time. Applicants see pending, accepted, denied with a live countdown, or closed status at <a href="{{ url_for('carry_application') }}">the application portal</a>.</p>
+      <p class="body-p">Select accepted applications to remove their acceptance and allow reapplication while retaining staff history. Select denied applications to clear their cooldown. Cleared cooldowns remain cleared after policy changes; closing responses still prevents new submissions. Review roles and Bot/Webhook delivery remain in Access Control.</p>
     </section>
 
     <!-- CATEGORIES -->
@@ -569,3 +573,4 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
 
 </body>
 </html>
+

@@ -35,7 +35,8 @@ To run your own copy of this bot, fork the repository first rather than cloning 
 - **Blacklist system** — block specific users or entire roles from opening tickets, with a separate "Voidcore" role-based blacklist type that restricts specific ticket categories instead of everything
 - **Tiered Access Control** — three independent permission tiers (Basic, Powerful, Dangerous commands) each with their own role/user allow-list, on top of Discord's own Manage Channels permission
 - **Web dashboard** — manage categories, panels, blacklists, transcripts, and access control from a browser; login is gated by Discord OAuth2
-- **Carry Team applications** — a Discord OAuth2-gated application portal with required rules agreement, staff review links, role-restricted Accept/Deny verdicts, DM notifications, and a 14-day reapply cooldown after denial
+- **Carry Team applications** — a Discord OAuth2-gated application portal with required rules agreement, staff review links, role-restricted Accept/Deny verdicts, DM notifications, and a configurable reapply cooldown after denial (14 days by default)
+- **Carry Team Application management** — carry managers can open/close responses, adjust the denial cooldown, remove selected acceptances, and clear selected denied cooldowns; applicants see their current status and a live reapplication countdown
 - **Application notifications** — choose bot delivery or a Discord webhook in Access Control; webhook delivery also creates a bot-owned review card so verdict buttons continue working
 - **Linked Roles verification** — optional Discord Connections integration so members can verify they've agreed to your rules without the bot needing any privileged intents
 - **MongoDB-backed persistence** — falls back to local JSON automatically if no database is configured, so it still works out of the box
@@ -132,7 +133,16 @@ Carry Team application responses, verdicts, notification retry state, and denial
 
 The public application portal is available at `/carry-application`. Applicants must authorize with Discord, belong to the bot's connected Carry server, agree to the application rules, and complete every required question. Staff review the complete response through an authenticated link.
 
-In **Dashboard → Access Control**, add the role(s) allowed to decide applications and choose Bot or Webhook notifications. Bot mode posts an interactive review card. Webhook mode posts the result through the saved webhook and adds a separate bot-owned review card. Applicants receive a Components V2 DM confirming submission, then another Components V2 DM with the Accept or Deny result and staff reason. Accept and Deny both require a reason; review controls are disabled after a verdict, and the application remains visible. Denied applicants can reapply 14 days after the recorded verdict. The application system does not assign team roles.
+In **Dashboard → Access Control**, add the role(s) allowed to decide applications and choose Bot or Webhook notifications. Bot mode posts an interactive review card. Webhook mode posts the result through the saved webhook and adds a separate bot-owned review card. Applicants receive a Components V2 DM confirming submission, then another Components V2 DM with the Accept or Deny result and staff reason. Accept and Deny both require a reason; review controls are disabled after a verdict, and the application remains visible. The application system does not assign team roles.
+
+**Dashboard → Carry Team Application** (`/dashboard/carry-applications`) is available to admins and members with an explicitly configured **Carry Manager** role who also have dashboard access. An empty Carry Manager role list grants application management to admins only. Configure these roles in Access Control; application-verdict roles remain separate.
+
+- **Accept responses:** open by default. Closing responses prevents new submissions, including from forms already open, while staff can continue reviewing pending applications.
+- **Denied application cooldown:** a whole number from **0–365 days**, default **14**. It runs from the staff denial time. Changes affect existing denied applications immediately; **0** allows immediate reapplication when responses are open.
+- **Applicant status:** `/carry-application` shows pending review, acceptance, a denial countdown with the eligibility date, or the closed state. Denial DMs include Discord's relative timestamp; the portal shows the current policy if a manager later changes or clears the cooldown.
+- **Selected applications:** filter the paginated list and select accepted applications to remove their acceptance and allow reapplication, or denied applications to clear their cooldown. Removing acceptance archives the record as `removed`, retaining the original response, decision, and manager/time audit. Clearing a cooldown retains the denial and remains cleared after later policy changes. Pending applications are not removed by either action.
+
+The configuration and management changes use the existing `MONGODB_URI`; **no new Render environment variables are required**. MongoDB errors are reported instead of silently reopening responses or storing management changes in temporary local files.
 
 The webhook URL is a secret: it is stored in the bot settings database and is never redisplayed in the dashboard. Anyone with access to that URL can post to its channel, so treat it like a credential.
 
@@ -142,7 +152,7 @@ The webhook URL is a secret: it is stored in the bot settings database and is ne
 
 This bot stores Discord user IDs and role IDs (for blacklists, access control, and ticket records) — in MongoDB if configured, otherwise in local JSON files. Keep in mind:
 
-- Carry Team applications also store the applicant's Discord identity, age range, country/time zone, Roblox username, questionnaire answers, rules-agreement time, and staff verdict/reason. Only users with configured application-verdict access (and admins) can open the full response link.
+- Carry Team applications also store the applicant's Discord identity, age range, country/time zone, Roblox username, questionnaire answers, rules-agreement time, and staff verdict/reason. Admins, configured application reviewers, and authorized carry managers can open the full response link.
 - Never commit real `data/*.json` files, `.env` files, or tokens to a public repository — `.gitignore` already excludes the common ones, but double-check before pushing
 - If you fork this for your own server, review `utils/access.py` and swap out any example IDs left in the code
 - Treat your MongoDB connection string like a password — anyone with it has full read/write access to your stored data
@@ -161,3 +171,4 @@ This bot stores Discord user IDs and role IDs (for blacklists, access control, a
 ## 📄 License
 
 Add your preferred license here (MIT, GPL, etc.) — none is currently specified.
+

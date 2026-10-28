@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Carry Team Application Status</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/carry-applications.css') }}">
+    <script src="{{ url_for('static', filename='js/carry-applications.js') }}" defer></script>
+</head>
+<body class="application-portal" data-application-server-now="{{ server_now }}">
+<main>
+    <a class="application-link" href="{{ url_for('landing') }}">← Carry Ticket Bot</a>
+    <div class="application-portal-card">
+        <p class="application-eyebrow">Carry Team Application</p>
+        {% if state == 'accepted' %}
+            <span class="application-badge application-accepted">Accepted</span>
+            <h1>Your application was accepted</h1>
+            <p>A staff member will contact you about next steps. No role has been assigned automatically.</p>
+        {% elif state == 'pending' %}
+            <span class="application-badge application-pending">Pending review</span>
+            <h1>Your application is under review</h1>
+            <p>Your response was saved. You will receive a Discord DM when staff record a decision.</p>
+        {% elif state == 'cooldown' %}
+            <span class="application-badge application-denied">Denied</span>
+            <h1>Your application was denied</h1>
+            <p>Next application in:</p>
+            <div class="application-countdown" role="timer" data-application-deadline="{{ available_at_ts }}" data-ready-label="{{ 'You can apply again now.' if accepting_responses else 'Cooldown ended. Responses are closed.' }}">{{ remaining_seconds // 86400 }}d {{ (remaining_seconds % 86400) // 3600 }}h {{ (remaining_seconds % 3600) // 60 }}m {{ remaining_seconds % 60 }}s</div>
+            <p>Eligible after <time datetime="{{ available_at.isoformat() }}">{{ available_at.strftime('%Y-%m-%d %H:%M UTC') }}</time>.</p>
+        {% else %}
+            <span class="application-badge application-denied">Responses closed</span>
+            <h1>Applications are closed</h1>
+            <p>The Carry Team is not accepting new responses right now. Please check back later.</p>
+        {% endif %}
+        {% if application and application.decision_reason %}
+        <div class="application-reason"><strong>Staff reason</strong><p>{{ application.decision_reason }}</p></div>
+        {% endif %}
+        {% if not accepting_responses and state != 'closed' %}
+        <p class="application-help">New responses are currently closed.{% if state == 'cooldown' %} You can apply once your cooldown ends and applications reopen.{% endif %}</p>
+        {% endif %}
+        <a class="application-primary-link" href="{{ url_for('carry_application') }}">Check latest application status</a>
+        <p class="application-help">Signed in as {{ user.username }} ({{ user.id }}).</p>
+    </div>
+</main>
+</body>
+</html>

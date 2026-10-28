@@ -1,0 +1,96 @@
+<section class="page active" id="page-carry-applications" data-application-server-now="{{ application_server_now }}">
+    <div class="page-head">
+        <h1>Carry Team Application</h1>
+        <p>Manage responses, reapplication cooldowns, and accepted applications.</p>
+    </div>
+    <div class="card">
+        <div class="application-card-heading">
+            <h3>Application settings</h3>
+            <span class="application-badge {{ 'application-accepted' if application_config.accepting_responses else 'application-denied' }}">{{ 'Accepting responses' if application_config.accepting_responses else 'Responses closed' }}</span>
+        </div>
+        <form method="post" action="{{ url_for('save_carry_application_config_route') }}">
+            <input type="hidden" name="csrf_token" value="{{ application_csrf_token }}">
+            <div class="application-settings-grid">
+                <div>
+                    <label for="application-accepting">Accept responses</label>
+                    <select id="application-accepting" name="accepting_responses" required>
+                        <option value="yes" {% if application_config.accepting_responses %}selected{% endif %}>Open — accept new applications</option>
+                        <option value="no" {% if not application_config.accepting_responses %}selected{% endif %}>Closed — pause new applications</option>
+                    </select>
+                    <p class="application-help">Closing responses also stops submissions from forms that are already open. Pending applications can still be reviewed.</p>
+                </div>
+                <div>
+                    <label for="application-cooldown">Denied application cooldown (days)</label>
+                    <input id="application-cooldown" name="denial_cooldown_days" type="number" min="0" max="365" step="1" value="{{ application_config.denial_cooldown_days }}" required>
+                    <p class="application-help">0 allows immediate reapplication. Changes also update existing denied cooldowns, measured from the denial time. Cleared cooldowns stay cleared.</p>
+                </div>
+            </div>
+            <div class="application-setting-actions">
+                <button type="submit" class="btn-view">Save application settings</button>
+                <a class="application-link" href="{{ url_for('carry_application') }}" target="_blank" rel="noopener">Open application portal ↗</a>
+            </div>
+        </form>
+    </div>
+    <div class="card">
+        <div class="application-card-heading">
+            <h3>Applications</h3>
+            <span class="application-help">{{ application_records.total }} result{{ '' if application_records.total == 1 else 's' }}</span>
+        </div>
+        <form method="get" action="{{ url_for('home', page='carry-applications') }}" class="application-filter">
+            <label for="application-status-filter">Status</label>
+            <select id="application-status-filter" name="application_status">
+                {% for value, label in [('all', 'All applications'), ('pending', 'Pending'), ('accepted', 'Accepted'), ('denied', 'Denied'), ('removed', 'Removed acceptances')] %}
+                <option value="{{ value }}" {% if application_status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn-view">Filter</button>
+        </form>
+        <p class="application-help">Select accepted applications to remove their accepted status and allow reapplication. Staff history is kept. Select denied applications to clear their cooldown.</p>
+        <form method="post" action="{{ url_for('manage_carry_applications_route') }}" data-application-selection>
+            <input type="hidden" name="csrf_token" value="{{ application_csrf_token }}">
+            <input type="hidden" name="application_status" value="{{ application_status }}">
+            <input type="hidden" name="application_page" value="{{ application_records.page }}">
+            <div class="application-table-scroll">
+                <table class="application-table">
+                    <thead><tr>
+                        <th><input type="checkbox" data-application-select-all aria-label="Select all eligible applications on this page"></th>
+                        <th>Applicant</th><th>Status</th><th>Submitted</th><th>Next application</th><th>Response</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for item in application_records['items'] %}
+                        <tr>
+                            <td>{% if item.status == 'accepted' or (item.status == 'denied' and item.cooldown_active) %}<input type="checkbox" name="application_ids" value="{{ item.application_id }}" data-application-status="{{ item.status }}" aria-label="Select application by {{ item.username or item.user_id }}">{% endif %}</td>
+                            <td><strong>{{ item.username or 'Unknown user' }}</strong><br><span class="application-help">{{ item.user_id }}</span></td>
+                            <td><span class="application-badge application-{{ item.status }}">{{ 'Acceptance removed' if item.status == 'removed' else item.status|title }}</span></td>
+                            <td class="application-help">{{ item.submitted_at[:10] }}</td>
+                            <td>
+                            {% if item.status == 'denied' %}
+                                {% if item.cooldown_cleared_at %}<span class="application-help">Cooldown cleared</span>
+                                {% elif item.cooldown_active %}<span data-application-deadline="{{ item.cooldown_end_ts }}" data-ready-label="Cooldown ended">{{ item.cooldown_end_label }}</span>
+                                {% else %}<span class="application-help">Cooldown ended</span>{% endif %}
+                                {% if not application_config.accepting_responses %}<small class="application-help application-block">Responses closed</small>{% endif %}
+                            {% elif item.status == 'accepted' %}<span class="application-help">Accepted; remove to allow reapplication</span>
+                            {% elif item.status == 'pending' %}<span class="application-help">Awaiting review</span>
+                            {% else %}<span class="application-help">{{ 'May apply again' if application_config.accepting_responses else 'Responses closed' }}</span>{% endif %}
+                            </td>
+                            <td><a class="application-link" href="{{ url_for('carry_application_review', application_id=item.application_id) }}">View response</a></td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="6" class="application-empty">No applications match this status.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="application-actions">
+                <span class="application-help" data-application-selection-count aria-live="polite">Select applications above.</span>
+                <button type="submit" name="action" value="remove_accepted" class="btn-danger">Remove selected accepted applications</button>
+                <button type="submit" name="action" value="clear_cooldowns" class="btn-view">Clear selected denied cooldowns</button>
+            </div>
+        </form>
+        <nav class="application-pagination" aria-label="Application pages">
+            {% if application_records.page > 1 %}<a class="application-link" href="{{ url_for('home', page='carry-applications', application_status=application_status, application_page=application_records.page - 1) }}">← Previous</a>{% endif %}
+            <span class="application-help">Page {{ application_records.page }} of {{ application_records.pages }}</span>
+            {% if application_records.page < application_records.pages %}<a class="application-link" href="{{ url_for('home', page='carry-applications', application_status=application_status, application_page=application_records.page + 1) }}">Next →</a>{% endif %}
+        </nav>
+    </div>
+</section>

@@ -696,6 +696,14 @@ def has_carry_manager_access(user_id: str, member_role_ids=None) -> bool:
     return False
 
 
+def has_carry_application_management_access(user_id, member_role_ids=None) -> bool:
+    """Application management requires an admin or an explicitly configured carry-manager role."""
+    if is_admin(user_id):
+        return True
+    return bool({str(role) for role in (member_role_ids or [])}
+                .intersection(str(role) for role in get_carry_manager_role_ids()))
+
+
 def add_transcripts_role(role_id: str) -> bool:
     """Add a role allowed to view the Transcripts page."""
     data = get_access_settings()
@@ -1214,3 +1222,4 @@ def has_moderation_command_access(user_id: str, member_role_ids=None) -> bool:
 
     member_roles = {str(role_id) for role_id in (member_role_ids or [])}
     return bool(member_roles.intersection({str(role_id) for role_id in roles}))
+

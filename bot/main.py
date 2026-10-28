@@ -127,6 +127,7 @@ from utils.access import (
     set_warning_log_channel,
     has_dashboard_access,
     has_carry_manager_access,
+    has_carry_application_management_access,
     has_transcripts_access,
     has_remove_cooldown_access,
     has_analytics_access,
@@ -145,9 +146,14 @@ from utils.access import (
 )
 from utils.carry_applications import (
     ApplicationStateError,
+    check_application_available,
     get_application,
-    get_latest_application_for_user as get_application_for_user,
+    get_application_config,
+    get_application_cooldown_end,
+    get_application_page,
+    manage_applications,
     reset_pending_application_notifications,
+    save_application_config,
     submit_application,
 )
 
@@ -608,6 +614,21 @@ def carry_manager_required(f):
     return decorated_function
 
 
+def carry_application_manager_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = session.get("user")
+        if not user:
+            return redirect(url_for("login"))
+        if is_globally_blocked(user["id"]):
+            abort(403)
+        roles = [] if is_admin(user["id"]) else get_member_role_ids(user["id"])
+        if not has_dashboard_access(user["id"], roles) or not has_carry_application_management_access(user["id"], roles):
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def remove_cooldown_required(f):
     """Like access_required, but also requires Remove Cooldown access
     (either an admin, or a matching role from remove_cooldown_roles)."""
@@ -707,9 +728,35 @@ def _carry_application_user_or_redirect():
     return user, None
 
 
+def _carry_application_state_response(user, error, status_code=200):
+    now = time.time()
+    deadline = error.available_at.timestamp() if error.available_at else None
+    return render_template(
+        "carry_application_status.html", user=user, state=error.code,
+        application=error.application, accepting_responses=error.accepting_responses,
+        available_at=error.available_at, available_at_ts=deadline,
+        server_now=now, remaining_seconds=max(0, int((deadline or now) - now + 0.999)),
+    ), status_code
+
+
+def _carry_application_gate(user):
+    try:
+        check_application_available(user["id"])
+    except ApplicationStateError as error:
+        code = 200 if request.method == "GET" else (429 if error.code == "cooldown" else 409)
+        return _carry_application_state_response(user, error, code)
+    except Exception:
+        app.logger.exception("Could not check Carry application availability")
+        return "Application records are temporarily unavailable. Please try again later.", 503
+    return None
+
+
 @app.route("/carry-application")
 def carry_application():
     user, response = _carry_application_user_or_redirect()
+    if response is not None:
+        return response
+    response = _carry_application_gate(user)
     if response is not None:
         return response
     if session.get("carry_application_rules_user") != str(user["id"]):
@@ -726,6 +773,9 @@ def carry_application():
 @app.route("/carry-application/rules", methods=["POST"])
 def carry_application_accept_rules():
     user, response = _carry_application_user_or_redirect()
+    if response is not None:
+        return response
+    response = _carry_application_gate(user)
     if response is not None:
         return response
     if not _valid_carry_application_csrf():
@@ -749,30 +799,11 @@ def carry_application_form():
     user, response = _carry_application_user_or_redirect()
     if response is not None:
         return response
+    response = _carry_application_gate(user)
+    if response is not None:
+        return response
     if session.get("carry_application_rules_user") != str(user["id"]):
         return redirect(url_for("carry_application"))
-    try:
-        latest = get_application_for_user(user["id"])
-    except Exception:
-        app.logger.exception(
-            "Could not check prior applications for user=%s", user["id"]
-        )
-        return "Application records are temporarily unavailable. Please try again later.", 503
-    if latest:
-        if latest.get("status") == "pending":
-            return "You already have an application awaiting review.", 409
-        if latest.get("status") == "accepted":
-            return "Your application has already been accepted.", 409
-        if latest.get("status") == "denied":
-            available_at = datetime.datetime.fromisoformat(
-                latest["decided_at"]
-            ) + datetime.timedelta(days=14)
-            if datetime.datetime.now(datetime.timezone.utc) < available_at:
-                return (
-                    "Your recent application was denied. You can apply again after "
-                    f"{available_at.strftime('%Y-%m-%d %H:%M UTC')}.",
-                    429,
-                )
     return render_template(
         "carry_application_form.html",
         user=user,
@@ -784,6 +815,9 @@ def carry_application_form():
 @app.route("/carry-application/submit", methods=["POST"])
 def carry_application_submit():
     user, response = _carry_application_user_or_redirect()
+    if response is not None:
+        return response
+    response = _carry_application_gate(user)
     if response is not None:
         return response
     if session.get("carry_application_rules_user") != str(user["id"]):
@@ -841,17 +875,7 @@ def carry_application_submit():
             session.get("carry_application_rules_accepted_at"),
         )
     except ApplicationStateError as error:
-        if error.code == "cooldown" and error.available_at:
-            message = (
-                "Your recent application was denied. You can apply again after "
-                f"{error.available_at.strftime('%Y-%m-%d %H:%M UTC')}."
-            )
-            return message, 429
-        if error.code == "pending":
-            return "You already have an application awaiting review.", 409
-        if error.code == "accepted":
-            return "Your application has already been accepted.", 409
-        raise
+        return _carry_application_state_response(user, error, 429 if error.code == "cooldown" else 409)
     except Exception:
         app.logger.exception("Could not save carry application user=%s", user["id"])
         return "We couldn't save your application because storage is temporarily unavailable. Please try again later.", 503
@@ -886,7 +910,9 @@ def carry_application_review(application_id):
     if is_globally_blocked(user.get("id")):
         return "This Discord account cannot review Carry Team applications.", 403
     role_ids = get_member_role_ids(user.get("id"))
-    if not has_carry_application_verdict_access(user.get("id"), role_ids):
+    manager_access = (has_dashboard_access(user.get("id"), role_ids)
+                      and has_carry_application_management_access(user.get("id"), role_ids))
+    if not (has_carry_application_verdict_access(user.get("id"), role_ids) or manager_access):
         return "You do not have permission to review Carry Team applications.", 403
     try:
         application = get_application(application_id)
@@ -1267,7 +1293,7 @@ def status_page():
     return render_template("status.html", base_url=current_base_url(), **_public_schedule_context())
 
 
-DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "blacklists", "warnings", "carry-settings", "trial-schedules", "warning-builder", "access-control"}
+DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "blacklists", "warnings", "carry-settings", "carry-applications", "trial-schedules", "warning-builder", "access-control"}
 
 
 @app.route("/")
@@ -1410,11 +1436,14 @@ def home(page="overview"):
 
     is_admin_user = is_admin(user_data["id"])
     can_access_carry_settings = has_carry_manager_access(user_data["id"], role_ids)
+    can_manage_carry_applications = has_carry_application_management_access(user_data["id"], role_ids)
     can_access_transcripts = has_transcripts_access(user_data["id"], role_ids)
     can_remove_cooldown = has_remove_cooldown_access(user_data["id"], role_ids)
     can_access_analytics = has_analytics_access(user_data["id"], role_ids)
 
     # Pages are separate URLs: enforce the same restrictions server-side.
+    if page == "carry-applications" and not can_manage_carry_applications:
+        abort(403)
     if page in ("warnings", "warning-builder", "access-control") and not is_admin_user:
         abort(403)
     if page in ("carry-settings", "trial-schedules") and not (is_admin_user and can_access_carry_settings):
@@ -1423,6 +1452,26 @@ def home(page="overview"):
         abort(403)
     if page == "transcripts" and not can_access_transcripts:
         abort(403)
+
+    application_config = None
+    application_records = None
+    application_status = request.args.get("application_status", "all")
+    if application_status not in {"all", "pending", "accepted", "denied", "removed"}:
+        application_status = "all"
+    if page == "carry-applications":
+        try:
+            application_config = get_application_config()
+            application_records = get_application_page(
+                _application_page_number(request.args.get("application_page")), application_status
+            )
+            for item in application_records["items"]:
+                deadline = get_application_cooldown_end(item, application_config)
+                item["cooldown_end_ts"] = deadline.timestamp() if deadline else None
+                item["cooldown_end_label"] = deadline.strftime("%Y-%m-%d %H:%M UTC") if deadline else None
+                item["cooldown_active"] = bool(deadline and deadline.timestamp() > time.time())
+        except Exception:
+            app.logger.exception("Could not load Carry Team Application management")
+            return "Application records are temporarily unavailable. Please try again later.", 503
 
     analytics = None
     analytics_period = 7
@@ -1560,6 +1609,12 @@ def home(page="overview"):
         carry_application_delivery=carry_application_delivery,
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
+        can_manage_carry_applications=can_manage_carry_applications,
+        application_config=application_config,
+        application_records=application_records,
+        application_status=application_status,
+        application_csrf_token=_carry_application_csrf_token() if page == "carry-applications" else None,
+        application_server_now=time.time() if page == "carry-applications" else None,
         can_access_transcripts=can_access_transcripts,
         can_remove_cooldown=can_remove_cooldown,
         can_access_analytics=can_access_analytics,
@@ -1582,6 +1637,62 @@ def home(page="overview"):
         generated_unblock_link=generated_unblock_link,
         active_unblock_links=active_unblock_links,
     )
+
+
+def _application_page_number(value):
+    try:
+        return max(1, int(value))
+    except (ValueError, TypeError):
+        return 1
+
+
+@app.post("/dashboard/carry-applications/settings")
+@carry_application_manager_required
+def save_carry_application_config_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload the application manager and try again.")
+    try:
+        accepting = request.form.get("accepting_responses")
+        if accepting not in {"yes", "no"}:
+            raise ValueError("Choose whether applications accept responses.")
+        days = request.form.get("denial_cooldown_days", "")
+        if not re.fullmatch(r"[0-9]{1,3}", days):
+            raise ValueError("The denial cooldown must be a whole number from 0 to 365 days.")
+        save_application_config(accepting == "yes", int(days))
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Could not save Carry application configuration")
+        flash("Could not save application settings. Please try again.", "danger")
+    else:
+        flash("Carry Team application settings saved.", "success")
+    return redirect(url_for("home", page="carry-applications"))
+
+
+@app.post("/dashboard/carry-applications/manage")
+@carry_application_manager_required
+def manage_carry_applications_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload the application manager and try again.")
+    ids = request.form.getlist("application_ids")
+    action = request.form.get("action")
+    if not ids or len(ids) > 100 or any(not re.fullmatch(r"[a-f0-9]{32}", value) for value in ids):
+        abort(400, "Select valid applications from the list.")
+    if action not in {"remove_accepted", "clear_cooldowns"}:
+        abort(400, "Choose a valid application action.")
+    try:
+        changed = manage_applications(ids, action, session["user"]["id"])
+    except Exception:
+        app.logger.exception("Could not manage selected Carry applications")
+        flash("The selected applications could not be updated. Please try again.", "danger")
+    else:
+        label = "accepted application(s) removed" if action == "remove_accepted" else "denial cooldown(s) cleared"
+        flash(f"{changed} {label}.", "success" if changed else "warning")
+    status = request.form.get("application_status", "all")
+    if status not in {"all", "pending", "accepted", "denied", "removed"}:
+        status = "all"
+    return redirect(url_for("home", page="carry-applications", application_status=status,
+                            application_page=_application_page_number(request.form.get("application_page"))))
 
 
 @app.route("/dashboard/trial-schedule/save", methods=["POST"])
@@ -3221,3 +3332,4 @@ if __name__ == "__main__":
         run_bot_with_cooldown()
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
+

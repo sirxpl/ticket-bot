@@ -1049,6 +1049,10 @@
         }
         .pb-toolbar button:hover{ border-color: var(--accent); }
     </style>
+    {% if active_page == 'carry-applications' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/carry-applications.css') }}">
+    <script src="{{ url_for('static', filename='js/carry-applications.js') }}" defer></script>
+    {% endif %}
 </head>
 <body>
 
@@ -1170,6 +1174,10 @@
 
                     <span class="nav-icon">⚠️</span><span class="nav-text">Warnings</span></a>
                 {% endif %}
+                {% if can_manage_carry_applications %}
+                <a href="{{ url_for('home', page='carry-applications') }}" class="nav-item{{ ' active' if active_page == 'carry-applications' else '' }}" data-page="carry-applications">
+                    <span class="nav-icon">📋</span><span class="nav-text">Carry Team Application</span></a>
+                {% endif %}
             </div>
 
             {% if is_admin_user %}
@@ -1242,6 +1250,8 @@
 {% include 'dashboard_pages/warning_records.html' %}
 {% elif active_page == 'carry-settings' %}
 {% include 'dashboard_pages/carry_settings.html' %}
+{% elif active_page == 'carry-applications' %}
+{% include 'dashboard_pages/carry_applications.html' %}
 {% elif active_page == 'trial-schedules' %}
 {% include 'dashboard_pages/trial_schedules.html' %}
 {% elif active_page == 'warning-builder' %}
@@ -2196,3 +2206,4 @@ async function copyTextById(inputId, button) {
 
 </body>
 </html>
+
