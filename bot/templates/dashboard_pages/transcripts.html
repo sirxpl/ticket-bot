@@ -1,55 +1,34 @@
-<section class="page active" id="page-transcripts">
-        <div class="page-head">
-            <h1>Transcripts</h1>
-            <p>Browse saved logs of closed tickets.</p>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/transcripts.css') }}">
+<section class="page active transcript-index" id="page-transcripts">
+    <div class="tr-index-heading">
+        <div><p class="tr-eyebrow">Conversation archive</p><h1>Transcripts</h1><p class="tr-index-description">Saved conversations from closed tickets.</p></div>
+        {% if can_access_transcripts %}<div class="tr-index-summary"><strong>{{ '{:,}'.format(transcripts_total) }}</strong><span>{{ 'sample archive' if preview_mode else 'saved transcripts' }}</span></div>{% endif %}
+    </div>
+    {% if can_access_transcripts %}
+    <div class="tr-index-panel">
+        <div class="tr-index-toolbar">
+            <div><h2>Your archive</h2><p>{{ 'Explore a fictional ticket conversation.' if preview_mode else 'Find a ticket by number, member, or user ID on this page.' }}</p></div>
+            <div class="tr-index-search"><svg class="tr-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" data-filter-target="transcript-list" placeholder="Search this page…" aria-label="Search transcripts"></div>
         </div>
-        {% if can_access_transcripts %}
-        <div class="card">
-            <h3><span class="card-icon">📜</span> Saved Transcripts</h3>
-            <input type="search" class="table-search" data-filter-target="transcript-list"
-                   placeholder="Search this page by user ID, username, or ticket number..." aria-label="Search transcripts">
-            {% if not preview_mode %}
-            <div class="flash flash-success" style="margin-bottom: 16px;">
-                ✅ Transcripts capture message text through Discord's channel-history API. The Message Content gateway intent is not required; the bot still needs View Channel and Read Message History permissions.
+        {% if preview_mode %}<p class="tr-notice">Preview only. This ticket and its conversation are fictional.</p>{% endif %}
+        <div class="tr-index-list" id="transcript-list">
+            {% for transcript in transcripts %}
+            <div class="tr-index-row searchable-row" data-search="{{ transcript.user_id or '' }} {{ transcript.username or '' }} {{ transcript.ticket_number or '' }} {{ transcript.filename }}">
+                <div class="tr-index-icon" aria-hidden="true"><svg class="tr-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6"/></svg></div>
+                <div class="tr-index-info"><div class="tr-index-title"><strong>{{ 'Ticket #' ~ transcript.ticket_number if transcript.ticket_number else 'Ticket archive' }}</strong><span class="tr-index-closed">Closed</span></div><div class="tr-index-person">{{ transcript.username or 'Unknown member' }}{% if transcript.user_id %}<span>{{ transcript.user_id }}</span>{% endif %}</div></div>
+                <a class="tr-index-open" href="{{ url_for('preview_transcript') if preview_mode else url_for('get_transcript', filename=transcript.filename) }}" target="_blank" rel="noopener noreferrer" aria-label="Open transcript {{ '#' ~ transcript.ticket_number if transcript.ticket_number else transcript.filename }}">Open transcript <svg class="tr-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg></a>
             </div>
-            {% else %}
-            <div class="flash flash-warning">
-                <span>Sample transcript preview — this ticket and message are fictional.</span>
-                <button type="button" class="flash-close" aria-label="Dismiss notification" onclick="dismissNotice(this)">×</button>
-            </div>
-            {% endif %}
-           {% if not preview_mode %}
-           <p class="card-subtitle">Showing up to 50 transcripts per page ({{ transcripts_total }} saved).</p>
-           {% endif %}
-           <div id="transcript-list">
-           {% for transcript in transcripts %}
-                <div class="list-item searchable-row" data-search="{{ transcript.user_id or '' }} {{ transcript.username or '' }} {{ transcript.ticket_number or '' }}">
-                    <div>
-                        <div><strong>Ticket #{{ transcript.ticket_number or '—' }}</strong> • {{ transcript.username }}</div>
-                    </div>
-                    <a href="{% if preview_mode %}{{ url_for('preview_transcript') }}{% else %}/transcripts/{{ transcript.filename }}{% endif %}" target="_blank" class="btn-view">View Transcript</a>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No transcripts saved yet.</p>
-            {% endfor %}
-            <p class="search-empty" style="display:none; color:var(--text-dim);">No transcripts match that search.</p>
-            </div>
-            {% if not preview_mode and transcripts_total_pages > 1 %}
-            <nav aria-label="Transcript pages" style="display:flex;align-items:center;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:20px;">
-                {% if transcripts_page > 1 %}
-                <a class="btn-view" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page - 1) }}">← Previous</a>
-                {% endif %}
-                <span class="card-subtitle">Page {{ transcripts_page }} of {{ transcripts_total_pages }}</span>
-                {% if transcripts_page < transcripts_total_pages %}
-                <a class="btn-view" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page + 1) }}">Next →</a>
-                {% endif %}
-            </nav>
-            {% endif %}
+            {% else %}<div class="tr-empty"><h3>No transcripts yet</h3><p>Closed ticket transcripts will appear here.</p></div>{% endfor %}
+            <div class="search-empty tr-empty" style="display:none"><h3>No matching transcripts</h3><p>Try another ticket number, name, or user ID.</p></div>
         </div>
-        {% else %}
-        <div class="card">
-            <h3>🔒 Restricted</h3>
-            <p style="color: var(--text-dim);">You don't have the required role to view Transcripts. Ask an admin to add your role in Access Control.</p>
-        </div>
-        {% endif %}
-        </section>
+        <nav class="tr-index-pagination" aria-label="Transcript pages">
+            <span>Page {{ transcripts_page }} of {{ transcripts_total_pages }}{% if not preview_mode %} · Up to 50 per page{% endif %}</span>
+            {% if not preview_mode and transcripts_total_pages > 1 %}<div>
+                {% if transcripts_page > 1 %}<a class="tr-index-open" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page - 1) }}">← Previous</a>{% endif %}
+                {% if transcripts_page < transcripts_total_pages %}<a class="tr-index-open" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page + 1) }}">Next →</a>{% endif %}
+            </div>{% endif %}
+        </nav>
+    </div>
+    {% else %}<div class="tr-index-panel"><h2>Transcript access required</h2><p class="tr-index-description">Ask an admin to grant your role access in Access Control.</p></div>{% endif %}
+</section>
+
