@@ -14,7 +14,7 @@
                     <div>
                         <div><strong>{{ entry.username or 'Unknown user' }}</strong> <span style="color:var(--text-dim);">({{ entry.user_id }})</span></div>
                         <div style="color: var(--text-dim); font-size: 0.9em;">
-                            <strong>Type:</strong> {{ (entry.blacklist_type or "regular")|title }} •
+                            <strong>Type:</strong> {{ entry.blacklist_name or (entry.blacklist_type or "regular")|title }} •
                             <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
                             {% if entry.expires_ts %}
                                 • <span class="local-time" data-ts="{{ entry.expires_ts }}">expires {{ entry.expires_ts }}</span>
@@ -23,7 +23,7 @@
                             {% endif %}
                         </div>
                     </div>
-                    <button onclick="unblacklistUser('{{ entry.user_id }}')" class="btn-danger">Unblacklist</button>
+                    {% if is_admin_user %}<button onclick="unblacklistUser('{{ entry.user_id }}')" class="btn-danger">Unblacklist</button>{% endif %}
                 </div>
             {% else %}
                 <p style="color: var(--text-dim);">No individually blacklisted users.</p>
@@ -31,6 +31,7 @@
             <p class="search-empty" style="display:none; color:var(--text-dim);">No blacklisted users match that search.</p>
             </div>
 
+            <p class="card-subtitle">Expired entries remain listed until the bot removes their assigned role. Failed role removals retry every minute; you can also use Unblacklist.</p>
             <h4 style="margin-top: 20px;">Blacklisted via Role</h4>
             <p class="card-subtitle">
                 Members blocked from creating tickets because they hold a Ticket Blacklist Role. Manage the roles themselves in Access Control.
@@ -44,3 +45,4 @@
             {% endfor %}
         </div>
         </section>
+

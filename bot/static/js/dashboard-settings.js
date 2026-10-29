@@ -106,3 +106,27 @@
     const anchor = document.getElementById(location.hash.slice(1));
     if (anchor?.matches('details')) anchor.open = true;
 })();
+
+
+(() => {
+    const form = document.getElementById('blacklist-types-form');
+    if (!form) return;
+    const fields = document.getElementById('blacklist-type-fields');
+    const error = document.getElementById('blacklist-fields-error');
+    document.getElementById('add-blacklist-type').addEventListener('click', () => {
+        if (fields.children.length >= 25) {
+            error.textContent = 'Use at most 25 blacklist types.';
+            error.hidden = false;
+            return;
+        }
+        fields.append(document.getElementById('blacklist-type-template').content.cloneNode(true));
+        fields.lastElementChild.querySelector('input').focus();
+        window.DashboardUnsaved?.refresh();
+    });
+    fields.addEventListener('click', event => {
+        if (!event.target.closest('[data-remove-blacklist-type]')) return;
+        event.target.closest('.blacklist-type-row').remove();
+        error.hidden = true;
+        window.DashboardUnsaved?.refresh();
+    });
+})();

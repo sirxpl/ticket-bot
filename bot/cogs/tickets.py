@@ -9,6 +9,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from utils.components import embed_layout
+from utils import blacklists
+
 from utils.storage import (
     add_active_ticket,
     add_cooldown,
@@ -59,9 +62,6 @@ logger = logging.getLogger("tickets")
 # Set back to False for real 12h/24h behavior once confirmed working.
 AUTOCLOSE_TEST_MODE = False
 
-# Role granted/removed alongside the ticket blacklist when the "voidcore"
-# type is selected on /addticketblacklist and /removeticketblacklist.
-VOIDCORE_BLACKLIST_ROLE_ID = 1535963860203470858
 if not logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter(
@@ -73,7 +73,7 @@ if not logger.handlers:
 
 
 async def send_ticket_log(bot, action, **fields):
-    """Post a ticket-activity embed to the configured Access Control log
+    """Post a Components V2 ticket activity message to the configured Access Control log
     channel, if one is set. Silently does nothing if no channel is configured
     or the bot can't find/post to it."""
     try:
@@ -115,13 +115,13 @@ async def send_ticket_log(bot, action, **fields):
                     name=key.replace("_", " ").title(), value=str(value), inline=True
                 )
 
-        await channel.send(embed=embed)
+        await channel.send(view=embed_layout(embed), allowed_mentions=discord.AllowedMentions.none())
     except Exception:
-        logger.exception(f"Failed to send ticket log embed for action={action}")
+        logger.exception(f"Failed to send ticket log message for action={action}")
 
 
 async def send_blacklist_log(bot, action, **fields):
-    """Post an embed to the separate Blacklist Log Channel (Access Control),
+    """Post Components V2 to the separate Blacklist Log Channel (Access Control),
     used only by /addticketblacklist and /removeticketblacklist — kept apart
     from the general ticket activity log channel above. Silently does
     nothing if no channel is configured or the bot can't post to it."""
@@ -155,9 +155,9 @@ async def send_blacklist_log(bot, action, **fields):
                     name=key.replace("_", " ").title(), value=str(value), inline=True
                 )
 
-        await channel.send(embed=embed)
+        await channel.send(view=embed_layout(embed), allowed_mentions=discord.AllowedMentions.none())
     except Exception:
-        logger.exception(f"Failed to send blacklist log embed for action={action}")
+        logger.exception(f"Failed to send blacklist log message for action={action}")
 
 
 def build_discord_like_transcript(
@@ -219,7 +219,7 @@ class ConfirmView(discord.ui.View):
         self, inter: discord.Interaction, btn: discord.ui.Button
     ):
         await inter.response.edit_message(
-            content="Cancelled.", view=None, ephemeral=True
+            content="Cancelled.", view=None
         )
 
 
@@ -407,19 +407,6 @@ class CloseConfirmView(discord.ui.View):
             )
             return
 
-        settings = get_settings()
-        allowed_category = settings.get("default_category_id")
-        if (
-            allowed_category
-            and interaction.channel.category
-            and str(interaction.channel.category.id) != str(allowed_category)
-        ):
-            await interaction.response.send_message(
-                "❌ This command only works in ticket channels.",
-                ephemeral=True,
-            )
-            return
-
         ticket = get_active_ticket(interaction.channel.id)
         if not ticket:
             await interaction.response.send_message(
@@ -428,7 +415,7 @@ class CloseConfirmView(discord.ui.View):
             return
         if owner_close_locked(ticket, interaction.user.id):
             await interaction.response.send_message(
-                "🔒 Ticket is in progress. Wait for staff to use /end-ticket.",
+                "🔒 This ticket is still ongoing. Staff must use /end-ticket before you can close it.",
                 ephemeral=True,
             )
             return
@@ -445,6 +432,42 @@ class CloseConfirmView(discord.ui.View):
             view=ConfirmView(cog, interaction.channel),
             ephemeral=True,
         )
+
+
+class WelcomeCloseButton(discord.ui.Button):
+    def __init__(self, bot):
+        super().__init__(label="Close Ticket", style=discord.ButtonStyle.danger,
+                         custom_id="ticket_close_btn", emoji="🔒")
+        self.bot = bot
+
+    async def callback(self, interaction):
+        await CloseConfirmView(self.bot).close_button.callback(interaction)
+
+
+def welcome_panel(bot, embed, content=None):
+    view = embed_layout(embed, content=content)
+    view.add_item(discord.ui.TextDisplay("**Status:** Open — you can close this ticket.", id=9001))
+    view.add_item(discord.ui.ActionRow(WelcomeCloseButton(bot)))
+    return view
+
+
+async def refresh_ticket_status(bot, channel, locked):
+    ticket = get_active_ticket(channel.id) or {}
+    message_id = ticket.get("welcome_message_id")
+    if not message_id:
+        return  # Legacy tickets keep their original button and command notices.
+    try:
+        message = await channel.fetch_message(int(message_id))
+        view = discord.ui.LayoutView.from_message(message, timeout=None)
+        for item in view.walk_children():
+            if isinstance(item, discord.ui.TextDisplay) and item.id == 9001:
+                item.content = ("**Status:** Still ongoing — staff must end work before the opener can close."
+                                if locked else "**Status:** Work finished — the Close Ticket button works again.")
+            if isinstance(item, discord.ui.Button) and item.custom_id == "ticket_close_btn":
+                item.callback = CloseConfirmView(bot).close_button.callback
+        await message.edit(view=view, allowed_mentions=discord.AllowedMentions.none())
+    except discord.HTTPException:
+        logger.exception("Could not update main ticket status in channel=%s", channel.id)
 
 
 # --- MAIN TICKET CREATION SELECT MENU ---
@@ -674,35 +697,20 @@ class TicketView(discord.ui.View):
 
         # Modal is constructed below; delay the gate until after modal creation.
 
-        # check blacklist (individually-blacklisted user IDs) — only
-        # "regular" type blocks ALL ticket categories outright. "voidcore"
-        # type intentionally does NOT block here; it instead relies on the
-        # Voidcore role (assigned alongside the blacklist) being set as a
-        # per-category blacklist role on whichever categories should stay
-        # off-limits, so the user can still open other ticket types.
+        # Enforce the saved restriction as well as roles (including assignment failures).
         try:
-            bl = get_blacklist_data()
-            my_entry = next(
-                (
-                    e for e in bl.get("blacklisted_users", [])
-                    if str(e.get("user_id")) == str(interaction.user.id)
-                ),
-                None,
-            )
-            if my_entry and my_entry.get("blacklist_type", "regular") != "voidcore":
-                reason = my_entry.get("reason") or "No reason provided."
-                emb = discord.Embed(
-                    title="❌ You're Blacklisted",
-                    description=f"You cannot create tickets on this panel.\n**Reason:** {reason}",
-                    color=discord.Color.red(),
-                )
-                emb.set_footer(text="Tickety | Tickety.top")
-                await interaction.response.send_message(
-                    embed=emb, ephemeral=True
-                )
+            category = next((item for item in get_ticket_categories() if item.get("label") == selection), None)
+            my_entry = next((entry for entry in get_blacklist_data().get("blacklisted_users", [])
+                             if str(entry.get("user_id")) == str(interaction.user.id)), None)
+            if my_entry and blacklists.blocks(my_entry, category):
+                await interaction.response.send_message(view=ticket_notice(
+                    "🚫 You're Blacklisted", "You cannot create this ticket.\n**Reason:** " +
+                    str(my_entry.get("reason") or "No reason provided."), okay=False), ephemeral=True)
                 return
         except Exception:
-            pass
+            logger.exception("Could not verify ticket blacklist")
+            await interaction.response.send_message("❌ Could not check blacklist status. Please retry shortly.", ephemeral=True)
+            return
 
         # check ticket blacklist roles (set from the dashboard's Access Control page)
         try:
@@ -873,6 +881,18 @@ class TicketView(discord.ui.View):
                 user = self.author
 
                 await modal_interaction.response.defer(ephemeral=True)
+
+                try:
+                    member = guild.get_member(user.id) or await guild.fetch_member(user.id)
+                    category_config = next((row for row in get_ticket_categories() if row.get("label") == self.selection), None)
+                    blocked_reason = blacklists.restriction_reason(member, category_config)
+                except Exception:
+                    logger.exception("Could not recheck blacklist on ticket submission")
+                    await modal_interaction.followup.send("❌ Could not check blacklist status. Please retry shortly.", ephemeral=True)
+                    return
+                if blocked_reason:
+                    await modal_interaction.followup.send(view=ticket_notice("🚫 Ticket Restricted", blocked_reason, okay=False), ephemeral=True)
+                    return
 
                 overwrites = {
                     guild.default_role: discord.PermissionOverwrite(
@@ -1055,14 +1075,12 @@ class TicketView(discord.ui.View):
                             )
 
                         welcome_msg = await ticket_channel.send(
-                            content=render_ticket_template(
-                                welcome_cfg.get("content") or "", **template_vars
-                            )
-                            or None,
-                            embed=embed,
+                            view=welcome_panel(outer_view.bot, embed, render_ticket_template(
+                                welcome_cfg.get("content") or "", **template_vars)),
+                            allowed_mentions=discord.AllowedMentions(users=[user], roles=False, everyone=False),
                         )
                     else:
-                        # Plain-text mode: no embed, just the rendered message
+                        # Render the configured plain message inside the V2 welcome panel
                         plain_parts = [
                             render_ticket_template(
                                 welcome_cfg.get("content") or "{user_mention}",
@@ -1079,7 +1097,11 @@ class TicketView(discord.ui.View):
                             plain_parts.append(f"**TDS Level:** {self.tds_level.value}")
                         if category_cfg and category_cfg.get("open_note"):
                             plain_parts.append(f"**Note:** {category_cfg['open_note']}")
-                        welcome_msg = await ticket_channel.send(content="\n".join(plain_parts))
+                        welcome_msg = await ticket_channel.send(
+                            view=welcome_panel(outer_view.bot, discord.Embed(
+                                title="🎫 Ticket Created", description="\n".join(plain_parts))),
+                            allowed_mentions=discord.AllowedMentions(users=[user], roles=False, everyone=False),
+                        )
 
                     # Pin the welcome message — it's the one place that has
                     # both the "ticket created" info and the opener's
@@ -1104,11 +1126,6 @@ class TicketView(discord.ui.View):
                             f"Unexpected error pinning welcome message in channel={ticket_channel.id}"
                         )
 
-                    # Attach close button view
-                    await ticket_channel.send(
-                        view=CloseConfirmView(outer_view.bot)
-                    )
-
                     # Log creation
                     ticket_id = str(ticket_channel.id)
                     timestamp = datetime.datetime.utcnow().isoformat() + "Z"
@@ -1129,6 +1146,7 @@ class TicketView(discord.ui.View):
                         )
                         update_active_ticket(
                             str(ticket_channel.id),
+                            welcome_message_id=str(welcome_msg.id),
                             category_label=self.selection,
                             category_prefix=prefix,
                             category_number=category_number,
@@ -1302,14 +1320,52 @@ class TicketsCog(commands.Cog):
 
     async def cog_load(self):
         self.autoclose_watcher.start()
+        self.blacklist_expiry_watcher.start()
         self.bot.tree.add_command(toggle_pin_message_context_menu)
 
     def cog_unload(self):
         self.autoclose_watcher.cancel()
+        self.blacklist_expiry_watcher.cancel()
         self.bot.tree.remove_command(
             toggle_pin_message_context_menu.name,
             type=toggle_pin_message_context_menu.type,
         )
+
+    @tasks.loop(minutes=1)
+    async def blacklist_expiry_watcher(self):
+        try:
+            rows = get_blacklist_data(include_expired=True)["blacklisted_users"]
+            for entry in rows:
+                if not entry.get("expires_ts") or float(entry["expires_ts"]) > time.time():
+                    continue
+                try:
+                    guild_id = entry.get("guild_id")
+                    guilds = ([self.bot.get_guild(int(guild_id))] if guild_id else self.bot.guilds)
+                    if not guilds or any(guild is None for guild in guilds):
+                        continue
+                    # Legacy records have no guild; clean their saved role in every connected guild.
+                    for guild in guilds:
+                        try:
+                            member = guild.get_member(int(entry["user_id"])) or await guild.fetch_member(int(entry["user_id"]))
+                        except discord.NotFound:
+                            continue
+                        assigned = blacklists.role_id(entry)
+                        role = guild.get_role(int(assigned)) if assigned else None
+                        if role and any(item.id == role.id for item in member.roles):
+                            await member.remove_roles(role, reason="Timed ticket blacklist expired")
+                    blacklists.remove(entry["user_id"], expected_entry=entry)
+                    append_ticket_log({"ticket_id": "global", "action": "blacklist_removed",
+                        "target": {"id": str(entry["user_id"])}, "reason": "Timed blacklist expired",
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                    await send_blacklist_log(self.bot, "blacklist_removed", user=entry["user_id"], reason="Timed blacklist expired")
+                except Exception:
+                    logger.exception("Could not clean expired blacklist for user=%s", entry.get("user_id"))
+        except Exception:
+            logger.exception("Could not read blacklist expiry data")
+
+    @blacklist_expiry_watcher.before_loop
+    async def before_blacklist_expiry(self):
+        await self.bot.wait_until_ready()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1717,6 +1773,9 @@ class TicketsCog(commands.Cog):
     async def start_ticket_command(self, interaction: discord.Interaction):
         if not await self._basic_command_check(interaction):
             return
+        if str(interaction.channel.id) in getattr(self, "_closing_ticket_ids", set()):
+            await interaction.response.send_message("⚠️ This ticket is already closing.", ephemeral=True)
+            return
         ticket = get_active_ticket(interaction.channel.id)
         if ticket and ticket.get("owner_close_locked"):
             await interaction.response.send_message(
@@ -1746,6 +1805,7 @@ class TicketsCog(commands.Cog):
             "**Authorized staff:** Can still close\n\n"
             "Use /end-ticket to allow the opener to close again.",
         ))
+        await refresh_ticket_status(self.bot, interaction.channel, True)
         append_ticket_log({
             "ticket_id": str(interaction.channel.id),
             "action": "ticket_started",
@@ -1763,6 +1823,9 @@ class TicketsCog(commands.Cog):
     )
     async def end_ticket_command(self, interaction: discord.Interaction):
         if not await self._basic_command_check(interaction):
+            return
+        if str(interaction.channel.id) in getattr(self, "_closing_ticket_ids", set()):
+            await interaction.response.send_message("⚠️ This ticket is already closing.", ephemeral=True)
             return
         ticket = get_active_ticket(interaction.channel.id)
         if not ticket or not ticket.get("owner_close_locked"):
@@ -1791,8 +1854,10 @@ class TicketsCog(commands.Cog):
             f"**Finished by:** {interaction.user.mention}\n"
             "**Ticket opener:** Can close again\n"
             "**Authorized staff:** Can still close\n\n"
+            "Use the existing **Close Ticket** button to close this ticket.\n"
             "Old close requests expire. Staff may send a new /request-close.",
         ))
+        await refresh_ticket_status(self.bot, interaction.channel, False)
         append_ticket_log({
             "ticket_id": str(interaction.channel.id),
             "action": "ticket_finished",
@@ -1928,184 +1993,97 @@ class TicketsCog(commands.Cog):
                 f"❌ Failed to remove user: {e}", ephemeral=True
             )
 
-    # Slash Command: /addticketblacklist — admin-only, dangerous: blocks a
-    # user from creating tickets, permanently or for a set duration
-    @app_commands.command(
-        name="addticketblacklist",
-        description="[Dangerous] Block a user from creating tickets",
-    )
-    @app_commands.describe(
-        user="The member to blacklist from creating tickets",
-        reason="Why this user is being blacklisted (required)",
-        blacklist_type="Voidcore also assigns the Voidcore blacklist role; Regular does not",
-        duration_hours="Optional: hours until this expires (leave blank for permanent)",
-    )
+    @app_commands.command(name="addticketblacklist", description="Block a user using a configured blacklist type")
+    @app_commands.describe(user="Member to blacklist", blacklist_type="Choose a blacklist from Access Control",
+                           reason="Override the configured default reason", duration_hours="Hours until expiry; omit for permanent")
     @app_commands.default_permissions(administrator=True)
-    async def add_ticket_blacklist_command(
-        self,
-        interaction: discord.Interaction,
-        user: discord.Member,
-        reason: str,
-        blacklist_type: Literal["voidcore", "regular"],
-        duration_hours: float = None,
-    ):
+    async def add_ticket_blacklist_command(self, interaction: discord.Interaction, user: discord.Member,
+                                           blacklist_type: str, reason: str = None, duration_hours: float = None):
         if not await self._dangerous_command_check(interaction):
             return
-
-        if duration_hours is not None and duration_hours <= 0:
-            await interaction.response.send_message(
-                "❌ Duration must be a positive number of hours, or left blank for permanent.",
-                ephemeral=True,
-            )
+        profile = next((item for item in blacklists.get_types() if item["id"] == blacklist_type), None)
+        if not profile:
+            await interaction.response.send_message("❌ Choose an existing blacklist type from Access Control.", ephemeral=True)
             return
-
-        add_to_blacklist(
-            str(user.id),
-            reason=reason,
-            added_by=str(interaction.user),
-            hours=duration_hours,
-            blacklist_type=blacklist_type,
-        )
-
-        role_note = ""
-        if blacklist_type == "voidcore":
-            role = interaction.guild.get_role(VOIDCORE_BLACKLIST_ROLE_ID)
-            if role:
-                try:
-                    await user.add_roles(
-                        role, reason=f"Voidcore ticket blacklist by {interaction.user}"
-                    )
-                except Exception:
-                    logger.exception(
-                        f"Failed to add Voidcore blacklist role to user={user.id}"
-                    )
-                    role_note = "\n⚠️ Couldn't assign the Voidcore role — check the bot's role position/permissions."
-            else:
-                role_note = "\n⚠️ Voidcore role not found in this server."
-
+        reason = (reason or profile["reason"]).strip()
+        if not reason or len(reason) > 1000:
+            await interaction.response.send_message("❌ Supply a reason of up to 1000 characters.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
         try:
-            append_ticket_log({
-                "ticket_id": "global",
-                "action": "blacklist_added",
-                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-                "target": {"id": str(user.id), "name": str(user)},
-                "executor": {
-                    "id": str(interaction.user.id),
-                    "name": str(interaction.user),
-                },
-                "reason": reason,
-                "duration_hours": duration_hours,
-                "blacklist_type": blacklist_type,
-            })
+            add_to_blacklist(str(user.id), reason=reason, added_by=str(interaction.user), hours=duration_hours,
+                             blacklist_type=blacklist_type, role_id=profile["role_id"],
+                             blacklist_name=profile["name"], block_all=profile["block_all"], guild_id=str(interaction.guild.id))
+        except (ValueError, RuntimeError) as error:
+            await interaction.followup.send(str(error), ephemeral=True)
+            return
         except Exception:
-            pass
+            logger.exception("Could not persist blacklist")
+            await interaction.followup.send("❌ Could not save the blacklist. Please retry.", ephemeral=True)
+            return
+        role_note = ""
+        if profile["role_id"]:
+            role = interaction.guild.get_role(int(profile["role_id"]))
+            try:
+                if role is None:
+                    raise ValueError("Configured role no longer exists.")
+                await user.add_roles(role, reason=f"Ticket blacklist by {interaction.user}"[:500])
+            except Exception:
+                logger.exception("Blacklist saved but role assignment failed for user=%s", user.id)
+                role_note = "\n⚠️ The restriction is saved, but its role could not be assigned. Check Manage Roles and role position."
+        duration_text = f"{duration_hours} hour(s)" if duration_hours else "Permanent"
+        scope = "All ticket types" if profile["block_all"] else "Categories that list this blacklist role"
+        append_ticket_log({"ticket_id": "global", "action": "blacklist_added",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "target": {"id": str(user.id), "name": str(user)},
+            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
+            "reason": reason, "duration_hours": duration_hours, "blacklist_type": blacklist_type,
+            "role_id": profile["role_id"], "scope": scope, "role_warning": role_note})
+        await send_blacklist_log(self.bot, "blacklist_added", user=f"{user} ({user.id})", reason=reason,
+                                 duration=duration_text, type=profile["name"], scope=scope,
+                                 role=profile["role_id"] or "None", role_warning=role_note or None, executor=str(interaction.user))
+        await interaction.followup.send(view=ticket_notice("🚫 User Blacklisted",
+            f"{user.mention} • **{profile['name']}**\n**Scope:** {scope}\n**Reason:** {reason}\n"
+            f"**Duration:** {duration_text}{role_note}", okay=False), ephemeral=True)
 
-        duration_text = (
-            f"{duration_hours} hour(s)" if duration_hours else "Permanent"
-        )
+    @add_ticket_blacklist_command.autocomplete("blacklist_type")
+    async def blacklist_type_choices(self, interaction: discord.Interaction, current: str):
+        return [app_commands.Choice(name=item["name"][:100], value=item["id"])
+                for item in blacklists.get_types() if current.lower() in (item["name"] + item["id"]).lower()][:25]
 
-        await send_blacklist_log(
-            self.bot,
-            "blacklist_added",
-            user=f"{user} ({user.id})",
-            reason=reason,
-            duration=duration_text,
-            type=blacklist_type.title(),
-            executor=str(interaction.user),
-        )
-
-        emb = discord.Embed(
-            title="🚫 User Blacklisted",
-            description=f"{user.mention} can no longer create tickets.{role_note}",
-            color=discord.Color.red(),
-        )
-        emb.add_field(name="Type", value=blacklist_type.title(), inline=False)
-        emb.add_field(name="Reason", value=reason, inline=False)
-        emb.add_field(name="Duration", value=duration_text, inline=False)
-        emb.set_footer(text="Tickety | Tickety.top")
-        await interaction.response.send_message(embed=emb, ephemeral=True)
-
-    # Slash Command: /removeticketblacklist — admin-only, dangerous: lifts a
-    # user's ticket-creation blacklist
-    @app_commands.command(
-        name="removeticketblacklist",
-        description="[Dangerous] Remove a user's ticket-creation blacklist",
-    )
-    @app_commands.describe(
-        user="The member to unblacklist",
-        reason="Why this user is being unblacklisted (required)",
-        blacklist_type="Voidcore also removes the Voidcore blacklist role; Regular does not",
-    )
+    @app_commands.command(name="removeticketblacklist", description="Remove a user's saved blacklist and its assigned role")
+    @app_commands.describe(user="Member to unblacklist", reason="Why this blacklist is being removed",
+                           blacklist_type="Optional legacy field; removal always uses the saved role")
     @app_commands.default_permissions(administrator=True)
-    async def remove_ticket_blacklist_command(
-        self,
-        interaction: discord.Interaction,
-        user: discord.Member,
-        reason: str,
-        blacklist_type: Literal["voidcore", "regular"],
-    ):
+    async def remove_ticket_blacklist_command(self, interaction: discord.Interaction, user: discord.Member,
+                                              reason: str, blacklist_type: str = None):
         if not await self._dangerous_command_check(interaction):
             return
-
-        removed = remove_from_blacklist(str(user.id))
-
-        if not removed:
-            await interaction.response.send_message(
-                f"⚠️ {user.mention} wasn't on the ticket blacklist.",
-                ephemeral=True,
-            )
-            return
-
-        role_note = ""
-        if blacklist_type == "voidcore":
-            role = interaction.guild.get_role(VOIDCORE_BLACKLIST_ROLE_ID)
-            if role:
-                try:
-                    await user.remove_roles(
-                        role, reason=f"Voidcore ticket blacklist lifted by {interaction.user}"
-                    )
-                except Exception:
-                    logger.exception(
-                        f"Failed to remove Voidcore blacklist role from user={user.id}"
-                    )
-                    role_note = "\n⚠️ Couldn't remove the Voidcore role — check the bot's role position/permissions."
-            else:
-                role_note = "\n⚠️ Voidcore role not found in this server."
-
+        await interaction.response.defer(ephemeral=True)
         try:
-            append_ticket_log({
-                "ticket_id": "global",
-                "action": "blacklist_removed",
-                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-                "target": {"id": str(user.id), "name": str(user)},
-                "executor": {
-                    "id": str(interaction.user.id),
-                    "name": str(interaction.user),
-                },
-                "reason": reason,
-                "blacklist_type": blacklist_type,
-            })
+            entry = next((item for item in get_blacklist_data(include_expired=True)["blacklisted_users"]
+                          if str(item.get("user_id")) == str(user.id)), None)
+            if not entry:
+                await interaction.followup.send("⚠️ This member has no saved blacklist.", ephemeral=True)
+                return
+            if entry.get("guild_id") and str(interaction.guild.id) != str(entry["guild_id"]):
+                await interaction.followup.send("❌ Run this command in the server where this blacklist was applied.", ephemeral=True)
+                return
+            await blacklists.remove_member(user, entry, f"Blacklist removed by {interaction.user}: {reason}")
         except Exception:
-            pass
-
-        await send_blacklist_log(
-            self.bot,
-            "blacklist_removed",
-            user=f"{user} ({user.id})",
-            reason=reason,
-            type=blacklist_type.title(),
-            executor=str(interaction.user),
-        )
-
-        emb = discord.Embed(
-            title="✅ Blacklist Removed",
-            description=f"{user.mention} can create tickets again.{role_note}",
-            color=discord.Color.green(),
-        )
-        emb.add_field(name="Type", value=blacklist_type.title(), inline=False)
-        emb.add_field(name="Reason", value=reason, inline=False)
-        emb.set_footer(text="Tickety | Tickety.top")
-        await interaction.response.send_message(embed=emb, ephemeral=True)
+            logger.exception("Could not remove blacklist for user=%s", user.id)
+            await interaction.followup.send("❌ Could not remove the blacklist or its role. The record is kept for retry; check Manage Roles and role position.", ephemeral=True)
+            return
+        append_ticket_log({"ticket_id": "global", "action": "blacklist_removed",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "target": {"id": str(user.id), "name": str(user)},
+            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
+            "reason": reason, "blacklist_type": entry.get("blacklist_type")})
+        await send_blacklist_log(self.bot, "blacklist_removed", user=f"{user} ({user.id})", reason=reason,
+                                 type=entry.get("blacklist_name", entry.get("blacklist_type", "Regular")), executor=str(interaction.user))
+        await interaction.followup.send(view=ticket_notice("✅ Blacklist Removed",
+            f"{user.mention}'s saved restriction and assigned role have been removed.\n**Reason:** {reason}\n"
+            "Any other configured role restrictions still apply."), ephemeral=True)
 
     # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
     # (actual implementation is the module-level toggle_pin_message_context_menu below)
@@ -2615,18 +2593,19 @@ class TicketsCog(commands.Cog):
                     })
 
                 components_data = []
-                for row in m.components:
-                    row_buttons = []
-                    for child in getattr(row, "children", []):
-                        if isinstance(child, discord.Button):
-                            row_buttons.append({
-                                "label": child.label,
-                                "style": str(child.style).split(".")[-1],
-                                "emoji": str(child.emoji) if child.emoji else None,
-                                "url": child.url,
-                            })
-                    if row_buttons:
-                        components_data.append(row_buttons)
+                component_text = []
+                def capture_components(items):
+                    for item in items:
+                        if isinstance(item, discord.TextDisplay):
+                            component_text.append(item.content)
+                        if isinstance(item, discord.Button):
+                            components_data.append([{"label": item.label,
+                                "style": str(item.style).split(".")[-1],
+                                "emoji": str(item.emoji) if item.emoji else None, "url": item.url}])
+                        capture_components(getattr(item, "children", []))
+                capture_components(m.components)
+                if component_text:
+                    content = "\n\n".join(([content] if content else []) + component_text)
 
                 messages.append({
                     "ts": ts,
@@ -2903,4 +2882,5 @@ async def setup(bot):
     await bot.add_cog(cog)
     bot.add_view(TicketView(bot))
     bot.add_view(CloseConfirmView(bot))
+
 

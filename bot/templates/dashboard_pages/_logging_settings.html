@@ -1,0 +1,18 @@
+    <details class="card" id="{{ logging_section_id }}">
+        <summary><div class="card-head-text"><h3>Loggings</h3><p class="card-subtitle">Ticket events, blacklist logs, and warning logs.</p></div><span class="card-chevron">▾</span></summary>
+        <div class="card-body">
+        <form method="post" action="{{ url_for('save_ticket_logging_route') }}">
+            <input type="hidden" name="settings_page" value="{{ active_page }}">
+            <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+            <div class="ticket-log-grid">
+                <div><label for="ticket-logging-enabled">Ticket event delivery</label><select id="ticket-logging-enabled" name="logging_enabled"><option value="yes" {% if ticket_logging.enabled %}selected{% endif %}>Enabled</option><option value="no" {% if not ticket_logging.enabled %}selected{% endif %}>Paused</option></select></div>
+                {% for field, label in [('log_channel_id','Ticket activity channel'),('blacklist_log_channel_id','Blacklist log channel'),('warning_log_channel_id','Warning log channel')] %}
+                <div><label for="logging-{{ field }}">{{ label }}</label><select id="logging-{{ field }}" name="{{ field }}"><option value="">None (disabled)</option>{% if ticket_logging[field] and ticket_logging[field]|string not in channels|map(attribute='id')|map('string')|list %}<option value="{{ ticket_logging[field] }}" selected>Saved channel · {{ ticket_logging[field] }}</option>{% endif %}{% for channel in channels %}<option value="{{ channel.id }}" {% if ticket_logging[field] and ticket_logging[field]|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>{% endfor %}</select></div>
+                {% endfor %}
+            </div>
+            <p class="card-subtitle">Choose which ticket events are posted to the ticket activity channel. Pausing Discord delivery keeps the saved activity history below. Blacklist and warning channels keep their separate controls.</p>
+            <div class="ticket-log-events">{% for key, label in ticket_delivery_events.items() %}<label><input type="checkbox" name="log_events" value="{{ key }}" {% if key in ticket_logging.events %}checked{% endif %}>{{ label }}</label>{% endfor %}</div>
+            <button type="submit" class="btn-view">Save logging settings</button>
+        </form>
+        </div>
+    </details>

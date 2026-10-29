@@ -2,7 +2,7 @@
 
 A running changelog for the **Carry Ticket Bot** Discord commands, ticket system, web dashboard, documentation, and reliability fixes. Newest updates appear first.
 
-**Last updated:** October 28, 2026
+**Last updated:** October 29, 2026
 
 **Most recent merged UI update:** [PR #46 — Liquid-glass transcript UI](https://github.com/sirxpl/ticket-bot/pull/46), merged to `main` on October 28, 2026.
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
@@ -10,6 +10,21 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 ---
 
 ## October 2026
+
+### 2026-10-29 — Ticket close controls, configurable blacklists, and Components V2 logging
+
+**Status:** Implemented for review. Live Discord and Render validation requires deployment.
+
+- New tickets have a pinned Components V2 welcome panel with the configured details and exactly one persistent **Close Ticket** button. Start/end commands update its visible status; the opener sees **still ongoing** while locked and can use that same button after `/end-ticket`. Legacy buttons retain their custom ID and lock behavior across restarts.
+- Fixed close buttons rejecting valid active tickets moved outside the default Discord category. Fixed the close-confirmation Cancel response. Start/end commands refuse tickets already being closed, preventing a misleading successful state change during transcript generation.
+- Added **Blacklist roles and types** in Access Control, with add/remove fields for a stable ID, name, assigned role, default reason, and all-ticket/category restriction. `/addticketblacklist` autocompletes these configured choices. Regular and the existing Voidcore role remain the initial defaults.
+- Saved blacklist restrictions enforce affected categories even when Discord role assignment fails. Ticket forms recheck restrictions on submission, so a form opened earlier cannot bypass a new blacklist. Existing member records keep their original role/scope if a type is edited or removed.
+- Fixed blacklist persistence using MongoDB when configured, importing existing local entries once. Database outages report failure rather than silently saving ephemeral data. Removal uses the saved role instead of the command's optional legacy type; role failures keep the record available for retry.
+- Added a one-minute expiry worker to remove timed blacklist roles and retry failures. Expired records remain visible in the dashboard until cleanup succeeds. Dashboard unblacklisting now removes the assigned role, requires admin access and a CSRF token, and reports failure.
+- Added **Loggings** in Access Control with the existing ticket event switches and ticket/blacklist/warning channels. Shares one form with Ticket Logging and preserves saved channel IDs even when the channel is unavailable in cache.
+- Ticket, blacklist, and warning log delivery now uses Components V2 with suppressed mentions. Transcripts retain Components V2 text and nested buttons.
+- Added regression checks for both storage backends, type editing, snapshots, expiry retries, role failures, and owner close controls. No new Render environment variables are needed; the bot needs Manage Roles and a role above assigned blacklist roles.
+
 
 ### 2026-10-28 — Bulk settings, organized carry controls, and Ticket Logging
 
@@ -224,4 +239,5 @@ These are ideas, **not** features claimed to exist in the current bot:
 ## Keeping this file current
 
 Add new dated sections **above** the older history. Separate shipped or merged changes from proposed work, and avoid marking features as live until deployment and smoke tests confirm they work. Describe any commands, configuration migrations, permission changes, and known limitations that server administrators need to know.
+
 

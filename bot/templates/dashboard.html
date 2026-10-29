@@ -1789,13 +1789,13 @@ document.getElementById('categoriesForm')?.addEventListener('submit', function()
 
 function unblacklistUser(userId) {
     if (confirm("Are you sure you want to unblacklist user " + userId + "?")) {
-        fetch("/api/unblacklist/" + userId, { method: "POST" })
+        fetch("/api/unblacklist/" + userId, { method: "POST", body: new URLSearchParams({csrf_token: {{ dashboard_csrf_token|tojson }}}) })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
                     location.reload();
                 } else {
-                    alert("Failed to unblacklist user.");
+                    alert(data.error || "Failed to unblacklist user.");
                 }
             });
     }
@@ -2265,4 +2265,5 @@ async function copyTextById(inputId, button) {
 {% endif %}
 </body>
 </html>
+
 

@@ -67,7 +67,9 @@ class PublicPagesLayoutTests(unittest.TestCase):
         path = TEMPLATES / "dashboard_pages" / "access_control.html"
         content = path.read_text(encoding="utf-8")
         self.assertEqual(content.count("<details"), content.count("</details>"))
-        self.assertEqual(content.count("<details"), 24)
+        self.assertEqual(content.count("<details"), 21)
+        self.assertIn("dashboard_pages/_logging_settings.html", content)
+        self.assertIn("dashboard_pages/_blacklist_types.html", content)
         self.assertNotIn('class="card" open', content)
         self.assertEqual(content.count("<form"), content.count("</form>"))
         self.assertIn("offlineScheduleForm", content)
@@ -81,3 +83,4 @@ class PublicPagesLayoutTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

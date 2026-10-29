@@ -383,7 +383,10 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
       <h1 class="title">Blacklist</h1>
       <p class="lede">Two lists live here.</p>
       <h3 class="sub-h">Blacklisted Users</h3>
-      <p class="body-p">Individually blacklisted by user ID — can be removed directly from this page.</p>
+      <p class="body-p">Individually blacklisted by user ID. Admins can remove the saved restriction and assigned role from this page while the bot is online. Expired entries stay listed until role cleanup succeeds.</p>
+      <h3 class="sub-h">Blacklist roles and types</h3>
+      <p class="body-p">In Access Control, add or remove named blacklist fields with a role, default reason, and all-ticket or category scope. Select the entry in /addticketblacklist. For category scope, add that same role to each affected category's blacklist roles in Carry Manager Settings. Existing member restrictions keep their original assigned role when a type is edited or removed.</p>
+      <p class="body-p">Access Control → Loggings groups the ticket, blacklist, and warning delivery channels. Discord logs use Components V2.</p>
       <h3 class="sub-h">Blacklisted via Role</h3>
       <p class="body-p">Read-only list of members currently blocked because they hold a Ticket Blacklist Role. To un-blacklist someone here, remove the role from them, or remove the role itself in Access Control.</p>
     </section>
@@ -476,11 +479,11 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
       <div class="cmd">
         <div class="sig">/start-ticket</div>
         <div class="desc">Staff mark the ticket as in progress, preventing the opener from closing it via the channel's Close Ticket button, a pending close approval, or other owner-initiated close routes.</div>
-        <div class="note">The lock persists in the active ticket record; authorized staff may still close the ticket.</div>
+        <div class="note">The lock persists in the active ticket record. New ticket panels show still ongoing; authorized staff may still close the ticket.</div>
       </div>
       <div class="cmd">
         <div class="sig">/end-ticket</div>
-        <div class="desc">Staff finish the in-progress state and restore the ticket opener's ability to close it.</div>
+        <div class="desc">Staff finish the in-progress state and restore the ticket opener's ability to close it using the same Close Ticket button.</div>
         <div class="note">Old close-approval prompts become invalid after a lock transition; send a fresh /request-close prompt if needed.</div>
       </div>
       <div class="cmd">
@@ -579,4 +582,5 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
 
 </body>
 </html>
+
 

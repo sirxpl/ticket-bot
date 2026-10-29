@@ -1,6 +1,8 @@
 import datetime
 from typing import Literal
 
+from utils.components import embed_layout
+
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -223,7 +225,7 @@ class WarningsCog(commands.Cog):
         try:
             channel = guild.get_channel(int(channel_id)) or await guild.fetch_channel(int(channel_id))
             if channel:
-                await channel.send(embed=embed)
+                await channel.send(view=embed_layout(embed), allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             pass
 
@@ -667,3 +669,4 @@ class WarningsCog(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(WarningsCog(bot))
+
