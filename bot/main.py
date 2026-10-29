@@ -156,6 +156,7 @@ from utils.carry_applications import (
     submit_application,
 )
 
+from utils import blacklists
 from utils.transcripts import render_preview_transcript, theme_saved_transcript
 from utils.dashboard_settings import (
     ACCESS_LISTS, DELIVERY_EVENTS, LOG_ACTIONS, get_ticket_logging_config,
@@ -1381,7 +1382,7 @@ def home(page="overview"):
 
     # Never read unrelated collections while opening a single dashboard page.
     tickets_info = get_tickets_data() if page == "overview" else {}
-    blacklist_info = get_blacklist_data() if page == "blacklists" else {}
+    blacklist_info = get_blacklist_data(include_expired=True) if page == "blacklists" else {}
     settings = get_settings() if page in ("carry-settings", "access-control") else {}
     warning_presets = get_premade_warning_reasons() if page == "warning-builder" else []
     warning_builder = get_warning_builder() if page == "warning-builder" else {}
@@ -1460,7 +1461,7 @@ def home(page="overview"):
     if page == "transcripts" and not can_access_transcripts:
         abort(403)
 
-    ticket_logging = get_ticket_logging_config(access_settings) if page == "ticket-logs" else None
+    ticket_logging = get_ticket_logging_config(access_settings) if page in ("ticket-logs", "access-control") else None
     ticket_log_records = None
     ticket_log_query = request.args.get("log_query", "").strip()[:100]
     ticket_log_action = request.args.get("log_action", "")
@@ -1614,6 +1615,7 @@ def home(page="overview"):
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
         blacklist_roles=blacklist_roles,
+        blacklist_types=blacklists.get_types() if page == "access-control" else [],
         ticket_viewer_roles=ticket_viewer_roles,
         powerful_command_roles=powerful_command_roles,
         powerful_command_users=powerful_command_users,
@@ -1631,7 +1633,7 @@ def home(page="overview"):
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
         can_manage_carry_applications=can_manage_carry_applications,
-        dashboard_csrf_token=_carry_application_csrf_token() if page in ("access-control", "carry-settings", "carry-applications", "ticket-logs") else None,
+        dashboard_csrf_token=_carry_application_csrf_token() if page in ("access-control", "carry-settings", "carry-applications", "ticket-logs", "blacklists") else None,
         ticket_logging=ticket_logging,
         ticket_log_records=ticket_log_records,
         ticket_log_query=ticket_log_query,
@@ -2155,10 +2157,48 @@ def view_ticket(ticket_id):
 
 
 @app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@access_required
+@admin_required
 def api_unblacklist(user_id):
-    remove_from_blacklist(user_id)
-    return jsonify({"success": True})
+    if not _valid_carry_application_csrf():
+        return jsonify(success=False, error="Form expired. Reload and try again."), 400
+    if not user_id.isdigit():
+        abort(400)
+    async def remove_saved_blacklist():
+        entry = next((row for row in get_blacklist_data(include_expired=True)["blacklisted_users"]
+                      if str(row.get("user_id")) == user_id), None)
+        if entry is None:
+            return False
+        guild_id = entry.get("guild_id")
+        guilds = [bot.get_guild(int(guild_id))] if guild_id else bot.guilds
+        if not guilds or any(guild is None for guild in guilds):
+            raise RuntimeError("The blacklist server is unavailable.")
+        for guild in guilds:
+            try:
+                member = guild.get_member(int(user_id)) or await guild.fetch_member(int(user_id))
+            except discord.NotFound:
+                continue
+            assigned = blacklists.role_id(entry)
+            role = guild.get_role(int(assigned)) if assigned else None
+            if role and any(item.id == role.id for item in member.roles):
+                await member.remove_roles(role, reason="Blacklist removed from dashboard")
+        return blacklists.remove(user_id, expected_entry=entry)
+    if not bot.is_ready():
+        return jsonify(success=False, error="The bot must be online to remove the assigned role."), 503
+    try:
+        removed = asyncio.run_coroutine_threadsafe(remove_saved_blacklist(), bot.loop).result(timeout=20)
+    except Exception:
+        app.logger.exception("Could not remove blacklist from dashboard")
+        return jsonify(success=False, error="Could not confirm removal. Check the bot's Manage Roles permission and role position, then retry."), 503
+    if removed:
+        from cogs.tickets import send_blacklist_log
+        from utils.storage import append_ticket_log
+        append_ticket_log({"ticket_id": "global", "action": "blacklist_removed", "target": {"id": user_id},
+            "executor": {"id": str(session["user"]["id"])}, "reason": "Removed from dashboard",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+        asyncio.run_coroutine_threadsafe(send_blacklist_log(bot, "blacklist_removed", user=user_id,
+            reason="Removed from dashboard", executor=str(session["user"]["id"])), bot.loop)
+    return jsonify(success=removed)
+
 
 
 @app.route("/api/remove-cooldown/<user_id>", methods=["POST"])
@@ -2328,7 +2368,7 @@ def save_ticket_logging_route():
         flash("Ticket logging settings could not be saved. Please retry.", "danger")
     else:
         flash("Ticket logging settings saved.", "success")
-    return redirect(url_for("home", page="ticket-logs", _anchor="ticket-log-delivery"))
+    return redirect(url_for("home", page="access-control" if request.form.get("settings_page") == "access-control" else "ticket-logs", _anchor="access-loggings" if request.form.get("settings_page") == "access-control" else "ticket-log-delivery"))
 
 
 @app.route("/dashboard/access/add-user", methods=["POST"])
@@ -2419,6 +2459,32 @@ def access_remove_role(role_id):
     remove_allowed_role(role_id)
     flash("🗑️ Role removed from the allow-list.", "info")
     return redirect(url_for("home", page="access-control"))
+
+
+@app.post("/dashboard/access/blacklist-types")
+@admin_required
+def access_save_blacklist_types():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and try again.")
+    try:
+        names = ("blacklist_id", "blacklist_name", "blacklist_role", "blacklist_reason", "blacklist_scope")
+        values = [request.form.getlist(name) for name in names]
+        if len({len(items) for items in values}) != 1:
+            raise ValueError("Incomplete blacklist fields. Reload and retry.")
+        rows = []
+        for key, name, role, reason, scope in zip(*values):
+            if scope not in {"all", "categories"}:
+                raise ValueError("Choose a valid blacklist scope.")
+            rows.append(dict(id=key, name=name, role_id=role, reason=reason, block_all=scope == "all"))
+        blacklists.save_types(rows)
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Could not save blacklist types")
+        flash("Blacklist settings could not be saved. Please retry.", "danger")
+    else:
+        flash("Blacklist types saved. Existing blacklists keep their assigned roles and restrictions.", "success")
+    return redirect(url_for("home", page="access-control", _anchor="access-blacklist-types"))
 
 
 @app.route("/dashboard/access/add-blacklist-role", methods=["POST"])
@@ -3429,4 +3495,5 @@ if __name__ == "__main__":
         run_bot_with_cooldown()
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
+
 

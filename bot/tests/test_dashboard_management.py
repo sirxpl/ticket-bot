@@ -203,7 +203,7 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
         response = self.client.get("/dashboard/ticket-logs")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"carry-42", response.data)
-        self.assertIn(b"Discord delivery settings", response.data)
+        self.assertIn(b"Loggings", response.data)
         response = self.client.get("/tickets/logs")
         self.assertIn("/dashboard/ticket-logs", response.location)
 
@@ -265,7 +265,8 @@ class TicketDiscordLoggingTests(unittest.TestCase):
                 channel.send.assert_not_awaited()
                 await module.send_ticket_log(bot, "opened", ticket="#carry")
                 channel.send.assert_awaited_once()
-                self.assertIn("Opened", channel.send.await_args.kwargs["embed"].title)
+                self.assertIn("Opened", str(channel.send.await_args.kwargs["view"].to_components()))
+                self.assertNotIn("embed", channel.send.await_args.kwargs)
         asyncio.run(check())
 
     def test_start_and_finish_commands_record_and_deliver_events(self):
@@ -285,3 +286,4 @@ class TicketDiscordLoggingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

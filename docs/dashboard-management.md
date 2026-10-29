@@ -12,7 +12,7 @@ Bulk endpoints require their existing page-management permission and a session C
 
 `/dashboard/ticket-logs` provides dashboard-authorized activity history, literal text/event filters, 50-record pagination, actor/time details, and ticket/transcript links. `/tickets/logs` redirects here. Diagnostic history also requires dashboard access.
 
-Admins configure Discord ticket delivery, channel targets, and opened/closed/renamed/work-started/work-finished events. Work commands retain their saved activity records and can also post to the selected Discord channel. Disabling this delivery leaves history intact. Blacklist and warning logging keep their separate channels.
+Admins configure Discord ticket delivery in Access Control → **Loggings** (also available on Ticket Logging). They choose channel targets, and opened/closed/renamed/work-started/work-finished events. Work commands retain their saved activity records and can also post to the selected Discord channel. Disabling this delivery leaves history intact. Blacklist and warning logging keep their separate channels.
 
 ## Unsaved changes
 
@@ -20,4 +20,19 @@ The notice compares configuration controls against their loaded/saved values. Se
 
 Background category saves are queued. A successful response advances the saved snapshot for that request, so newer edits remain dirty. Failed, rejected, partially accepted, or expired-session saves leave the warning visible. Explicit page navigation can discard unsaved edits; the notice does not create a local draft.
 
-No database migration or additional Render environment variables are required.
+## Blacklist roles and types
+
+Access Control → **Blacklist roles and types** lets admins add/remove named entries with an ID, role, default reason and restriction scope. IDs remain stable after creation; `/addticketblacklist` autocompletes current entries. Reasons can be overridden per command. Up to 25 types are supported, with one saved blacklist per member; remove an existing blacklist before replacing it.
+
+For Voidcore/category restrictions, select **Categories listing this role** and add the assigned role to each affected category's blacklist roles in Carry Manager Settings. Select **All ticket types** for a global ticket restriction. Category restrictions are also enforced from saved records if role assignment fails. Editing/removing a type does not change existing member records. `/removeticketblacklist` always uses the saved role; its legacy type argument is optional and does not control role removal.
+
+The bot needs Manage Roles and must be above each assigned role. Failed removals keep the record for retry. Timed role cleanup runs every minute; expired records remain listed while cleanup is pending. Dashboard unblacklisting requires admin access, an online bot and a CSRF token, and removes the saved role too.
+
+Existing local blacklist data migrates automatically into MongoDB on first read when MongoDB is configured. A configured database outage stops blacklist operations with an error. No additional Render environment variables are required.
+
+## Ticket work and closing
+
+New tickets use a pinned Components V2 welcome with one persistent Close Ticket button. `/start-ticket` marks it still ongoing and blocks the opener's close routes; `/end-ticket` updates the status and enables owner closing through the same button. Authorized staff can still close. Existing tickets retain their original buttons. Status edits never add another close button. Restarted bots dispatch existing buttons using the same persistent custom ID.
+
+Ticket, blacklist and warning logs use Components V2. Transcript archives retain their text and nested buttons.
+

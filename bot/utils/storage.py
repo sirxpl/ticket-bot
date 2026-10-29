@@ -521,15 +521,19 @@ def is_on_cooldown(user_id):
     return False,None
 
 # --- Blacklist ---
-def _norm_blacklist(e):return e if isinstance(e,dict) else {"user_id":str(e),"reason":"No reason provided."}
-def get_blacklist_data():
-    if not os.path.exists(BLACKLIST_FILE):return {"blacklisted_users":[]}
-    try:d=json.load(open(BLACKLIST_FILE));d.setdefault("blacklisted_users",[]);d["blacklisted_users"]=[_norm_blacklist(e) for e in d["blacklisted_users"]];return d
-    except Exception:return {"blacklisted_users":[]}
-def add_to_blacklist(user_id,reason="No reason provided.",added_by=None,hours=None,blacklist_type="regular"):
-    d=get_blacklist_data();d["blacklisted_users"]=[e for e in d["blacklisted_users"] if str(e.get("user_id"))!=str(user_id)];d["blacklisted_users"].append({"user_id":str(user_id),"reason":reason,"added_by":str(added_by) if added_by else None,"added_at":datetime.datetime.now(datetime.timezone.utc).isoformat(),"expires_ts":int(time.time()+hours*3600) if hours else None,"blacklist_type":blacklist_type});json.dump(d,open(BLACKLIST_FILE,"w"),indent=2);return True
+def get_blacklist_data(include_expired=False):
+    from utils.blacklists import get_data
+    return get_data(include_expired=include_expired)
+
+
+def add_to_blacklist(user_id, reason="No reason provided.", added_by=None, hours=None, blacklist_type="regular", **metadata):
+    from utils.blacklists import add
+    return add(user_id, reason, added_by, hours, blacklist_type, **metadata)
+
+
 def remove_from_blacklist(user_id):
-    d=get_blacklist_data();b=len(d["blacklisted_users"]);d["blacklisted_users"]=[e for e in d["blacklisted_users"] if str(e.get("user_id"))!=str(user_id)];json.dump(d,open(BLACKLIST_FILE,"w"),indent=2);return len(d["blacklisted_users"])<b
+    from utils.blacklists import remove
+    return remove(user_id)
 
 # --- Ticket logs + analytics ---
 def append_ticket_log(entry):
@@ -1051,3 +1055,4 @@ def save_warning_builder(tier: str, config: dict) -> dict:
     data["warning_builder"] = current
     _save_warnings_data(data)
     return updated
+

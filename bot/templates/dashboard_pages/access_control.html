@@ -5,7 +5,7 @@
             <p>Decide who can reach each part of this control panel.</p>
         </div>
         {% if is_admin_user %}
-        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-operations">Logging and operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
+        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-loggings">Loggings</a><a href="#access-operations">Operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
 <section class="settings-group" id="access-dashboard"><h2 class="settings-group-title">Dashboard access</h2>
 <details class="card" id="access-overview">
             <summary>
@@ -391,6 +391,7 @@
 
             </div>
         </details>
+{% include 'dashboard_pages/_blacklist_types.html' %}
 <details class="card" id="access-ticket-blacklist-role">
             <summary>
                 <div class="card-head-text">
@@ -649,83 +650,12 @@
             </div>
         </details>
 </section>
-<section class="settings-group" id="access-operations"><h2 class="settings-group-title">Logging and operations</h2>
-<p class="card-subtitle"><a href="{{ url_for('home', page='ticket-logs') }}">Open Ticket Logging</a> to browse activity, choose ticket event types, and manage Discord delivery.</p>
-<details class="card" id="access-ticket-activity-log-channel">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Ticket Activity Log Channel</h3>
-
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">Selected ticket events are posted here when Discord delivery is enabled in Ticket Logging. Leave the channel unset to stop delivery.</p>
-            <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
-                <div>
-                    <label>Channel:</label>
-                    <select name="log_channel_id">
-                        <option value="">None (disabled)</option>
-                        {% for channel in channels %}
-                            <option value="{{ channel.id }}" {% if log_channel_id and log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">Save</button>
-            </form>
-
-            </div>
-        </details>
-<details class="card" id="access-blacklist-log-channel">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Blacklist Log Channel</h3>
-
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
-            <form action="/dashboard/access/set-blacklist-log-channel" method="POST" class="access-form">
-                <div>
-                    <label>Channel:</label>
-                    <select name="blacklist_log_channel_id">
-                        <option value="">None (disabled)</option>
-                        {% for channel in channels %}
-                            <option value="{{ channel.id }}" {% if blacklist_log_channel_id and blacklist_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">Save</button>
-            </form>
-
-            </div>
-        </details>
-<details class="card" id="access-warning-log-channel">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Warning Log Channel</h3>
-
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">Separate from the channels above — only /w1, /w2, /w3, and /unwarn post here. Leave unset to disable.</p>
-            <form action="/dashboard/access/set-warning-log-channel" method="POST" class="access-form">
-                <div>
-                    <label>Channel:</label>
-                    <select name="warning_log_channel_id">
-                        <option value="">None (disabled)</option>
-                        {% for channel in channels %}
-                            <option value="{{ channel.id }}" {% if warning_log_channel_id and warning_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">Save</button>
-            </form>
-
-            </div>
-        </details>
+<section class="settings-group" id="access-logging-group"><h2 class="settings-group-title">Loggings</h2>
+<p class="card-subtitle"><a href="{{ url_for('home', page='ticket-logs') }}">Browse ticket activity history</a>. Choose delivery channels and ticket events below.</p>
+{% set logging_section_id = 'access-loggings' %}
+{% include 'dashboard_pages/_logging_settings.html' %}
+</section>
+<section class="settings-group" id="access-operations"><h2 class="settings-group-title">Operations</h2>
 <details class="card" id="access-bot-offline-schedule">
             <summary>
                 <div class="card-head-text">
@@ -949,3 +879,4 @@
         </div>
         {% endif %}
         </section>
+
