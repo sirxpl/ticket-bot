@@ -53,3 +53,12 @@ New tickets use a pinned Components V2 welcome with one persistent Close Ticket 
 
 Ticket, blacklist and warning logs use Components V2. Transcript archives retain their text and nested buttons.
 
+
+
+## Manage Pin Access
+
+Access Control → **Manage Pin Access** grants selected roles Discord's native **Pin Messages** permission in every active ticket channel. Members use Discord's normal message Pin/Unpin controls. The old bot **Toggle Pin** context menu is removed during command sync.
+
+The setting applies at ticket creation, after adding/removing roles (including bulk removal), at startup/reconnect, and through **Apply to existing tickets**. Removed roles have the managed Pin Messages Allow cleared back to Inherit. Other channel flags remain unchanged: the setting does not grant Manage Messages, message deletion, View Channel, or Send Messages. Existing role/admin permissions can still allow pinning independently.
+
+The bot needs Manage Roles to modify channel overwrites, and discord.py 2.7.1 or newer for the dedicated pin flag. Failed channel updates retry; successful updates do not repeatedly issue Discord requests. Settings/removal work persists through offline periods and database outages do not clear pending revocations using fallback data. No new Render variables are needed.

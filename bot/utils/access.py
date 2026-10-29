@@ -996,8 +996,7 @@ def has_basic_command_access(user_id: str, member_role_ids=None) -> bool:
 
 
 def add_pin_message_role(role_id: str) -> bool:
-    """Add a role allowed to use /pin (and /unpin) inside ticket channels
-    — same shape as Basic Command Access."""
+    """Legacy configuration helper; dashboard native pin updates also queue reconciliation."""
     data = get_access_settings()
     role_id = str(role_id)
     if role_id not in data["pin_message_roles"]:
@@ -1046,13 +1045,9 @@ def get_pin_message_user_ids():
 
 
 def has_pin_message_access(user_id: str, member_role_ids=None) -> bool:
-    """Return True if this user can pin/unpin messages via the bot's
-    Toggle Pin context menu, purely through the configurable role/user
-    list below (or being an admin). Roles added here also get Discord's
-    own dedicated Pin Messages permission inside ticket channels (see
-    tickets.py ticket creation and main.py's _sync_pin_role_on_open_tickets),
-    so native right-click pinning works too — this list is the single
-    source of truth for both paths.
+    """Legacy predicate for extensions. Native ticket pinning uses channel overwrites.
+
+    The bot no longer registers a Toggle Pin context-menu command.
     """
     if is_admin(user_id):
         return True

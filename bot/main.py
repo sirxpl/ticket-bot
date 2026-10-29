@@ -156,7 +156,7 @@ from utils.carry_applications import (
     submit_application,
 )
 
-from utils import blacklists, audit
+from utils import blacklists, audit, pin_permissions
 from utils.transcripts import render_preview_transcript, theme_saved_transcript
 from utils.dashboard_settings import (
     ACCESS_LISTS, DELIVERY_EVENTS, LOG_ACTIONS, get_ticket_logging_config,
@@ -2325,7 +2325,7 @@ def bulk_remove_access_route():
     try:
         previous_values = {str(value) for value in get_access_settings().get(kind, [])} if kind in ACCESS_LISTS else set()
         selected = request.form.getlist("selected_ids")
-        changed = remove_access_entries(kind, selected)
+        changed = pin_permissions.change_roles(remove=selected) if kind == "pin_message_roles" else remove_access_entries(kind, selected)
     except ValueError as error:
         abort(400, str(error))
     except Exception:
@@ -2336,6 +2336,8 @@ def bulk_remove_access_route():
             action = "user_unblocked" if kind == "globally_blocked_users" else "blacklist_role_deleted" if kind == "blacklist_roles" else "access_entries_removed"
             audit.emit_event(bot, action, session["user"]["id"], access_list=ACCESS_LISTS[kind],
                 count=changed, removed_ids=", ".join(sorted(previous_values.intersection(selected))), source="Bulk Access Control")
+        if changed and kind == "pin_message_roles":
+            _queue_native_pin_sync()
         flash(f"Removed {changed} selected {ACCESS_LISTS[kind]}.", "success" if changed else "info")
     section = request.form.get("section", "")
     if not re.fullmatch(r"[a-z0-9-]{1,100}", section):
@@ -2892,24 +2894,77 @@ def access_remove_analytics_role(role_id):
     return redirect(url_for("home", page="access-control"))
 
 
+def _queue_native_pin_sync():
+    if not bot.is_ready():
+        return False
+    cog = bot.get_cog("TicketsCog")
+    if cog is None:
+        return False
+    coroutine = cog.sync_native_pin_permissions()
+    try:
+        future = asyncio.run_coroutine_threadsafe(coroutine, bot.loop)
+        def finished(result):
+            try:
+                summary = result.result()
+                app.logger.info("Native ticket pin sync: %s", summary)
+            except Exception:
+                app.logger.exception("Native ticket pin sync could not run")
+        future.add_done_callback(finished)
+        return True
+    except Exception:
+        coroutine.close()
+        app.logger.exception("Could not schedule native ticket pin synchronization")
+        return False
+
+
+def _native_pin_saved_notice():
+    if _queue_native_pin_sync():
+        flash("Pin Messages access saved. Existing ticket channels are updating; failed updates retry automatically.", "success")
+    else:
+        flash("Pin Messages access saved. Existing tickets will update when the bot is online.", "info")
+
+
 @app.route("/dashboard/access/add-pin-message-role", methods=["POST"])
 @admin_required
 def access_add_pin_message_role_route():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_pin_message_role(role_id)
-        flash("✅ Role granted message-pinning access.", "success")
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and retry.")
+    try:
+        pin_permissions.change_roles(add=[request.form.get("role_id", "").strip()])
+    except (ValueError, RuntimeError) as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Could not save native pin role")
+        flash("Could not save pin access. Please retry.", "danger")
     else:
-        flash("❌ Please select a valid role.", "danger")
-    return redirect(url_for("home", page="access-control"))
+        _native_pin_saved_notice()
+    return redirect(url_for("home", page="access-control", _anchor="access-message-pinning-access"))
 
 
 @app.route("/dashboard/access/remove-pin-message-role/<role_id>", methods=["POST"])
 @admin_required
 def access_remove_pin_message_role_route(role_id):
-    remove_pin_message_role(role_id)
-    flash("🗑️ Role removed from message-pinning access.", "info")
-    return redirect(url_for("home", page="access-control"))
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and retry.")
+    try:
+        pin_permissions.change_roles(remove=[role_id])
+    except (ValueError, RuntimeError) as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Could not remove native pin role")
+        flash("Could not save pin access. Please retry.", "danger")
+    else:
+        _native_pin_saved_notice()
+    return redirect(url_for("home", page="access-control", _anchor="access-message-pinning-access"))
+
+
+@app.post("/dashboard/access/sync-pin-permissions")
+@admin_required
+def access_sync_pin_permissions_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and retry.")
+    _native_pin_saved_notice()
+    return redirect(url_for("home", page="access-control", _anchor="access-message-pinning-access"))
 
 
 @app.route("/dashboard/access/add-carry-application-verdict-role", methods=["POST"])
