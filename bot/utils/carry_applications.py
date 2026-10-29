@@ -9,11 +9,12 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from utils.db import get_db
+from utils.storage import get_settings, save_settings
 
 logger = logging.getLogger("carry_applications")
 DATA_DIR = "data"
 APPLICATIONS_FILE = os.path.join(DATA_DIR, "carry_applications.json")
-DENIAL_COOLDOWN = datetime.timedelta(days=14)
+DEFAULT_DENIAL_COOLDOWN_DAYS = 14
 _file_lock = threading.RLock()
 _active_user_index_ready = False
 
@@ -21,10 +22,59 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 
 class ApplicationStateError(ValueError):
-    def __init__(self, code, available_at=None):
+    def __init__(self, code, available_at=None, *, application=None, accepting_responses=True):
         super().__init__(code)
         self.code = code
         self.available_at = available_at
+        self.application = application
+        self.accepting_responses = accepting_responses
+
+
+def _configured_database():
+    db = get_db()
+    if db is None and os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is unavailable; Carry Team application data was not changed.")
+    return db
+
+
+def get_application_config():
+    """Read application policy strictly so an outage cannot reopen a closed form."""
+    db = _configured_database()
+    if db is not None:
+        settings = db.bot_settings.find_one(
+            {"_id": "singleton"}, {"carry_application_config": 1}
+        ) or {}
+    else:
+        settings = get_settings()
+    config = settings.get("carry_application_config") or {}
+    days = config.get("denial_cooldown_days", DEFAULT_DENIAL_COOLDOWN_DAYS)
+    if type(days) is not int or not 0 <= days <= 365:
+        days = DEFAULT_DENIAL_COOLDOWN_DAYS
+    return {
+        "accepting_responses": config.get("accepting_responses", True) is True,
+        "denial_cooldown_days": days,
+    }
+
+
+def save_application_config(accepting_responses, denial_cooldown_days):
+    if type(accepting_responses) is not bool:
+        raise ValueError("Choose whether applications accept responses.")
+    if type(denial_cooldown_days) is not int or not 0 <= denial_cooldown_days <= 365:
+        raise ValueError("The denial cooldown must be a whole number from 0 to 365 days.")
+    config = {
+        "accepting_responses": accepting_responses,
+        "denial_cooldown_days": denial_cooldown_days,
+    }
+    db = _configured_database()
+    if db is not None:
+        db.bot_settings.update_one(
+            {"_id": "singleton"}, {"$set": {"carry_application_config": config}}, upsert=True
+        )
+    else:
+        settings = get_settings()
+        settings["carry_application_config"] = config
+        save_settings(settings)
+    return config
 
 
 def _now():
@@ -58,13 +108,8 @@ def _write_file(applications):
 
 def _mongo_collection():
     global _active_user_index_ready
-    db = get_db()
+    db = _configured_database()
     if db is None:
-        if os.getenv("MONGODB_URI"):
-            raise RuntimeError(
-                "MONGODB_URI is set but MongoDB is unavailable; refusing to store "
-                "Carry Team applications in local files."
-            )
         return None
     if not _active_user_index_ready:
         try:
@@ -112,23 +157,37 @@ def get_latest_application_for_user(user_id):
     return max(applications, key=lambda item: item.get("submitted_at", ""), default=None)
 
 
-def _cooldown_end(application):
+def get_application_cooldown_end(application, config=None):
+    if not application or application.get("status") != "denied" or application.get("cooldown_cleared_at"):
+        return None
     decided_at = datetime.datetime.fromisoformat(application["decided_at"])
-    return decided_at + DENIAL_COOLDOWN
+    if decided_at.tzinfo is None:
+        decided_at = decided_at.replace(tzinfo=datetime.timezone.utc)
+    config = config if config is not None else get_application_config()
+    return decided_at + datetime.timedelta(days=config["denial_cooldown_days"])
+
+
+def _check_application_state(latest, config):
+    context = {"application": latest, "accepting_responses": config["accepting_responses"]}
+    if latest:
+        if latest.get("status") in {"pending", "accepted"}:
+            raise ApplicationStateError(latest["status"], **context)
+        available_at = get_application_cooldown_end(latest, config)
+        if available_at and _now() < available_at:
+            raise ApplicationStateError("cooldown", available_at, **context)
+    if not config["accepting_responses"]:
+        raise ApplicationStateError("closed", **context)
+
+
+def check_application_available(user_id):
+    _check_application_state(get_latest_application_for_user(user_id), get_application_config())
 
 
 def submit_application(user_id, username, answers, rules_accepted_at):
     uid = str(user_id)
     latest = get_latest_application_for_user(uid)
-    if latest:
-        if latest.get("status") == "pending":
-            raise ApplicationStateError("pending")
-        if latest.get("status") == "accepted":
-            raise ApplicationStateError("accepted")
-        if latest.get("status") == "denied":
-            available_at = _cooldown_end(latest)
-            if _now() < available_at:
-                raise ApplicationStateError("cooldown", available_at)
+    config = get_application_config()
+    _check_application_state(latest, config)
 
     application_id = uuid.uuid4().hex
     record = {
@@ -160,10 +219,9 @@ def submit_application(user_id, username, answers, rules_accepted_at):
             collection.insert_one(document)
         except DuplicateKeyError as error:
             latest = get_latest_application_for_user(uid)
-            if latest and latest.get("status") == "pending":
-                raise ApplicationStateError("pending") from error
-            if latest and latest.get("status") == "accepted":
-                raise ApplicationStateError("accepted") from error
+            if latest and latest.get("status") in {"pending", "accepted"}:
+                raise ApplicationStateError(latest["status"], application=latest,
+                                            accepting_responses=config["accepting_responses"]) from error
             raise
         except Exception:
             logger.exception("Failed to save carry application id=%s", application_id)
@@ -177,16 +235,70 @@ def submit_application(user_id, username, answers, rules_accepted_at):
             key=lambda item: item.get("submitted_at", ""),
             default=None,
         )
-        if latest:
-            if latest.get("status") in {"pending", "accepted"}:
-                raise ApplicationStateError(latest["status"])
-            if latest.get("status") == "denied":
-                available_at = _cooldown_end(latest)
-                if _now() < available_at:
-                    raise ApplicationStateError("cooldown", available_at)
+        _check_application_state(latest, get_application_config())
         applications.append(record)
         _write_file(applications)
     return record
+
+
+def get_application_page(page=1, status="all", per_page=25):
+    query = {"status": status} if status != "all" else {}
+    collection = _mongo_collection()
+    if collection is not None:
+        total = collection.count_documents(query)
+        pages = max(1, (total + per_page - 1) // per_page)
+        page = max(1, min(page, pages))
+        items = [_clean(item) for item in collection.find(query, {"answers": 0})
+                 .sort([("submitted_at", -1), ("_id", -1)]).skip((page - 1) * per_page).limit(per_page)]
+    else:
+        with _file_lock:
+            items = [dict(item) for item in _read_file()
+                     if status == "all" or item.get("status") == status]
+        items.sort(key=lambda item: (item.get("submitted_at", ""), item["application_id"]), reverse=True)
+        total = len(items)
+        pages = max(1, (total + per_page - 1) // per_page)
+        page = max(1, min(page, pages))
+        items = items[(page - 1) * per_page:page * per_page]
+    return {"items": items, "page": page, "pages": pages, "total": total}
+
+
+def manage_applications(application_ids, action, manager_id):
+    """Change only the selected records in the expected state; retain staff history."""
+    ids = list(dict.fromkeys(str(value) for value in application_ids))
+    if not ids or len(ids) > 100:
+        raise ValueError("Select between 1 and 100 applications.")
+    now = _timestamp()
+    if action == "remove_accepted":
+        expected_status = "accepted"
+        updates = {"status": "removed", "removed_at": now, "removed_by": str(manager_id),
+                   "confirmation_dm_status": "cancelled"}
+    elif action == "clear_cooldowns":
+        expected_status = "denied"
+        updates = {"cooldown_cleared_at": now, "cooldown_cleared_by": str(manager_id)}
+    else:
+        raise ValueError("Choose a valid application action.")
+    collection = _mongo_collection()
+    if collection is not None:
+        query = {"_id": {"$in": ids}, "status": expected_status}
+        if action == "clear_cooldowns":
+            query["cooldown_cleared_at"] = None
+        update = {"$set": updates}
+        if action == "remove_accepted":
+            update["$unset"] = {"active_user": ""}
+        return collection.update_many(query, update).modified_count
+    with _file_lock:
+        applications = _read_file()
+        changed = 0
+        for item in applications:
+            if item.get("application_id") not in ids or item.get("status") != expected_status:
+                continue
+            if action == "clear_cooldowns" and item.get("cooldown_cleared_at"):
+                continue
+            item.update(updates)
+            changed += 1
+        if changed:
+            _write_file(applications)
+    return changed
 
 
 def get_application(application_id):
@@ -360,3 +472,4 @@ def decide_application(application_id, status, reason, decided_by):
                 _write_file(applications)
                 return dict(item)
     return None
+

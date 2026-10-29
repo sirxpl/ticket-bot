@@ -1,10 +1,13 @@
+{% from 'dashboard_pages/_bulk_controls.html' import bulk_toolbar, bulk_checkbox with context %}
 <section class="page active" id="page-carry-settings">
         <div class="page-head">
             <h1>Carry Manager Settings</h1>
             <p>Configure how the carry ticket system behaves in your server.</p>
         </div>
         {% if can_access_carry_settings %}
-        <details class="card" id="system-settings">
+        <nav class="settings-jump" aria-label="Carry settings groups"><a href="#carry-availability">Availability</a><a href="#carry-categories-verification">Categories and verification</a><a href="#carry-messages">Ticket messages</a><a href="#carry-publishing">Panels and announcements</a><a href="{{ url_for('home', page='carry-applications') }}">Applications</a><a href="{{ url_for('home', page='ticket-logs') }}">Ticket logging</a></nav>
+<section class="settings-group" id="carry-availability"><h2 class="settings-group-title">Availability</h2>
+<details class="card" id="system-settings">
             <summary>
                 <div class="card-head-text">
                     <h3><span class="card-icon">⚙️</span> System Settings</h3>
@@ -13,14 +16,14 @@
                 <span class="card-chevron">▾</span>
             </summary>
             <div class="card-body">
-            <form action="/dashboard/toggle-tickets" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
+            <form data-unsaved-ignore action="/dashboard/toggle-tickets" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
                     <strong>Enable Ticket Creation:</strong>
                     <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
                         When toggled off, users cannot open new tickets from Discord.
                     </p>
                 </div>
-                
+
                 <label style="display: inline-flex; align-items: center; cursor: pointer; gap: 10px;">
                     <input type="checkbox" name="tickets_enabled" value="true" onchange="this.form.submit()" {% if tickets_enabled %}checked{% endif %} style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent);">
                     <span style="font-weight: bold; color: {% if tickets_enabled %}var(--success){% else %}var(--danger){% endif %};">
@@ -31,7 +34,7 @@
 
             <hr style="border: 0; border-top: 1px solid var(--border); margin: 18px 0;">
 
-            <form action="/dashboard/toggle-april-fools" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
+            <form data-unsaved-ignore action="/dashboard/toggle-april-fools" method="POST" style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
                     <strong>📺 April Fools Ad Gag:</strong>
                     <p style="margin: 4px 0 0 0; color: var(--text-dim); font-size: 0.9em;">
@@ -48,12 +51,9 @@
             </form>
             </div>
         </details>
-
-        {% if is_admin_user %}
-        {% include 'dashboard_pages/_ad_gag_settings.html' %}
-        {% endif %}
-
-        <details class="card">
+</section>
+<section class="settings-group" id="carry-categories-verification"><h2 class="settings-group-title">Categories and verification</h2>
+<details class="card" id="carry-categories">
             <summary>
                 <div class="card-head-text">
                 <h3><span class="card-icon">📋</span> Ticket Dropdown Categories</h3>
@@ -65,6 +65,9 @@
             </summary>
             <div class="card-body">
             <form action="/dashboard/ticket-categories/save" method="POST" id="categoriesForm">
+                <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+                <div class="category-bulk-controls"><label><input type="checkbox" data-select-all-categories data-unsaved-ignore> Select all categories</label><button type="button" class="btn-danger" data-remove-selected-categories>Remove selected categories</button></div>
+                <p class="config-inline-error" id="category-bulk-error" role="status" hidden></p>
                 <div id="categoriesContainer"></div>
                 <div style="display:flex; gap:10px; margin-top:10px;">
                     <button type="button" onclick="addNewCategoryRow()" class="btn-submit" style="width:auto;">+ Add Category</button>
@@ -73,8 +76,7 @@
             </form>
             </div>
         </details>
-
-        <details class="card">
+<details class="card" id="carry-verification">
             <summary>
                 <div class="card-head-text">
                 <h3><span class="card-icon">🛡️</span> RoVer Badge Ticket Verification</h3>
@@ -99,8 +101,10 @@
                 </form>
                 <div style="margin-top:10px;">
                     {% if ticket_badge_config.blocked_badges %}
-                        {% for badge_id in ticket_badge_config.blocked_badges %}
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--raised-2);border:1px solid var(--border);padding:9px 10px;border-radius:6px;margin-top:6px;">
+                        {{ bulk_toolbar('blocked-badges', 'carry-verification', 'blocked badges', url_for('bulk_remove_ticket_badges_route')) }}
+{% for badge_id in ticket_badge_config.blocked_badges %}
+                        <div class="bulk-config-row" style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--raised-2);border:1px solid var(--border);padding:9px 10px;border-radius:6px;margin-top:6px;">
+                            {{ bulk_checkbox('blocked-badges', badge_id, badge_id) }}
                             <span><strong>Badge ID:</strong> {{ badge_id }}</span>
                             <form action="/dashboard/ticket-badge/remove/{{ badge_id }}" method="POST" style="margin:0;">
                                 <button type="submit" style="background:var(--danger);color:white;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;">Remove</button>
@@ -114,8 +118,9 @@
             </div>
             </div>
         </details>
-
-        <details class="card">
+</section>
+<section class="settings-group" id="carry-messages"><h2 class="settings-group-title">Ticket messages</h2>
+<details class="card" id="carry-redirect">
             <summary>
                 <div class="card-head-text">
                 <h3><span class="card-icon">📨</span> "Ticket Created" Redirect Message</h3>
@@ -136,8 +141,7 @@
             </form>
             </div>
         </details>
-
-        <details class="card">
+<details class="card" id="carry-welcome">
             <summary>
                 <div class="card-head-text">
                 <h3><span class="card-icon">💬</span> Ticket-Channel Welcome Message</h3>
@@ -217,8 +221,9 @@
             </form>
             </div>
         </details>
-
-        <details class="card">
+</section>
+<section class="settings-group" id="carry-publishing"><h2 class="settings-group-title">Panels and announcements</h2>
+<details class="card" id="carry-panel">
             <summary>
                 <div class="card-head-text">
                 <h3><span class="card-icon">🚀</span> Advanced Carry Ticket Panel Builder</h3>
@@ -274,6 +279,13 @@
             </form>
             </div>
         </details>
+
+        {% if is_admin_user %}
+        {% include 'dashboard_pages/_ad_gag_settings.html' %}
+        {% endif %}
+
+
+</section>
         {% else %}
         <div class="card">
             <h3><span class="card-icon">🔒</span> Restricted</h3>

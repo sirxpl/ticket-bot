@@ -77,9 +77,12 @@ async def send_ticket_log(bot, action, **fields):
     channel, if one is set. Silently does nothing if no channel is configured
     or the bot can't find/post to it."""
     try:
-        from utils.access import get_log_channel_id
+        from utils.dashboard_settings import get_ticket_logging_config
 
-        channel_id = get_log_channel_id()
+        config = get_ticket_logging_config()
+        if not config["enabled"] or action not in config["events"]:
+            return
+        channel_id = config["log_channel_id"]
         if not channel_id:
             return
         channel = bot.get_channel(int(channel_id))
@@ -90,17 +93,21 @@ async def send_ticket_log(bot, action, **fields):
             "opened": discord.Color.green(),
             "closed": discord.Color.red(),
             "renamed": discord.Color.blurple(),
+            "ticket_started": discord.Color.orange(),
+            "ticket_finished": discord.Color.green(),
         }
         titles = {
             "opened": "🎫 Ticket Opened",
             "closed": "🔒 Ticket Closed",
             "renamed": "📝 Ticket Renamed",
+            "ticket_started": "🔒 Ticket Work Started",
+            "ticket_finished": "✅ Ticket Work Finished",
         }
 
         embed = discord.Embed(
             title=titles.get(action, action.title()),
             color=colors.get(action, discord.Color.greyple()),
-            timestamp=datetime.datetime.utcnow(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
         )
         for key, value in fields.items():
             if value is not None:
@@ -1742,9 +1749,13 @@ class TicketsCog(commands.Cog):
         append_ticket_log({
             "ticket_id": str(interaction.channel.id),
             "action": "ticket_started",
+            "ticket_name": interaction.channel.name,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
         })
+
+        await send_ticket_log(self.bot, "ticket_started", ticket=interaction.channel.mention,
+                              started_by=f"{interaction.user} ({interaction.user.id})")
 
     @app_commands.command(
         name="end-ticket",
@@ -1785,9 +1796,13 @@ class TicketsCog(commands.Cog):
         append_ticket_log({
             "ticket_id": str(interaction.channel.id),
             "action": "ticket_finished",
+            "ticket_name": interaction.channel.name,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
         })
+
+        await send_ticket_log(self.bot, "ticket_finished", ticket=interaction.channel.mention,
+                              finished_by=f"{interaction.user} ({interaction.user.id})")
 
     # Slash Command: /autoclose — staff-only, toggles the 24h-inactivity
     # autoclose for this specific ticket on or off

@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carry Bot Control Panel</title>
+    {% if active_page in ['access-control','carry-settings','carry-applications','ticket-logs','trial-schedules'] %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard-settings.css') }}">
+    {% endif %}
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css"/>
     <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
@@ -1049,6 +1052,10 @@
         }
         .pb-toolbar button:hover{ border-color: var(--accent); }
     </style>
+    {% if active_page == 'carry-applications' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/carry-applications.css') }}">
+    <script src="{{ url_for('static', filename='js/carry-applications.js') }}" defer></script>
+    {% endif %}
 </head>
 <body>
 
@@ -1157,6 +1164,7 @@
 
                     <span class="nav-icon">📜</span><span class="nav-text">Transcripts</span></a>
                 {% endif %}
+                {% if user %}<a href="{{ url_for('home', page='ticket-logs') }}" class="nav-item{{ ' active' if active_page == 'ticket-logs' else '' }}" data-page="ticket-logs"><span class="nav-icon">📋</span><span class="nav-text">Ticket Logging</span></a>{% endif %}
             </div>
 
             {% if user %}
@@ -1170,11 +1178,16 @@
 
                     <span class="nav-icon">⚠️</span><span class="nav-text">Warnings</span></a>
                 {% endif %}
+
             </div>
 
-            {% if is_admin_user %}
-            <div class="nav-group">
-                <div class="nav-group-label">ADMIN PANEL</div>
+            {% if can_manage_carry_applications or (is_admin_user and can_access_carry_settings) %}
+            <div class="nav-group"><div class="nav-group-label">Carry team</div>
+                {% if can_manage_carry_applications %}
+                <a href="{{ url_for('home', page='carry-applications') }}" class="nav-item{{ ' active' if active_page == 'carry-applications' else '' }}" data-page="carry-applications">
+                    <span class="nav-icon">📋</span><span class="nav-text">Carry Team Application</span></a>
+                {% endif %}
+{% if is_admin_user %}
                 {% if can_access_carry_settings %}
                 <a href="{{ url_for('home', page='carry-settings') }}" class="nav-item{{ ' active' if active_page == 'carry-settings' else '' }}" data-page="carry-settings">
 
@@ -1183,6 +1196,13 @@
 
                     <span class="nav-icon">🗓️</span><span class="nav-text">Trial Schedules</span></a>
                 {% endif %}
+{% endif %}
+</div>
+{% endif %}
+            {% if is_admin_user %}
+            <div class="nav-group">
+                <div class="nav-group-label">ADMIN PANEL</div>
+
                 <a href="{{ url_for('home', page='warning-builder') }}" class="nav-item{{ ' active' if active_page == 'warning-builder' else '' }}" data-page="warnings">
 
                     <span class="nav-icon">⚠️</span><span class="nav-text">Warning Builder</span></a>
@@ -1236,12 +1256,16 @@
 {% include 'dashboard_pages/analytics.html' %}
 {% elif active_page == 'transcripts' %}
 {% include 'dashboard_pages/transcripts.html' %}
+{% elif active_page == 'ticket-logs' %}
+{% include 'dashboard_pages/ticket_logs.html' %}
 {% elif active_page == 'blacklists' %}
 {% include 'dashboard_pages/blacklists.html' %}
 {% elif active_page == 'warnings' %}
 {% include 'dashboard_pages/warning_records.html' %}
 {% elif active_page == 'carry-settings' %}
 {% include 'dashboard_pages/carry_settings.html' %}
+{% elif active_page == 'carry-applications' %}
+{% include 'dashboard_pages/carry_applications.html' %}
 {% elif active_page == 'trial-schedules' %}
 {% include 'dashboard_pages/trial_schedules.html' %}
 {% elif active_page == 'warning-builder' %}
@@ -1518,6 +1542,10 @@ let categoryCount = 0;
 
 function syncCategoryVariablesJson(form) {
     if (!form) return;
+    form.querySelectorAll('.cat-dropdown-enabled').forEach(checkbox => {
+        const hidden = checkbox.closest('.embed-field-row').querySelector('.cat-dropdown-value');
+        if (hidden) hidden.value = checkbox.checked ? 'true' : 'false';
+    });
     form.querySelectorAll('.cat-variables').forEach(textarea => {
         const obj = {};
         (textarea.value || '').split('\n').forEach(line => {
@@ -1532,12 +1560,33 @@ function syncCategoryVariablesJson(form) {
     });
 }
 
+let categorySaveQueue = Promise.resolve();
 function saveCategoriesNow() {
     const form = document.getElementById('categoriesForm');
     if (!form) return;
     syncCategoryVariablesJson(form);
-    fetch(form.action, { method: 'POST', body: new FormData(form) })
-        .catch(err => console.error('Auto-save failed:', err));
+    const data = new FormData(form);
+    const snapshot = window.DashboardUnsaved?.capture(form);
+    categorySaveQueue = categorySaveQueue.catch(() => {}).then(async () => {
+        const error = document.getElementById('category-bulk-error');
+        try {
+            const response = await fetch(form.action, {method: 'POST', body: data, headers: {'Accept': 'application/json'}});
+            if (!response.headers.get('content-type')?.includes('application/json')) throw Error('Your session could not save these changes. Reload and try again.');
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw Error(result.error || 'Categories could not be saved. Please retry.');
+            if (result.fully_saved) {
+                window.DashboardUnsaved?.markSaved(form, snapshot);
+                if (error) error.hidden = true;
+            } else if (error) {
+                error.textContent = 'Some blank or extra categories were not saved. Check the category labels and the 25-category limit.';
+                error.hidden = false;
+            }
+        } catch (failure) {
+            if (error) { error.textContent = failure.message; error.hidden = false; }
+            window.DashboardUnsaved?.refresh();
+        }
+    });
+    return categorySaveQueue;
 }
 
 function addNewCategoryRow() {
@@ -1551,11 +1600,14 @@ function removeCategoryRow(fieldId) {
 }
 
 function catRoleOptionsHtml() {
-    let html = '<option value="">Select a role...</option>';
+    const select = document.createElement('select');
+    const placeholder = document.createElement('option');
+    placeholder.value = ''; placeholder.textContent = 'Select a role...'; select.append(placeholder);
     ALL_ROLES.forEach(r => {
-        html += `<option value="${r.id}">@${r.name}</option>`;
+        const option = document.createElement('option');
+        option.value = r.id; option.textContent = `@${r.name}`; select.append(option);
     });
-    return html;
+    return select.innerHTML;
 }
 
 function addCatBlacklistRole(btn) {
@@ -1579,7 +1631,12 @@ function addCatBlacklistChip(row, roleId, roleName) {
 
     const chip = document.createElement('div');
     chip.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:var(--raised-2); padding:6px 10px; border-radius:4px; margin-top:6px;";
-    chip.innerHTML = `<span>@${roleName}</span>`;
+    const chosen = document.createElement('input');
+    chosen.type = 'checkbox'; chosen.className = 'category-chip-check'; chosen.value = roleId;
+    chosen.dataset.chipKind = 'roles'; chosen.dataset.unsavedIgnore = '';
+    chosen.setAttribute('aria-label', `Select role ${roleName}`);
+    const text = document.createElement('span'); text.className = 'category-chip-text'; text.textContent = `@${roleName}`;
+    chip.append(chosen, text);
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.textContent = 'Remove';
@@ -1614,7 +1671,12 @@ function addCatBadge(button, badgeIdOverride) {
     hidden.value = ids.join(',');
     const chip = document.createElement('div');
     chip.style.cssText = "display:flex;justify-content:space-between;align-items:center;background:var(--raised-2);padding:6px 10px;border-radius:4px;margin-top:6px;";
-    chip.innerHTML = `<span>🎖️ ${value}</span>`;
+    const chosen = document.createElement('input');
+    chosen.type = 'checkbox'; chosen.className = 'category-chip-check'; chosen.value = value;
+    chosen.dataset.chipKind = 'badges'; chosen.dataset.unsavedIgnore = '';
+    chosen.setAttribute('aria-label', `Select badge ${value}`);
+    const text = document.createElement('span'); text.className = 'category-chip-text'; text.textContent = `Badge ${value}`;
+    chip.append(chosen, text);
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
     removeBtn.textContent = 'Remove';
@@ -1641,7 +1703,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
 
     row.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <strong>Category #${categoryCount}</strong>
+            <label style="display:flex;align-items:center;gap:8px;margin:0;"><input type="checkbox" class="category-bulk-check" data-unsaved-ignore aria-label="Select category ${categoryCount}"><strong>Category #${categoryCount}</strong></label>
             <button type="button" onclick="removeCategoryRow('category_${categoryCount}')" style="background:var(--danger);color:white;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;">Remove</button>
         </div>
         <div style="display:grid;grid-template-columns:60px 1fr 1fr;gap:6px;">
@@ -1650,7 +1712,8 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
             <input type="text" name="cat_description" placeholder="Description" maxlength="100" style="padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
         </div>
         <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;">
-            <input type="checkbox" class="cat-dropdown-enabled" name="cat_dropdown_enabled" value="true" ${dropdownEnabled !== false ? 'checked' : ''} style="width:auto;">
+            <input type="checkbox" class="cat-dropdown-enabled" value="true" ${dropdownEnabled !== false ? 'checked' : ''} style="width:auto;">
+            <input type="hidden" class="cat-dropdown-value" name="cat_dropdown_enabled" value="${dropdownEnabled !== false ? 'true' : 'false'}">
             <strong>Enabled in dropdowns</strong>
         </label>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
@@ -1662,10 +1725,11 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
             <strong style="font-size:.9em;">Blacklist Roles</strong>
             <div style="display:flex;gap:8px;">
-                <select class="cat-blacklist-select" style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">${catRoleOptionsHtml()}</select>
+                <select class="cat-blacklist-select" data-unsaved-ignore style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">${catRoleOptionsHtml()}</select>
                 <button type="button" onclick="addCatBlacklistRole(this)" style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">+ Add</button>
             </div>
             <div class="cat-blacklist-list"></div>
+            <div class="category-chip-heading"><span></span><button type="button" class="btn-danger" data-remove-category-chips="roles">Remove selected roles</button></div>
             <input type="hidden" name="cat_blacklist_roles" class="cat-blacklist-hidden" value="">
         </div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
@@ -1680,10 +1744,11 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
                 <strong style="font-size:.9em;">🎖️ Roblox Badge IDs for this ticket type</strong>
                 <p style="color:var(--text-dim);font-size:.82em;margin:4px 0;">Add badge IDs used by this category. In <strong>Enable</strong> mode, the member must own at least one. In <strong>Block</strong> mode, owning any listed badge blocks the ticket.</p>
                 <div style="display:flex;gap:8px;">
-                    <input type="text" class="cat-badge-input" inputmode="numeric" pattern="[0-9]*" placeholder="Roblox Badge ID" style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
+                    <input type="text" class="cat-badge-input" data-unsaved-ignore inputmode="numeric" pattern="[0-9]*" placeholder="Roblox Badge ID" style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">
                     <button type="button" onclick="addCatBadge(this)" style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">+ Add</button>
                 </div>
                 <div class="cat-badge-list" style="margin-top:6px;"></div>
+                <div class="category-chip-heading"><span></span><button type="button" class="btn-danger" data-remove-category-chips="badges">Remove selected badges</button></div>
                 <input type="hidden" name="cat_badge_ids" class="cat-badge-hidden" value="">
             </div>
         </div>
@@ -2194,5 +2259,10 @@ async function copyTextById(inputId, button) {
 }
 </script>
 
+{% if user and active_page in ['access-control','carry-settings','carry-applications','ticket-logs','trial-schedules'] %}
+<div id="dashboard-unsaved-notice" class="unsaved-notice" role="status" aria-live="polite" hidden><span class="unsaved-notice-dot" aria-hidden="true"></span><div><strong>You have unsaved changes.</strong><small>Save each edited section when you’re ready.</small></div></div>
+<script src="{{ url_for('static', filename='js/dashboard-settings.js') }}" defer></script>
+{% endif %}
 </body>
 </html>
+

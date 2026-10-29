@@ -1,0 +1,43 @@
+<section class="page active" id="page-ticket-logs">
+    <div class="page-head"><h1>Ticket Logging</h1><p>Follow ticket activity and choose where the bot posts Discord logs.</p></div>
+    <nav class="settings-jump" aria-label="Ticket logging sections"><a href="#ticket-log-history">Activity history</a>{% if is_admin_user %}<a href="#ticket-log-delivery">Discord delivery</a>{% endif %}<a href="{{ url_for('home', page='transcripts') }}">Transcripts</a></nav>
+    {% if is_admin_user %}
+    <details class="card" id="ticket-log-delivery">
+        <summary><div class="card-head-text"><h3>Discord delivery settings</h3><p class="card-subtitle">Ticket events, blacklist logs, and warning logs.</p></div><span class="card-chevron">▾</span></summary>
+        <div class="card-body">
+        <form method="post" action="{{ url_for('save_ticket_logging_route') }}">
+            <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+            <div class="ticket-log-grid">
+                <div><label for="ticket-logging-enabled">Ticket event delivery</label><select id="ticket-logging-enabled" name="logging_enabled"><option value="yes" {% if ticket_logging.enabled %}selected{% endif %}>Enabled</option><option value="no" {% if not ticket_logging.enabled %}selected{% endif %}>Paused</option></select></div>
+                {% for field, label in [('log_channel_id','Ticket activity channel'),('blacklist_log_channel_id','Blacklist log channel'),('warning_log_channel_id','Warning log channel')] %}
+                <div><label for="logging-{{ field }}">{{ label }}</label><select id="logging-{{ field }}" name="{{ field }}"><option value="">None (disabled)</option>{% if ticket_logging[field] and ticket_logging[field]|string not in channels|map(attribute='id')|map('string')|list %}<option value="{{ ticket_logging[field] }}" selected>Saved channel · {{ ticket_logging[field] }}</option>{% endif %}{% for channel in channels %}<option value="{{ channel.id }}" {% if ticket_logging[field] and ticket_logging[field]|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>{% endfor %}</select></div>
+                {% endfor %}
+            </div>
+            <p class="card-subtitle">Choose which ticket events are posted to the ticket activity channel. Pausing Discord delivery keeps the saved activity history below. Blacklist and warning channels keep their separate controls.</p>
+            <div class="ticket-log-events">{% for key, label in ticket_delivery_events.items() %}<label><input type="checkbox" name="log_events" value="{{ key }}" {% if key in ticket_logging.events %}checked{% endif %}>{{ label }}</label>{% endfor %}</div>
+            <button type="submit" class="btn-view">Save logging settings</button>
+        </form>
+        </div>
+    </details>
+    {% endif %}
+    <div class="card settings-group" id="ticket-log-history">
+        <h3>Activity history</h3><p class="card-subtitle">{{ ticket_log_records.total }} matching event{{ '' if ticket_log_records.total == 1 else 's' }} · Newest recorded first · Up to 50 per page</p>
+        <form class="ticket-log-filters" method="get" action="{{ url_for('home', page='ticket-logs') }}" data-unsaved-ignore>
+            <div><label for="ticket-log-query">Search ticket ID, member, or reason</label><input id="ticket-log-query" name="log_query" type="search" value="{{ ticket_log_query }}" maxlength="100" placeholder="Ticket ID, name, or reason…"></div>
+            <div><label for="ticket-log-action">Event</label><select id="ticket-log-action" name="log_action"><option value="">All events</option>{% for key, label in ticket_log_actions.items() %}<option value="{{ key }}" {% if ticket_log_action == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+            <button type="submit" class="btn-view">Filter history</button>
+        </form>
+        {% for log in ticket_log_records['items'] %}
+        <article class="ticket-log-entry">
+            <div class="ticket-log-entry-head"><span class="ticket-log-event ticket-log-event-{{ log.action }}">{{ log.action_label }}</span><time>{{ log.time_label }}</time></div>
+            <h3>{{ log.ticket_name or log.new_name or ('Ticket ' ~ log.ticket_id) }}</h3>
+            <p><strong>{{ log.display_actor.name or log.display_actor.id or 'System' }}</strong>{% if log.display_actor.id %} · {{ log.display_actor.id }}{% endif %} · Ticket ID {{ log.ticket_id }}</p>
+            {% if log.reason %}<p class="ticket-log-reason">{{ log.reason }}</p>{% endif %}
+            {% if log.old_name and log.new_name %}<p>{{ log.old_name }} → {{ log.new_name }}</p>{% endif %}
+            {% if log.error %}<p class="ticket-log-reason">{{ log.error }}</p>{% endif %}
+            <div class="ticket-log-entry-links"><a href="{{ url_for('home', page='ticket-logs', log_query=log.ticket_id) }}">View this ticket’s history</a>{% if log.transcript_file and can_access_transcripts %}<a href="{{ url_for('get_transcript', filename=log.transcript_file) }}" target="_blank" rel="noopener">Open transcript ↗</a>{% endif %}</div>
+        </article>
+        {% else %}<p class="card-subtitle">No ticket events match these filters. New ticket activity will appear here.</p>{% endfor %}
+        <nav class="ticket-log-pagination" aria-label="Ticket history pages">{% if ticket_log_records.page > 1 %}<a href="{{ url_for('home', page='ticket-logs', log_query=ticket_log_query, log_action=ticket_log_action, log_page=ticket_log_records.page-1) }}">← Previous</a>{% endif %}<span>Page {{ ticket_log_records.page }} of {{ ticket_log_records.pages }}</span>{% if ticket_log_records.page < ticket_log_records.pages %}<a href="{{ url_for('home', page='ticket-logs', log_query=ticket_log_query, log_action=ticket_log_action, log_page=ticket_log_records.page+1) }}">Next →</a>{% endif %}</nav>
+    </div>
+</section>

@@ -22,12 +22,18 @@
   {% endfor %}
   {% if application.status != "pending" %}
     <div class="card">
-      <h2>{{ application.status|title }} by {{ application.decided_by }}</h2>
+      {% if application.status == 'removed' %}
+      <h2>Acceptance removed</h2>
+      <p class="meta">Removed by {{ application.removed_by }} on {{ application.removed_at }}. The member may reapply when responses are open. The original decision and response are retained below.</p>
+      {% endif %}
+      <h2>{{ 'Originally accepted' if application.status == 'removed' else application.status|title }} by {{ application.decided_by }}</h2>
       <p>{{ application.decision_reason }}</p>
       <p class="meta">Decision time: {{ application.decided_at }}</p>
+      {% if application.cooldown_cleared_at %}<p class="meta">Denial cooldown cleared by {{ application.cooldown_cleared_by }} on {{ application.cooldown_cleared_at }}.</p>{% endif %}
     </div>
   {% else %}
     <div class="card"><p>This application is pending. Use its Accept or Deny controls in Discord to record a verdict and reason.</p></div>
   {% endif %}
 </main></body>
 </html>
+

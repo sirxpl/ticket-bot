@@ -1,10 +1,13 @@
+{% from 'dashboard_pages/_bulk_controls.html' import bulk_toolbar, bulk_checkbox with context %}
 <section class="page active" id="page-access">
         <div class="page-head">
             <h1>Access Control</h1>
             <p>Decide who can reach each part of this control panel.</p>
         </div>
         {% if is_admin_user %}
-        <details class="card" id="access-overview">
+        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-operations">Logging and operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
+<section class="settings-group" id="access-dashboard"><h2 class="settings-group-title">Dashboard access</h2>
+<details class="card" id="access-overview">
             <summary>
                 <div class="card-head-text">
                     <h3><span class="card-icon">🔐</span> Dashboard Access Overview</h3>
@@ -20,12 +23,714 @@
 
             </div>
         </details>
+<details class="card" id="access-allowed-users">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Allowed Users</h3>
 
-        <details class="card" id="access-bot-offline-schedule">
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<form action="/dashboard/access/add-user" method="POST" class="access-form">
+                <div>
+                    <label>Discord User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('allowed_users', 'access-allowed-users', 'allowed users') }}
+{% for u in allowed_users %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('allowed_users', u.id, u.id) }}
+                    <span><strong>{{ u.name or 'Unknown user' }}</strong> ({{ u.id }})</span>
+                    <form action="/dashboard/access/remove-user/{{ u.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No users added yet.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-allowed-roles">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Allowed Roles</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<form action="/dashboard/access/add-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('allowed_roles', 'access-allowed-roles', 'allowed roles') }}
+{% for r in allowed_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('allowed_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-configured-admins">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">🛡️</span> Configured Bot Admin IDs</h3>
+                    <p class="card-subtitle">Read-only. These IDs are set using the ADMIN_USER_IDS environment variable.</p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+                {% for admin_id in admin_ids %}
+                    <code style="display:inline-block;margin:0 8px 8px 0;">{{ admin_id }}</code>
+                {% else %}
+                    <p class="card-subtitle">No admin IDs configured.</p>
+                {% endfor %}
+            </div>
+        </details>
+</section>
+<section class="settings-group" id="access-carry-team"><h2 class="settings-group-title">Carry team</h2>
+<details class="card" id="access-carry-manager-settings-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Carry Manager Settings Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Only members with one of these roles (or admins) can view and use the Carry Manager Settings page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-carry-manager-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('carry_manager_roles', 'access-carry-manager-settings-access', 'carry manager roles') }}
+{% for r in carry_manager_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('carry_manager_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-carry-manager-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can use Carry Manager Settings.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-carry-team-application-verdict-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Carry Team Application Verdict Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Members with these roles can accept or deny applications from the Discord review card. A reason is required for every verdict. Administrators always have access; if no roles are configured, only administrators can decide.
+            </p>
+            <form action="/dashboard/access/add-carry-application-verdict-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('carry_application_verdict_roles', 'access-carry-team-application-verdict-access', 'carry application verdict roles') }}
+{% for r in carry_application_verdict_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('carry_application_verdict_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-carry-application-verdict-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No verdict roles configured.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-carry-team-application-notifications">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Carry Team Application Notifications</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                The portal is <a href="{{ url_for('carry_application', _external=True) }}" target="_blank" rel="noopener">available here</a>. Bot delivery posts the review card directly. Webhook delivery posts the result through your webhook and the bot adds a separate interactive verdict card in the same channel. Verdict controls are disabled after a decision while the response remains viewable.
+            </p>
+            <p class="card-subtitle">
+                For applications, verdicts, and cooldowns to survive redeploys, configure <code>MONGODB_URI</code>. Local JSON fallback may be erased by the hosting provider.
+            </p>
+            <form action="/dashboard/access/carry-application-delivery" method="POST" class="access-form" style="display:block;">
+                <div style="margin-bottom:12px;">
+                    <label>Notification method:</label>
+                    <select name="delivery_mode" required>
+                        <option value="bot" {% if carry_application_delivery.mode == 'bot' %}selected{% endif %}>Bot</option>
+                        <option value="webhook" {% if carry_application_delivery.mode == 'webhook' %}selected{% endif %}>Webhook + bot verdict card</option>
+                    </select>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label>Bot review channel:</label>
+                    <select name="channel_id">
+                        <option value="">Select a text channel...</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if carry_application_delivery.channel_id and carry_application_delivery.channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label>Discord webhook URL:</label>
+                    <input type="password" name="webhook_url" autocomplete="new-password" placeholder="{{ 'Webhook already saved; leave blank to keep it' if carry_application_delivery.webhook_configured else 'https://discord.com/api/webhooks/...' }}">
+                    {% if carry_application_delivery.webhook_configured %}
+                        <p class="card-subtitle">A webhook URL is saved and hidden. Paste a replacement to change it.</p>
+                        <label style="display:flex;gap:8px;align-items:center;font-weight:400;">
+                            <input type="checkbox" name="clear_webhook" value="yes"> Clear the saved webhook URL
+                        </label>
+                    {% endif %}
+                </div>
+                <button type="submit" class="btn-view">Save Application Settings</button>
+            </form>
+
+            </div>
+        </details>
+</section>
+<section class="settings-group" id="access-ticket-permissions"><h2 class="settings-group-title">Ticket and page permissions</h2>
+<details class="card" id="access-ticket-viewer-roles">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Ticket Viewer Roles</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Roles added here can see and chat in every ticket, with permission to send embeds and attachments. This is separate from the single Support Role set on the panel — add as many as you need.
+            </p>
+            <form action="/dashboard/access/add-viewer-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('ticket_viewer_roles', 'access-ticket-viewer-roles', 'ticket viewer roles') }}
+{% for r in ticket_viewer_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('ticket_viewer_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-viewer-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No ticket viewer roles added yet.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-transcripts-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Transcripts Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Only members with one of these roles (or admins) can view the Transcripts page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-transcripts-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('transcripts_roles', 'access-transcripts-access', 'transcripts roles') }}
+{% for r in transcripts_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('transcripts_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-transcripts-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Transcripts.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-analytics-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Analytics Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Only members with one of these roles (or admins) can view the Analytics page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-analytics-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('analytics_roles', 'access-analytics-access', 'analytics roles') }}
+{% for r in analytics_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('analytics_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-analytics-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Analytics.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-remove-cooldown-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Remove Cooldown Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Only members with one of these roles (or admins) can see and use the "Remove Cooldown" button on the Overview page. Leave empty to allow anyone with dashboard access.
+            </p>
+            <form action="/dashboard/access/add-remove-cooldown-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('remove_cooldown_roles', 'access-remove-cooldown-access', 'remove cooldown roles') }}
+{% for r in remove_cooldown_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('remove_cooldown_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-remove-cooldown-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can remove cooldowns.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-ticket-blacklist-role">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Ticket Blacklist Role</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Members holding any of these roles are blocked from creating new tickets. Add another role below to blacklist more than one.
+            </p>
+            <form action="/dashboard/access/add-blacklist-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('blacklist_roles', 'access-ticket-blacklist-role', 'blacklist roles') }}
+{% for r in blacklist_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('blacklist_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-blacklist-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No ticket blacklist roles added yet.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-message-pinning-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Message Pinning Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Members with one of these roles can use the bot's pin command. Administrators always have access.
+            </p>
+            <form action="/dashboard/access/add-pin-message-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('pin_message_roles', 'access-message-pinning-access', 'pin message roles') }}
+{% for r in pin_message_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('pin_message_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-pin-message-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles configured — only administrators can pin through the bot.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+</section>
+<section class="settings-group" id="access-commands"><h2 class="settings-group-title">Command permissions</h2>
+<details class="card" id="access-basic-command-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Basic Command Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Controls who can use <code>/close</code>, <code>/requestclose</code>, <code>/autoclose</code>, <code>/add</code>, <code>/remove</code>, and <code>/rename</code> — on top of the normal Manage Channels requirement. These stay open to anyone with Manage Channels until you add a role or user ID here; once configured, only matching roles/users (or admins) can use them.
+            </p>
+            <form action="/dashboard/access/add-basic-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('basic_command_roles', 'access-basic-command-access', 'basic command roles') }}
+{% for r in basic_command_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('basic_command_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-basic-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-basic-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('basic_command_users', 'access-basic-command-access', 'basic command users') }}
+{% for uid in basic_command_users %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('basic_command_users', uid, uid) }}
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-basic-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-powerful-command-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Powerful Command Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Controls who can use <code>/move</code>, <code>/ticketnumber</code>, <code>/addticketblacklist</code>, and <code>/removeticketblacklist</code> — on top of the normal Manage Channels requirement for the first two. <code>/addticketblacklist</code> and <code>/removeticketblacklist</code> stay admin-only until you add a role or user ID here; <code>/move</code>/<code>/ticketnumber</code> stay open to anyone with Manage Channels until configured.
+            </p>
+            <form action="/dashboard/access/add-powerful-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('powerful_command_roles', 'access-powerful-command-access', 'powerful command roles') }}
+{% for r in powerful_command_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('powerful_command_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-powerful-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-powerful-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('powerful_command_users', 'access-powerful-command-access', 'powerful command users') }}
+{% for uid in powerful_command_users %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('powerful_command_users', uid, uid) }}
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-powerful-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+<details class="card" id="access-moderation-command-access">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Moderation Command Access</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Controls who can use <code>/w1</code>, <code>/w2</code>, <code>/w3</code>, and <code>/unwarn</code>. These stay open to <strong>everyone</strong> in the server until you add at least one role or user ID here — once configured, only matching roles/users (and admins) can issue or revoke warnings.
+            </p>
+            <form action="/dashboard/access/add-moderation-command-role" method="POST" class="access-form">
+                <div>
+                    <label>Role:</label>
+                    <select name="role_id" required>
+                        <option value="">Select a role...</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('moderation_command_roles', 'access-moderation-command-access', 'moderation command roles') }}
+{% for r in moderation_command_roles %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('moderation_command_roles', r.id, r.id) }}
+                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
+                    <form action="/dashboard/access/remove-moderation-command-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No roles added yet — anyone can currently use /w1, /w2, /w3, and /unwarn.</p>
+            {% endfor %}
+
+            <form action="/dashboard/access/add-moderation-command-user" method="POST" class="access-form" style="margin-top: 10px;">
+                <div>
+                    <label>User ID:</label>
+                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
+                </div>
+                <button type="submit" class="btn-view">+ Add</button>
+            </form>
+            {{ bulk_toolbar('moderation_command_users', 'access-moderation-command-access', 'moderation command users') }}
+{% for uid in moderation_command_users %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('moderation_command_users', uid, uid) }}
+                    <span><strong>User ID:</strong> {{ uid }}</span>
+                    <form action="/dashboard/access/remove-moderation-command-user/{{ uid }}" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-danger">Remove</button>
+                    </form>
+                </div>
+            {% else %}
+                <p style="color: var(--text-dim);">No user IDs added yet.</p>
+            {% endfor %}
+
+            </div>
+        </details>
+</section>
+<section class="settings-group" id="access-operations"><h2 class="settings-group-title">Logging and operations</h2>
+<p class="card-subtitle"><a href="{{ url_for('home', page='ticket-logs') }}">Open Ticket Logging</a> to browse activity, choose ticket event types, and manage Discord delivery.</p>
+<details class="card" id="access-ticket-activity-log-channel">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Ticket Activity Log Channel</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">Selected ticket events are posted here when Discord delivery is enabled in Ticket Logging. Leave the channel unset to stop delivery.</p>
+            <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if log_channel_id and log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            </div>
+        </details>
+<details class="card" id="access-blacklist-log-channel">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Blacklist Log Channel</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-blacklist-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="blacklist_log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if blacklist_log_channel_id and blacklist_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            </div>
+        </details>
+<details class="card" id="access-warning-log-channel">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Warning Log Channel</h3>
+
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">Separate from the channels above — only /w1, /w2, /w3, and /unwarn post here. Leave unset to disable.</p>
+            <form action="/dashboard/access/set-warning-log-channel" method="POST" class="access-form">
+                <div>
+                    <label>Channel:</label>
+                    <select name="warning_log_channel_id">
+                        <option value="">None (disabled)</option>
+                        {% for channel in channels %}
+                            <option value="{{ channel.id }}" {% if warning_log_channel_id and warning_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn-view">Save</button>
+            </form>
+
+            </div>
+        </details>
+<details class="card" id="access-bot-offline-schedule">
             <summary>
                 <div class="card-head-text">
                     <h3><span class="card-icon">⚙️</span> 🕒 Bot Offline Schedule</h3>
-                    
+
                 </div>
                 <span class="card-chevron">▾</span>
             </summary>
@@ -102,12 +807,39 @@
 
             </div>
         </details>
+<details class="card" id="access-linked-roles-discord-connections">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">⚙️</span> Linked Roles (Discord Connections)</h3>
 
-        <details class="card" id="access-global-blocked-users">
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+<p class="card-subtitle">
+                Lets members verify by agreeing to the Rules &amp; Regulations through Discord's own Connections screen — the bot shows up under "Apps" just like other Linked Roles integrations. Needs no privileged intents at all.
+            </p>
+            <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; font-size: 0.88em; color: var(--text-dim);">
+                <strong style="color: var(--text);">One-time setup in the Discord Developer Portal:</strong>
+                <ol style="margin: 8px 0 0 18px; padding: 0;">
+                    <li>Click "Register Metadata" below (do this first)</li>
+                    <li>Bot → General Information → set <strong>Linked Roles Verification URL</strong> to:<br><code>{{ url_for('linked_role_start', _external=True) }}</code></li>
+                    <li>OAuth2 → add this redirect URL:<br><code>{{ url_for('linked_role_callback', _external=True) }}</code></li>
+                    <li>In your Discord server: Server Settings → Roles → pick a role → Links tab → add a requirement for "Agreed to Rules"</li>
+                </ol>
+            </div>
+            <form action="/dashboard/linked-role/register-metadata" method="POST">
+                <button type="submit" class="btn-view">Register Metadata</button>
+            </form>
+            </div>
+        </details>
+</section>
+<section class="settings-group" id="access-restrictions"><h2 class="settings-group-title">Restrictions and recovery</h2>
+<details class="card" id="access-global-blocked-users">
             <summary>
                 <div class="card-head-text">
                     <h3><span class="card-icon">⚙️</span> Global Blocked Users</h3>
-                    
+
                 </div>
                 <span class="card-chevron">▾</span>
             </summary>
@@ -122,8 +854,10 @@
                 </div>
                 <button type="submit" class="btn-danger">Block User</button>
             </form>
-            {% for blocked_id in globally_blocked_users %}
-                <div class="list-item">
+            {{ bulk_toolbar('globally_blocked_users', 'access-global-blocked-users', 'globally blocked users') }}
+{% for blocked_id in globally_blocked_users %}
+                <div class="list-item bulk-config-row">
+                    {{ bulk_checkbox('globally_blocked_users', blocked_id, blocked_id) }}
                     <span><strong>User ID:</strong> {{ blocked_id }}</span>
                     <form action="/dashboard/access/remove-global-block/{{ blocked_id }}" method="POST" style="margin:0;">
                         <button type="submit" class="btn-view">Unblock</button>
@@ -135,12 +869,11 @@
 
             </div>
         </details>
-
-        <details class="card" id="access-generate-terms-unblock-link">
+<details class="card" id="access-generate-terms-unblock-link">
             <summary>
                 <div class="card-head-text">
                     <h3><span class="card-icon">⚙️</span> Generate Terms Unblock Link</h3>
-                    
+
                 </div>
                 <span class="card-chevron">▾</span>
             </summary>
@@ -174,12 +907,11 @@
 
             </div>
         </details>
-
-        <details class="card" id="access-active-single-use-links">
+<details class="card" id="access-active-single-use-links">
             <summary>
                 <div class="card-head-text">
                     <h3><span class="card-icon">⚙️</span> Active Single-use Links</h3>
-                    
+
                 </div>
                 <span class="card-chevron">▾</span>
             </summary>
@@ -208,712 +940,7 @@
 
             </div>
         </details>
-
-        <details class="card" id="access-message-pinning-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Message Pinning Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Members with one of these roles can use the bot's pin command. Administrators always have access.
-            </p>
-            <form action="/dashboard/access/add-pin-message-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in pin_message_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-pin-message-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles configured — only administrators can pin through the bot.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-carry-team-application-verdict-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Carry Team Application Verdict Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Members with these roles can accept or deny applications from the Discord review card. A reason is required for every verdict. Administrators always have access; if no roles are configured, only administrators can decide.
-            </p>
-            <form action="/dashboard/access/add-carry-application-verdict-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in carry_application_verdict_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-carry-application-verdict-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No verdict roles configured.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-carry-team-application-notifications">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Carry Team Application Notifications</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                The portal is <a href="{{ url_for('carry_application', _external=True) }}" target="_blank" rel="noopener">available here</a>. Bot delivery posts the review card directly. Webhook delivery posts the result through your webhook and the bot adds a separate interactive verdict card in the same channel. Verdict controls are disabled after a decision while the response remains viewable.
-            </p>
-            <p class="card-subtitle">
-                For applications, verdicts, and cooldowns to survive redeploys, configure <code>MONGODB_URI</code>. Local JSON fallback may be erased by the hosting provider.
-            </p>
-            <form action="/dashboard/access/carry-application-delivery" method="POST" class="access-form" style="display:block;">
-                <div style="margin-bottom:12px;">
-                    <label>Notification method:</label>
-                    <select name="delivery_mode" required>
-                        <option value="bot" {% if carry_application_delivery.mode == 'bot' %}selected{% endif %}>Bot</option>
-                        <option value="webhook" {% if carry_application_delivery.mode == 'webhook' %}selected{% endif %}>Webhook + bot verdict card</option>
-                    </select>
-                </div>
-                <div style="margin-bottom:12px;">
-                    <label>Bot review channel:</label>
-                    <select name="channel_id">
-                        <option value="">Select a text channel...</option>
-                        {% for channel in channels %}
-                            <option value="{{ channel.id }}" {% if carry_application_delivery.channel_id and carry_application_delivery.channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div style="margin-bottom:12px;">
-                    <label>Discord webhook URL:</label>
-                    <input type="password" name="webhook_url" autocomplete="new-password" placeholder="{{ 'Webhook already saved; leave blank to keep it' if carry_application_delivery.webhook_configured else 'https://discord.com/api/webhooks/...' }}">
-                    {% if carry_application_delivery.webhook_configured %}
-                        <p class="card-subtitle">A webhook URL is saved and hidden. Paste a replacement to change it.</p>
-                        <label style="display:flex;gap:8px;align-items:center;font-weight:400;">
-                            <input type="checkbox" name="clear_webhook" value="yes"> Clear the saved webhook URL
-                        </label>
-                    {% endif %}
-                </div>
-                <button type="submit" class="btn-view">Save Application Settings</button>
-            </form>
-
-            </div>
-        </details>
-
-        <details class="card" id="access-allowed-users">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Allowed Users</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<form action="/dashboard/access/add-user" method="POST" class="access-form">
-                <div>
-                    <label>Discord User ID:</label>
-                    <input type="text" name="user_id" placeholder="e.g. 123456789012345678" required>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for u in allowed_users %}
-                <div class="list-item">
-                    <span><strong>{{ u.name or 'Unknown user' }}</strong> ({{ u.id }})</span>
-                    <form action="/dashboard/access/remove-user/{{ u.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No users added yet.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-allowed-roles">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Allowed Roles</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<form action="/dashboard/access/add-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in allowed_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-carry-manager-settings-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Carry Manager Settings Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Only members with one of these roles (or admins) can view and use the Carry Manager Settings page. Leave empty to allow anyone with dashboard access.
-            </p>
-            <form action="/dashboard/access/add-carry-manager-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in carry_manager_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-carry-manager-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can use Carry Manager Settings.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-transcripts-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Transcripts Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Only members with one of these roles (or admins) can view the Transcripts page. Leave empty to allow anyone with dashboard access.
-            </p>
-            <form action="/dashboard/access/add-transcripts-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in transcripts_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-transcripts-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Transcripts.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-analytics-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Analytics Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Only members with one of these roles (or admins) can view the Analytics page. Leave empty to allow anyone with dashboard access.
-            </p>
-            <form action="/dashboard/access/add-analytics-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in analytics_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-analytics-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can view Analytics.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-remove-cooldown-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Remove Cooldown Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Only members with one of these roles (or admins) can see and use the "Remove Cooldown" button on the Overview page. Leave empty to allow anyone with dashboard access.
-            </p>
-            <form action="/dashboard/access/add-remove-cooldown-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in remove_cooldown_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-remove-cooldown-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet — anyone with dashboard access can remove cooldowns.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-ticket-blacklist-role">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Ticket Blacklist Role</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Members holding any of these roles are blocked from creating new tickets. Add another role below to blacklist more than one.
-            </p>
-            <form action="/dashboard/access/add-blacklist-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in blacklist_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-blacklist-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No ticket blacklist roles added yet.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-ticket-viewer-roles">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Ticket Viewer Roles</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Roles added here can see and chat in every ticket, with permission to send embeds and attachments. This is separate from the single Support Role set on the panel — add as many as you need.
-            </p>
-            <form action="/dashboard/access/add-viewer-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in ticket_viewer_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-viewer-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No ticket viewer roles added yet.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-powerful-command-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Powerful Command Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Controls who can use <code>/move</code>, <code>/ticketnumber</code>, <code>/addticketblacklist</code>, and <code>/removeticketblacklist</code> — on top of the normal Manage Channels requirement for the first two. <code>/addticketblacklist</code> and <code>/removeticketblacklist</code> stay admin-only until you add a role or user ID here; <code>/move</code>/<code>/ticketnumber</code> stay open to anyone with Manage Channels until configured.
-            </p>
-            <form action="/dashboard/access/add-powerful-command-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in powerful_command_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-powerful-command-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet.</p>
-            {% endfor %}
-
-            <form action="/dashboard/access/add-powerful-command-user" method="POST" class="access-form" style="margin-top: 10px;">
-                <div>
-                    <label>User ID:</label>
-                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for uid in powerful_command_users %}
-                <div class="list-item">
-                    <span><strong>User ID:</strong> {{ uid }}</span>
-                    <form action="/dashboard/access/remove-powerful-command-user/{{ uid }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No user IDs added yet.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-moderation-command-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Moderation Command Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Controls who can use <code>/w1</code>, <code>/w2</code>, <code>/w3</code>, and <code>/unwarn</code>. These stay open to <strong>everyone</strong> in the server until you add at least one role or user ID here — once configured, only matching roles/users (and admins) can issue or revoke warnings.
-            </p>
-            <form action="/dashboard/access/add-moderation-command-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in moderation_command_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-moderation-command-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet — anyone can currently use /w1, /w2, /w3, and /unwarn.</p>
-            {% endfor %}
-
-            <form action="/dashboard/access/add-moderation-command-user" method="POST" class="access-form" style="margin-top: 10px;">
-                <div>
-                    <label>User ID:</label>
-                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for uid in moderation_command_users %}
-                <div class="list-item">
-                    <span><strong>User ID:</strong> {{ uid }}</span>
-                    <form action="/dashboard/access/remove-moderation-command-user/{{ uid }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No user IDs added yet.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-basic-command-access">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Basic Command Access</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Controls who can use <code>/close</code>, <code>/requestclose</code>, <code>/autoclose</code>, <code>/add</code>, <code>/remove</code>, and <code>/rename</code> — on top of the normal Manage Channels requirement. These stay open to anyone with Manage Channels until you add a role or user ID here; once configured, only matching roles/users (or admins) can use them.
-            </p>
-            <form action="/dashboard/access/add-basic-command-role" method="POST" class="access-form">
-                <div>
-                    <label>Role:</label>
-                    <select name="role_id" required>
-                        <option value="">Select a role...</option>
-                        {% for role in roles %}
-                            <option value="{{ role.id }}">@{{ role.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for r in basic_command_roles %}
-                <div class="list-item">
-                    <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
-                    <form action="/dashboard/access/remove-basic-command-role/{{ r.id }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No roles added yet.</p>
-            {% endfor %}
-
-            <form action="/dashboard/access/add-basic-command-user" method="POST" class="access-form" style="margin-top: 10px;">
-                <div>
-                    <label>User ID:</label>
-                    <input type="text" name="user_id" placeholder="e.g. 777341204047331348" required>
-                </div>
-                <button type="submit" class="btn-view">+ Add</button>
-            </form>
-            {% for uid in basic_command_users %}
-                <div class="list-item">
-                    <span><strong>User ID:</strong> {{ uid }}</span>
-                    <form action="/dashboard/access/remove-basic-command-user/{{ uid }}" method="POST" style="margin:0;">
-                        <button type="submit" class="btn-danger">Remove</button>
-                    </form>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No user IDs added yet.</p>
-            {% endfor %}
-
-            </div>
-        </details>
-
-        <details class="card" id="access-ticket-activity-log-channel">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Ticket Activity Log Channel</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">Opened and closed tickets get posted here. Leave unset to disable.</p>
-            <form action="/dashboard/access/set-log-channel" method="POST" class="access-form">
-                <div>
-                    <label>Channel:</label>
-                    <select name="log_channel_id">
-                        <option value="">None (disabled)</option>
-                        {% for channel in channels %}
-                            <option value="{{ channel.id }}" {% if log_channel_id and log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">Save</button>
-            </form>
-
-            </div>
-        </details>
-
-        <details class="card" id="access-blacklist-log-channel">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Blacklist Log Channel</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">Separate from the channel above — only /addticketblacklist and /removeticketblacklist post here. Leave unset to disable.</p>
-            <form action="/dashboard/access/set-blacklist-log-channel" method="POST" class="access-form">
-                <div>
-                    <label>Channel:</label>
-                    <select name="blacklist_log_channel_id">
-                        <option value="">None (disabled)</option>
-                        {% for channel in channels %}
-                            <option value="{{ channel.id }}" {% if blacklist_log_channel_id and blacklist_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">Save</button>
-            </form>
-
-            </div>
-        </details>
-
-        <details class="card" id="access-warning-log-channel">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Warning Log Channel</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">Separate from the channels above — only /w1, /w2, /w3, and /unwarn post here. Leave unset to disable.</p>
-            <form action="/dashboard/access/set-warning-log-channel" method="POST" class="access-form">
-                <div>
-                    <label>Channel:</label>
-                    <select name="warning_log_channel_id">
-                        <option value="">None (disabled)</option>
-                        {% for channel in channels %}
-                            <option value="{{ channel.id }}" {% if warning_log_channel_id and warning_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn-view">Save</button>
-            </form>
-
-            </div>
-        </details>
-
-        <details class="card" id="access-linked-roles-discord-connections">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Linked Roles (Discord Connections)</h3>
-                    
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-<p class="card-subtitle">
-                Lets members verify by agreeing to the Rules &amp; Regulations through Discord's own Connections screen — the bot shows up under "Apps" just like other Linked Roles integrations. Needs no privileged intents at all.
-            </p>
-            <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; font-size: 0.88em; color: var(--text-dim);">
-                <strong style="color: var(--text);">One-time setup in the Discord Developer Portal:</strong>
-                <ol style="margin: 8px 0 0 18px; padding: 0;">
-                    <li>Click "Register Metadata" below (do this first)</li>
-                    <li>Bot → General Information → set <strong>Linked Roles Verification URL</strong> to:<br><code>{{ url_for('linked_role_start', _external=True) }}</code></li>
-                    <li>OAuth2 → add this redirect URL:<br><code>{{ url_for('linked_role_callback', _external=True) }}</code></li>
-                    <li>In your Discord server: Server Settings → Roles → pick a role → Links tab → add a requirement for "Agreed to Rules"</li>
-                </ol>
-            </div>
-            <form action="/dashboard/linked-role/register-metadata" method="POST">
-                <button type="submit" class="btn-view">Register Metadata</button>
-            </form>
-            </div>
-        </details>
-        <details class="card">
-            <summary>
-                <div class="card-head-text">
-                    <h3><span class="card-icon">🛡️</span> Configured Bot Admin IDs</h3>
-                    <p class="card-subtitle">Read-only. These IDs are set using the ADMIN_USER_IDS environment variable.</p>
-                </div>
-                <span class="card-chevron">▾</span>
-            </summary>
-            <div class="card-body">
-                {% for admin_id in admin_ids %}
-                    <code style="display:inline-block;margin:0 8px 8px 0;">{{ admin_id }}</code>
-                {% else %}
-                    <p class="card-subtitle">No admin IDs configured.</p>
-                {% endfor %}
-            </div>
-        </details>
+</section>
 
         {% else %}
         <div class="card">
