@@ -16,6 +16,21 @@ Admins can run `/ticket-logging channel:#ticket-logs` in Discord to select a tex
 
 Admins configure Discord ticket delivery in Access Control → **Loggings** (also available on Ticket Logging). They choose channel targets, and opened/closed/renamed/work-started/work-finished events. Work commands retain their saved activity records and can also post to the selected Discord channel. Disabling this delivery leaves history intact. Blacklist and warning logging keep their separate channels.
 
+## Expanded Discord audit events
+
+Access Control → **Loggings** has a separate **Access audit delivery** switch, event checkboxes, and an **Access audit channel**. These settings also appear on Ticket Logging. Existing ticket-channel slash configuration preserves them.
+
+| Events | Discord destination |
+| --- | --- |
+| Ticket opened/closed/renamed, work started/ended, moved, member added/removed, autoclose changed | Ticket activity channel; ticket delivery switch and event checklist apply |
+| Member blacklisted/unblacklisted, expiry, configured blacklist-role changes, manual role changes, blacklist-denied ticket attempts | Blacklist channel → Access audit channel → Ticket activity channel; audit delivery switch and event checklist apply |
+| Global block/unblock, cooldown cleared, bulk access removal, unblock link created/revoked | Access audit channel → Ticket activity channel; audit delivery switch and event checklist apply |
+| Warnings | Existing Warning log channel |
+
+Each row uses the first configured destination, producing one post per event. Logs use Components V2 and suppress mentions. History is saved independently of Discord filters. If the bot is offline, dashboard changes remain in history; delivery is not queued for replay. A missing cached channel is fetched from Discord. The bot must be able to view and send messages in configured channels.
+
+Manual blacklist-role assignment/removal is observed through Guild Members intent. Its actor is labeled unavailable because a member update does not identify who changed the roles. Bot-driven assignments/removals retain the original command actor and suppress the matching gateway echo. Existing applied blacklist records are preserved.
+
 ## Unsaved changes
 
 The notice compares configuration controls against their loaded/saved values. Search/filter fields, immediate actions, and bulk selections are excluded. It has no click targets or overlay, uses `pointer-events: none`, leaves controls enabled, and never registers a blocking navigation/unload prompt.

@@ -1,5 +1,5 @@
 <section class="page active" id="page-ticket-logs">
-    <div class="page-head"><h1>Ticket Logging</h1><p>Follow ticket activity and choose where the bot posts Discord logs.</p></div>
+    <div class="page-head"><h1>Ticket Logging</h1><p>Follow ticket, blacklist, and access activity and choose where the bot posts Discord logs.</p></div>
     <nav class="settings-jump" aria-label="Ticket logging sections"><a href="#ticket-log-history">Activity history</a>{% if is_admin_user %}<a href="#ticket-log-delivery">Discord delivery</a>{% endif %}<a href="{{ url_for('home', page='transcripts') }}">Transcripts</a></nav>
     {% if is_admin_user %}
     {% set logging_section_id = 'ticket-log-delivery' %}
@@ -17,6 +17,10 @@
             <div class="ticket-log-entry-head"><span class="ticket-log-event ticket-log-event-{{ log.action }}">{{ log.action_label }}</span><time>{{ log.time_label }}</time></div>
             <h3>{{ log.ticket_name or log.new_name or ('Ticket ' ~ log.ticket_id) }}</h3>
             <p><strong>{{ log.display_actor.name or log.display_actor.id or 'System' }}</strong>{% if log.display_actor.id %} · {{ log.display_actor.id }}{% endif %} · Ticket ID {{ log.ticket_id }}</p>
+            {% if log.user_id %}<p>User ID {{ log.user_id }}</p>{% endif %}
+            {% if log.role_id %}<p>Role ID {{ log.role_id }}{% if log.name %} · {{ log.name }}{% endif %}</p>{% endif %}
+            {% if log.source %}<p>{{ log.source }}</p>{% endif %}
+            {% if log.removed_ids %}<p>Removed IDs: {{ log.removed_ids }}</p>{% endif %}
             {% if log.reason %}<p class="ticket-log-reason">{{ log.reason }}</p>{% endif %}
             {% if log.old_name and log.new_name %}<p>{{ log.old_name }} → {{ log.new_name }}</p>{% endif %}
             {% if log.error %}<p class="ticket-log-reason">{{ log.error }}</p>{% endif %}
