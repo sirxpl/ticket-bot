@@ -1615,7 +1615,7 @@ def home(page="overview"):
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
         blacklist_roles=blacklist_roles,
-        blacklist_types=blacklists.get_types() if page == "access-control" else [],
+        blacklist_types=blacklists.get_types(guild) if page == "access-control" else [],
         ticket_viewer_roles=ticket_viewer_roles,
         powerful_command_roles=powerful_command_roles,
         powerful_command_users=powerful_command_users,
@@ -2467,15 +2467,15 @@ def access_save_blacklist_types():
     if not _valid_carry_application_csrf():
         abort(400, "Your form expired. Reload Access Control and try again.")
     try:
-        names = ("blacklist_id", "blacklist_name", "blacklist_role", "blacklist_reason", "blacklist_scope")
+        names = ("blacklist_name", "blacklist_role", "blacklist_reason", "blacklist_scope")
         values = [request.form.getlist(name) for name in names]
         if len({len(items) for items in values}) != 1:
             raise ValueError("Incomplete blacklist fields. Reload and retry.")
         rows = []
-        for key, name, role, reason, scope in zip(*values):
+        for name, role, reason, scope in zip(*values):
             if scope not in {"all", "categories"}:
                 raise ValueError("Choose a valid blacklist scope.")
-            rows.append(dict(id=key, name=name, role_id=role, reason=reason, block_all=scope == "all"))
+            rows.append(dict(id=role, name=name, role_id=role, reason=reason, block_all=scope == "all"))
         blacklists.save_types(rows)
     except ValueError as error:
         flash(str(error), "danger")
@@ -2483,7 +2483,7 @@ def access_save_blacklist_types():
         app.logger.exception("Could not save blacklist types")
         flash("Blacklist settings could not be saved. Please retry.", "danger")
     else:
-        flash("Blacklist types saved. Existing blacklists keep their assigned roles and restrictions.", "success")
+        flash("Blacklist roles saved. Existing blacklists keep their assigned roles and restrictions.", "success")
     return redirect(url_for("home", page="access-control", _anchor="access-blacklist-types"))
 
 

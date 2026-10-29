@@ -10,7 +10,7 @@
                 <div><label for="logging-{{ field }}">{{ label }}</label><select id="logging-{{ field }}" name="{{ field }}"><option value="">None (disabled)</option>{% if ticket_logging[field] and ticket_logging[field]|string not in channels|map(attribute='id')|map('string')|list %}<option value="{{ ticket_logging[field] }}" selected>Saved channel · {{ ticket_logging[field] }}</option>{% endif %}{% for channel in channels %}<option value="{{ channel.id }}" {% if ticket_logging[field] and ticket_logging[field]|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>{% endfor %}</select></div>
                 {% endfor %}
             </div>
-            <p class="card-subtitle">Choose which ticket events are posted to the ticket activity channel. Pausing Discord delivery keeps the saved activity history below. Blacklist and warning channels keep their separate controls.</p>
+            <p class="card-subtitle">Select a Ticket activity channel above to post ticket logs to Discord, or use <code>/ticket-logging channel:#your-channel</code> in your server. Choose which ticket events are posted. Pausing Discord delivery keeps the saved activity history below. Blacklist and warning channels keep their separate controls.</p>
             <div class="ticket-log-events">{% for key, label in ticket_delivery_events.items() %}<label><input type="checkbox" name="log_events" value="{{ key }}" {% if key in ticket_logging.events %}checked{% endif %}>{{ label }}</label>{% endfor %}</div>
             <button type="submit" class="btn-view">Save logging settings</button>
         </form>

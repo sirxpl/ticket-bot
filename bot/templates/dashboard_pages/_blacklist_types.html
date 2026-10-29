@@ -2,9 +2,8 @@
 <fieldset class="blacklist-type-row">
     <legend>{{ entry.name if entry else 'New blacklist' }}</legend>
     <div class="ticket-log-grid">
-        <div><label>Blacklist ID<input name="blacklist_id" value="{{ entry.id if entry else '' }}" pattern="[a-z0-9_-]{1,40}" maxlength="40" placeholder="e.g. voidcore" required {% if entry %}readonly{% endif %}></label></div>
-        <div><label>Name<input name="blacklist_name" value="{{ entry.name if entry else '' }}" maxlength="80" placeholder="e.g. Voidcore" required></label></div>
-        <div><label>Assigned blacklist role<select name="blacklist_role"><option value="">No assigned role</option>
+        <div><label>Name<input name="blacklist_name" value="{{ entry.name if entry else '' }}" maxlength="80" placeholder="e.g. Carry restriction" required></label></div>
+        <div><label>Assigned blacklist role<select name="blacklist_role" required><option value="">Select a role...</option>
             {% if entry and entry.role_id and entry.role_id|string not in roles|map(attribute='id')|map('string')|list %}<option value="{{ entry.role_id }}" selected>Saved role · {{ entry.role_id }}</option>{% endif %}
             {% for role in roles %}<option value="{{ role.id }}" {% if entry and entry.role_id|string == role.id|string %}selected{% endif %}>{{ role.name }}</option>{% endfor %}
         </select></label></div>
@@ -15,15 +14,15 @@
 </fieldset>
 {% endmacro %}
 <details class="card" id="access-blacklist-types">
-    <summary><div class="card-head-text"><h3>Blacklist roles and types</h3><p class="card-subtitle">Named restrictions for Voidcore and other ticket types.</p></div><span class="card-chevron">▾</span></summary>
+    <summary><div class="card-head-text"><h3>Blacklist Roles</h3><p class="card-subtitle">Add the roles available to blacklist commands and ticket checks.</p></div><span class="card-chevron">▾</span></summary>
     <div class="card-body">
-        <p class="card-subtitle">Add a name, assigned role, and default reason for each blacklist. Select it in <code>/addticketblacklist</code>. For category restrictions, also add the same role to each affected category's blacklist roles in Carry Manager Settings. The bot needs Manage Roles and must be above the role.</p>
+        <p class="card-subtitle">Add a name, Discord role, and default reason for each restriction. Select that role in <code>/addticketblacklist</code>. No Regular or Voidcore presets are added. For category restrictions, also add the same role to each affected category's blacklist roles in Carry Manager Settings. The bot needs Manage Roles and must be above the role.</p>
         <p class="card-subtitle">Removing a field removes that choice for future commands. Existing member restrictions keep their original role and scope until removed or expired.</p>
         <form method="post" action="{{ url_for('access_save_blacklist_types') }}" id="blacklist-types-form">
             <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
             <div id="blacklist-type-fields">{% for entry in blacklist_types %}{{ blacklist_row(entry) }}{% endfor %}</div>
             <button type="button" class="btn-view" id="add-blacklist-type">Add blacklist field</button>
-            <button type="submit" class="btn-view">Save blacklist types</button>
+            <button type="submit" class="btn-view">Save blacklist roles</button>
             <p role="status" id="blacklist-fields-error" class="config-inline-error" hidden></p>
         </form>
         <template id="blacklist-type-template">{{ blacklist_row() }}</template>
