@@ -1,4 +1,5 @@
 import os
+import copy
 import json
 import hashlib
 import hmac
@@ -128,7 +129,7 @@ def get_access_settings():
     if db is not None:
         doc = db.access_control.find_one({"_id": "singleton"})
         if not doc:
-            return dict(_DEFAULTS)
+            return copy.deepcopy(_DEFAULTS)
         doc.setdefault("allowed_users", [])
         doc.setdefault("allowed_roles", [])
         doc.setdefault("log_channel_id", None)
@@ -160,7 +161,7 @@ def get_access_settings():
         return doc
 
     if not os.path.exists(ACCESS_FILE):
-        return dict(_DEFAULTS)
+        return copy.deepcopy(_DEFAULTS)
     try:
         with open(ACCESS_FILE, "r") as f:
             data = json.load(f)
@@ -194,7 +195,7 @@ def get_access_settings():
             g._dashboard_access_settings = data
         return data
     except Exception:
-        return dict(_DEFAULTS)
+        return copy.deepcopy(_DEFAULTS)
 
 
 def _save(data: dict):
@@ -1222,4 +1223,5 @@ def has_moderation_command_access(user_id: str, member_role_ids=None) -> bool:
 
     member_roles = {str(role_id) for role_id in (member_role_ids or [])}
     return bool(member_roles.intersection({str(role_id) for role_id in roles}))
+
 

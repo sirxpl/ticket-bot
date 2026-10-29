@@ -32,7 +32,7 @@ To run your own copy of this bot, fork the repository first rather than cloning 
 - **Components V2 panel builder** — build multi-embed panels with buttons, dropdowns, and dividers directly from the dashboard; buttons/dropdowns can filter by category tags or show every ticket type
 - **Editable ticket messages** — the "ticket created" redirect and the in-channel welcome message both support placeholders (`{user}`, `{category}`, `{timezone}`, etc.)
 - **Autoclose** — tickets warn at 12h of inactivity and close at 24h, or close immediately if the opener leaves the server; staff can override per-ticket with `/disableautoclose` / `/enableautoclose`
-- **Blacklist system** — block specific users or entire roles from opening tickets, with a separate "Voidcore" role-based blacklist type that restricts specific ticket categories instead of everything
+- **Blacklist roles** — configure named roles and reasons in Access Control, then choose a configured role in `/addticketblacklist`. Restrict all ticket types or only categories listing that role. Checks run before the form opens and again at submission; there are no built-in Regular/Voidcore choices.
 - **Tiered Access Control** — three independent permission tiers (Basic, Powerful, Dangerous commands) each with their own role/user allow-list, on top of Discord's own Manage Channels permission
 - **Web dashboard** — manage categories, panels, blacklists, transcripts, and access control from a browser; login is gated by Discord OAuth2
 - **Carry Team applications** — a Discord OAuth2-gated application portal with required rules agreement, staff review links, role-restricted Accept/Deny verdicts, DM notifications, and a configurable reapply cooldown after denial (14 days by default)
@@ -183,4 +183,5 @@ This bot stores Discord user IDs and role IDs (for blacklists, access control, a
 ## 📄 License
 
 Add your preferred license here (MIT, GPL, etc.) — none is currently specified.
+
 

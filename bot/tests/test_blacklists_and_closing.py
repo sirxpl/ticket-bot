@@ -59,7 +59,7 @@ class BlacklistChecks:
 
     def test_profile_validation_rejects_duplicates_and_category_scope_without_role(self):
         row = dict(id="x", name="Example", role_id="123", reason="Reason", block_all=False)
-        for rows in ([row, row], [{**row, "role_id": ""}], [{**row, "id": "$bad"}], [{**row, "reason": ""}], [row] * 26):
+        for rows in ([row, row], [{**row, "role_id": ""}], [{**row, "role_id": "$bad"}], [{**row, "reason": ""}], [row] * 26):
             with self.assertRaises(ValueError):
                 blacklists.save_types(rows)
 
@@ -93,6 +93,30 @@ class BlacklistChecks:
         with self.assertRaises(RuntimeError):
             blacklists.remove("123", expected_entry=saved)
         self.assertEqual(storage.get_blacklist_data()["blacklisted_users"][0]["role_id"], "666")
+
+    def test_no_presets_and_preexisting_flat_roles_supply_command_choices(self):
+        self.assertEqual(blacklists.get_types(), [])
+        access.add_blacklist_role("555")
+        self.assertEqual([row["role_id"] for row in blacklists.get_types()], ["555"])
+        # Old automatically seeded choices must not return when settings are read.
+        settings = access.get_access_settings()
+        settings["blacklist_types"] = [
+            dict(id="regular", name="Regular", role_id="", reason="Old", block_all=True),
+            dict(id="voidcore", name="Voidcore", role_id=blacklists.LEGACY_VOIDCORE_ROLE, reason="Old", block_all=False),
+            dict(id="custom", name="Custom", role_id="666", reason="Configured reason", block_all=False)]
+        access._save(settings)
+        self.assertEqual({row["role_id"] for row in blacklists.get_types()}, {"555", "666"})
+        member = SimpleNamespace(id=123, roles=[SimpleNamespace(id=666)])
+        self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": []}))
+        self.assertEqual(blacklists.restriction_reason(member, {"blacklist_roles": ["666"]}), "Configured reason")
+
+    def test_unified_editor_updates_roles_and_keeps_category_scopes_out_of_global_list(self):
+        access.add_blacklist_role("555")
+        blacklists.save_types([dict(name="Category ban", role_id="666", reason="Restricted", block_all=False)])
+        self.assertEqual(access.get_blacklist_role_ids(), [])
+        self.assertEqual(blacklists.get_types()[0]["role_id"], "666")
+        blacklists.save_types([])
+        self.assertEqual(blacklists.get_types(), [])
 
     def test_configured_database_outage_does_not_fall_back_to_ephemeral_blacklists(self):
         with patch.dict(os.environ, {"MONGODB_URI": "mongodb://configured"}), patch.object(storage, "get_db", return_value=None):
@@ -259,12 +283,12 @@ class BlacklistSlashLifecycleTests(unittest.IsolatedAsyncioTestCase):
         cog = SimpleNamespace(bot=object(), _dangerous_command_check=AsyncMock(return_value=True))
         profile = dict(id="voidcore-plus", name="Voidcore Plus", reason="Default reason", role_id="555", block_all=False)
         with patch.object(blacklists, "get_types", return_value=[profile]), patch.object(module, "add_to_blacklist") as saved, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock), self.assertLogs(module.logger, level="ERROR"):
-            await module.TicketsCog.add_ticket_blacklist_command.callback(cog, interaction, member, "voidcore-plus")
+            await module.TicketsCog.add_ticket_blacklist_command.callback(cog, interaction, member, "555")
             self.assertEqual(saved.call_args.kwargs["role_id"], "555")
             self.assertEqual(saved.call_args.kwargs["reason"], "Default reason")
             self.assertIn("could not be assigned", str(interaction.followup.send.await_args.kwargs["view"].to_components()))
 
-    async def test_remove_uses_snapshot_even_if_legacy_type_argument_is_wrong(self):
+    async def test_remove_uses_snapshot_without_legacy_type_argument(self):
         module = importlib.import_module("cogs.tickets")
         member = SimpleNamespace(id=123, mention="@member")
         interaction = SimpleNamespace(user=SimpleNamespace(id=99), guild=SimpleNamespace(id=42),
@@ -272,7 +296,7 @@ class BlacklistSlashLifecycleTests(unittest.IsolatedAsyncioTestCase):
         cog = SimpleNamespace(bot=object(), _dangerous_command_check=AsyncMock(return_value=True))
         entry = dict(user_id="123", role_id="555", blacklist_type="voidcore", guild_id="42")
         with patch.object(module, "get_blacklist_data", return_value={"blacklisted_users": [entry]}), patch.object(blacklists, "remove_member", new_callable=AsyncMock) as removed, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock):
-            await module.TicketsCog.remove_ticket_blacklist_command.callback(cog, interaction, member, "Appeal", blacklist_type="regular")
+            await module.TicketsCog.remove_ticket_blacklist_command.callback(cog, interaction, member, "Appeal")
             self.assertEqual(removed.await_args.args[1]["role_id"], "555")
 
 

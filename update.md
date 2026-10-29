@@ -11,6 +11,18 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 
 ## October 2026
 
+### 2026-10-29 — Fix false blacklist-status error and use configured roles
+
+**Status:** Follow-up fix for review; live Render/Discord verification remains pending deployment.
+
+- Reproduced the reported ticket-submission failure: a function-local `get_ticket_categories` import shadowed the earlier lookup and raised `UnboundLocalError`, producing the generic blacklist-status error for valid members. Removed the shadowing import and added an integration regression that opens and submits the actual Discord modal through channel creation and its single welcome panel.
+- Consolidated blacklist checks before badge/ad gates and ticket forms. Delayed verification/ad continuations and final submission recheck current restrictions. Removed duplicate checks that silently swallowed errors.
+- Removed automatic Regular/Voidcore command choices. **Blacklist Roles** is now one Access Control editor for role, name, reason and scope; it includes roles from the old flat blacklist role list. `/addticketblacklist` selects those roles and `/removeticketblacklist` uses the saved assignment without a type argument. Existing applied records remain available for removal and expiry cleanup.
+- Role fields must select a Discord role, prevent duplicates, and use the role ID internally. Saving category-only roles does not add them to the all-ticket block list. Fixed shared mutable Access Control defaults discovered while testing role isolation.
+- Validation: 150 regression tests passed, including the actual form-open/submission flow, pre-form role blocks, role configuration migration, and Discord logging-channel configuration. Python compilation and whitespace checks passed.
+- Added admin-only `/ticket-logging channel:#channel` to configure and enable ticket logs directly in Discord, while preserving separate blacklist/warning channels and event selection. Validates the bot can view/send in that channel. Ticket/blacklist delivery fetches a saved channel if it is missing from cache; the dashboard Loggings channel dropdown remains available.
+
+
 ### 2026-10-29 — Ticket close controls, configurable blacklists, and Components V2 logging
 
 **Status:** Implemented for review. Live Discord and Render validation requires deployment.
