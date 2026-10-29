@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from utils import access, blacklists, storage
+from utils import access, blacklists, storage, audit
 
 
 class TicketBlacklistGateTests(unittest.IsolatedAsyncioTestCase):
@@ -18,11 +18,12 @@ class TicketBlacklistGateTests(unittest.IsolatedAsyncioTestCase):
         self.guild = SimpleNamespace(id=42, get_member=Mock(return_value=self.member), get_role=Mock(return_value=None),
             get_channel=Mock(return_value=None), default_role=Mock(), me=Mock(),
             create_text_channel=AsyncMock(side_effect=RuntimeError("creation reached")))
-        self.interaction = SimpleNamespace(user=self.member, guild=self.guild,
+        self.interaction = SimpleNamespace(user=self.member, guild=self.guild, client=object(),
             response=SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock(), defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()))
         self.view = SimpleNamespace(bot=object())
-        patches = [patch.object(self.tickets, "get_settings", return_value={"tickets_enabled": True}),
+        patches = [patch.object(audit, "record_event"), patch.object(audit, "send_event", new_callable=AsyncMock),
+            patch.object(self.tickets, "get_settings", return_value={"tickets_enabled": True}),
             patch.object(self.tickets, "get_ticket_categories", side_effect=lambda: [self.category]),
             patch.object(storage, "get_ticket_categories", side_effect=lambda: [self.category]),
             patch.object(self.tickets, "get_ticket_badge_config", return_value={}),

@@ -7,6 +7,7 @@ import threading
 
 from pymongo import ReturnDocument
 from utils import access, storage
+from utils.audit import AUDIT_EVENTS
 
 _file_lock = threading.RLock()
 ACCESS_LISTS = {
@@ -21,11 +22,16 @@ ACCESS_LISTS = {
     "carry_application_verdict_roles": "application reviewer roles", "remove_cooldown_roles": "cooldown manager roles",
 }
 DELIVERY_EVENTS = {"opened": "Ticket opened", "closed": "Ticket closed", "renamed": "Ticket renamed",
-                   "ticket_started": "Work started", "ticket_finished": "Work finished"}
+                   "ticket_started": "Work started", "ticket_finished": "Work finished",
+                   "ticket_moved": "Ticket moved", "ticket_member_added": "Member added to ticket",
+                   "ticket_member_removed": "Member removed from ticket", "autoclose_changed": "Autoclose changed"}
 LOG_ACTIONS = {"created": "Opened", "closed": "Closed", "renamed": "Renamed", "ticket_started": "Work started",
                "ticket_finished": "Work finished", "deleted": "Channel deleted", "delete_failed": "Delete failed",
                "blacklist_added": "Blacklist added", "blacklist_removed": "Blacklist removed",
                "staff_message": "Staff message", "staff_response": "Staff response"}
+
+LOG_ACTIONS.update(AUDIT_EVENTS)
+LOG_ACTIONS.update({key: DELIVERY_EVENTS[key] for key in ("ticket_moved", "ticket_member_added", "ticket_member_removed", "autoclose_changed")})
 
 
 def selected_ids(values):
@@ -124,12 +130,18 @@ def get_ticket_logging_config(settings=None):
     events = settings.get("ticket_log_events", list(DELIVERY_EVENTS))
     if not isinstance(events, list):
         events = list(DELIVERY_EVENTS)
+    audit_events = settings.get("access_log_events", list(AUDIT_EVENTS))
+    if not isinstance(audit_events, list):
+        audit_events = list(AUDIT_EVENTS)
     return {"enabled": settings.get("ticket_logging_enabled", True) is True,
+            "audit_enabled": settings.get("access_logging_enabled", True) is True,
+            "audit_events": [key for key in audit_events if key in AUDIT_EVENTS],
+            "access_log_channel_id": settings.get("access_log_channel_id"),
             "events": [key for key in events if key in DELIVERY_EVENTS],
             **{key: settings.get(key) for key in ("log_channel_id", "blacklist_log_channel_id", "warning_log_channel_id")}}
 
 
-def save_ticket_logging_config(enabled, events, channels):
+def save_ticket_logging_config(enabled, events, channels, audit=None):
     if type(enabled) is not bool or any(event not in DELIVERY_EVENTS for event in events):
         raise ValueError("Choose valid ticket logging options.")
     updates = {"ticket_logging_enabled": enabled, "ticket_log_events": list(dict.fromkeys(events))}
@@ -138,6 +150,13 @@ def save_ticket_logging_config(enabled, events, channels):
         if value and not re.fullmatch(r"[0-9]{1,20}", value):
             raise ValueError("Choose a valid logging channel.")
         updates[key] = value or None
+    if audit is not None:
+        if type(audit.get("enabled")) is not bool or any(key not in AUDIT_EVENTS for key in audit.get("events", [])):
+            raise ValueError("Choose valid access logging events.")
+        channel = str(audit.get("channel_id") or "").strip()
+        if channel and not re.fullmatch(r"[0-9]{1,20}", channel):
+            raise ValueError("Choose a valid access logging channel.")
+        updates.update(access_logging_enabled=audit["enabled"], access_log_events=list(dict.fromkeys(audit["events"])), access_log_channel_id=channel or None)
     db = _database(access)
     if db is not None:
         db.access_control.update_one({"_id": "singleton"}, {"$set": updates}, upsert=True)
@@ -167,7 +186,7 @@ def ticket_log_page(page=1, action="", query="", per_page=50):
     if action and action not in LOG_ACTIONS:
         raise ValueError("Choose a valid ticket event.")
     query = str(query).strip()[:100]
-    fields = ("ticket_id", "ticket_name", "ticket_number", "creator.id", "creator.name", "executor.id", "executor.name", "actor.id", "actor.name", "reason", "old_name", "new_name")
+    fields = ("ticket_id", "ticket_name", "ticket_number", "creator.id", "creator.name", "executor.id", "executor.name", "actor.id", "actor.name", "target.id", "target.name", "role_id", "user_id", "reason", "old_name", "new_name")
     db = _database(storage)
     if db is not None:
         criteria = {"action": action} if action else {}
@@ -199,3 +218,4 @@ def ticket_log_page(page=1, action="", query="", per_page=50):
         record["time_label"] = _timestamp(record.get("timestamp"))
         record["display_actor"] = record.get("executor") or record.get("actor") or record.get("creator") or {"name": "System"}
     return {"items": items, "total": total, "page": page, "pages": pages}
+

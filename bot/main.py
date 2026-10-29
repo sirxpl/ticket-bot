@@ -156,7 +156,7 @@ from utils.carry_applications import (
     submit_application,
 )
 
-from utils import blacklists
+from utils import blacklists, audit
 from utils.transcripts import render_preview_transcript, theme_saved_transcript
 from utils.dashboard_settings import (
     ACCESS_LISTS, DELIVERY_EVENTS, LOG_ACTIONS, get_ticket_logging_config,
@@ -1025,6 +1025,7 @@ def accept_terms_unblock(token):
         return "This terms link is invalid, expired, or already used.", 410
     if not remove_globally_blocked_user(user["id"]):
         return "This account is not currently globally blocked.", 409
+    audit.emit_event(bot, "user_unblocked", user["id"], user_id=str(user["id"]), source="Terms accepted via unblock link")
     flash("✅ Terms accepted. Your global block has been removed.", "success")
     return redirect(url_for("home"))
 
@@ -1635,6 +1636,7 @@ def home(page="overview"):
         can_manage_carry_applications=can_manage_carry_applications,
         dashboard_csrf_token=_carry_application_csrf_token() if page in ("access-control", "carry-settings", "carry-applications", "ticket-logs", "blacklists") else None,
         ticket_logging=ticket_logging,
+        audit_delivery_events=audit.AUDIT_EVENTS,
         ticket_log_records=ticket_log_records,
         ticket_log_query=ticket_log_query,
         ticket_log_action=ticket_log_action,
@@ -2180,7 +2182,7 @@ def api_unblacklist(user_id):
             assigned = blacklists.role_id(entry)
             role = guild.get_role(int(assigned)) if assigned else None
             if role and any(item.id == role.id for item in member.roles):
-                await member.remove_roles(role, reason="Blacklist removed from dashboard")
+                await audit.change_role(member, role, add=False, reason="Blacklist removed from dashboard")
         return blacklists.remove(user_id, expected_entry=entry)
     if not bot.is_ready():
         return jsonify(success=False, error="The bot must be online to remove the assigned role."), 503
@@ -2206,6 +2208,8 @@ def api_unblacklist(user_id):
 def api_remove_cooldown(user_id):
     from utils.storage import remove_cooldown
     ok = remove_cooldown(user_id)
+    if ok:
+        audit.emit_event(bot, "cooldown_removed", session["user"]["id"], user_id=user_id, source="Dashboard")
     return jsonify({"success": ok})
 
 
@@ -2319,13 +2323,19 @@ def bulk_remove_access_route():
         abort(400, "Your form expired. Reload Access Control and try again.")
     kind = request.form.get("list_kind", "")
     try:
-        changed = remove_access_entries(kind, request.form.getlist("selected_ids"))
+        previous_values = {str(value) for value in get_access_settings().get(kind, [])} if kind in ACCESS_LISTS else set()
+        selected = request.form.getlist("selected_ids")
+        changed = remove_access_entries(kind, selected)
     except ValueError as error:
         abort(400, str(error))
     except Exception:
         app.logger.exception("Could not remove selected access entries")
         flash("The selected entries could not be removed. Please retry.", "danger")
     else:
+        if changed:
+            action = "user_unblocked" if kind == "globally_blocked_users" else "blacklist_role_deleted" if kind == "blacklist_roles" else "access_entries_removed"
+            audit.emit_event(bot, action, session["user"]["id"], access_list=ACCESS_LISTS[kind],
+                count=changed, removed_ids=", ".join(sorted(previous_values.intersection(selected))), source="Bulk Access Control")
         flash(f"Removed {changed} selected {ACCESS_LISTS[kind]}.", "success" if changed else "info")
     section = request.form.get("section", "")
     if not re.fullmatch(r"[a-z0-9-]{1,100}", section):
@@ -2359,8 +2369,14 @@ def save_ticket_logging_route():
         enabled = request.form.get("logging_enabled")
         if enabled not in {"yes", "no"}:
             raise ValueError("Choose whether Discord ticket logging is enabled.")
+        audit_config = None
+        if request.form.get("audit_settings_present") == "yes":
+            if request.form.get("audit_logging_enabled") not in {"yes", "no"}:
+                raise ValueError("Choose whether access audit delivery is enabled.")
+            audit_config = {"enabled": request.form.get("audit_logging_enabled") == "yes",
+                "events": request.form.getlist("audit_events"), "channel_id": request.form.get("access_log_channel_id", "")}
         save_ticket_logging_config(enabled == "yes", request.form.getlist("log_events"),
-            {key: request.form.get(key, "") for key in ("log_channel_id", "blacklist_log_channel_id", "warning_log_channel_id")})
+            {key: request.form.get(key, "") for key in ("log_channel_id", "blacklist_log_channel_id", "warning_log_channel_id")}, audit=audit_config)
     except ValueError as error:
         flash(str(error), "danger")
     except Exception:
@@ -2388,6 +2404,7 @@ def access_add_user():
 def access_add_global_block():
     user_id = request.form.get("user_id", "").strip()
     if add_globally_blocked_user(user_id):
+        audit.emit_event(bot, "user_blocked", session["user"]["id"], user_id=user_id, source="Access Control")
         flash("✅ User globally blocked from slash commands and dashboard access.", "success")
     else:
         flash("❌ Enter a valid, non-duplicate numeric Discord user ID.", "danger")
@@ -2398,6 +2415,7 @@ def access_add_global_block():
 @admin_required
 def access_remove_global_block(user_id):
     if remove_globally_blocked_user(user_id):
+        audit.emit_event(bot, "user_unblocked", session["user"]["id"], user_id=user_id, source="Access Control")
         flash("✅ Global block removed.", "success")
     else:
         flash("❌ That user is not globally blocked.", "danger")
@@ -2412,6 +2430,7 @@ def access_generate_unblock_link():
         token = create_unblock_terms_token(user_id)
         link = external_url("terms_unblock", token=token)
         session["generated_unblock_link"] = link
+        audit.emit_event(bot, "unblock_link_created", session["user"]["id"], user_id=user_id, source="Access Control")
         flash(f"Terms unblock link generated for {user_id}.", "success")
     except ValueError as error:
         flash(str(error), "danger")
@@ -2422,7 +2441,9 @@ def access_generate_unblock_link():
 @admin_required
 def access_revoke_unblock_link():
     token = request.form.get("token", "").strip()
+    token_data = get_terms_unblock_token(token)
     if revoke_terms_unblock_token(token):
+        audit.emit_event(bot, "unblock_link_revoked", session["user"]["id"], user_id=(token_data or {}).get("user_id"), source="Access Control")
         if session.get("generated_unblock_link") == external_url(
             "terms_unblock", token=token
         ):
@@ -2476,13 +2497,15 @@ def access_save_blacklist_types():
             if scope not in {"all", "categories"}:
                 raise ValueError("Choose a valid blacklist scope.")
             rows.append(dict(id=role, name=name, role_id=role, reason=reason, block_all=scope == "all"))
-        blacklists.save_types(rows)
+        previous_roles = blacklists.get_types()
+        saved_roles = blacklists.save_types(rows)
     except ValueError as error:
         flash(str(error), "danger")
     except Exception:
         app.logger.exception("Could not save blacklist types")
         flash("Blacklist settings could not be saved. Please retry.", "danger")
     else:
+        audit.role_config_events(bot, previous_roles, saved_roles, session["user"]["id"])
         flash("Blacklist roles saved. Existing blacklists keep their assigned roles and restrictions.", "success")
     return redirect(url_for("home", page="access-control", _anchor="access-blacklist-types"))
 
@@ -2492,7 +2515,9 @@ def access_save_blacklist_types():
 def access_add_blacklist_role():
     role_id = request.form.get("role_id", "").strip()
     if role_id.isdigit():
-        add_blacklist_role(role_id)
+        previous_roles = blacklists.get_types()
+        if add_blacklist_role(role_id):
+            audit.role_config_events(bot, previous_roles, blacklists.get_types(), session["user"]["id"])
         flash("✅ Role added to the Ticket Blacklist.", "success")
     else:
         flash("❌ Please select a valid role.", "danger")
@@ -2502,7 +2527,9 @@ def access_add_blacklist_role():
 @app.route("/dashboard/access/remove-blacklist-role/<role_id>", methods=["POST"])
 @admin_required
 def access_remove_blacklist_role(role_id):
-    remove_blacklist_role(role_id)
+    previous_roles = blacklists.get_types()
+    if remove_blacklist_role(role_id):
+        audit.role_config_events(bot, previous_roles, blacklists.get_types(), session["user"]["id"])
     flash("🗑️ Role removed from the Ticket Blacklist.", "info")
     return redirect(url_for("home", page="access-control"))
 

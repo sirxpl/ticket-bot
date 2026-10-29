@@ -74,7 +74,7 @@ class BlacklistChecks:
     def test_role_removal_failure_keeps_blacklist_for_retry(self):
         async def check():
             role = SimpleNamespace(id=555)
-            member = SimpleNamespace(id=123, roles=[role], guild=SimpleNamespace(get_role=Mock(return_value=role)), remove_roles=AsyncMock(side_effect=RuntimeError("permissions")))
+            member = SimpleNamespace(id=123, roles=[role], guild=SimpleNamespace(id=42, get_role=Mock(return_value=role)), remove_roles=AsyncMock(side_effect=RuntimeError("permissions")))
             storage.add_to_blacklist("123", role_id="555")
             saved = storage.get_blacklist_data()["blacklisted_users"][0]
             with self.assertRaises(RuntimeError):
@@ -228,8 +228,9 @@ class BlacklistEditorRoutes(dashboard_tests.DashboardFixture, unittest.TestCase)
     def test_dashboard_removes_saved_role_and_keeps_record_on_role_failure(self):
         from concurrent.futures import Future
         role = SimpleNamespace(id=555)
-        member = SimpleNamespace(roles=[role], remove_roles=AsyncMock())
-        guild = SimpleNamespace(get_member=Mock(return_value=member), get_role=Mock(return_value=role))
+        member = SimpleNamespace(id=123, roles=[role], remove_roles=AsyncMock())
+        guild = SimpleNamespace(id=42, get_member=Mock(return_value=member), get_role=Mock(return_value=role))
+        member.guild = guild
         fake_bot = SimpleNamespace(is_ready=Mock(return_value=True), get_guild=Mock(return_value=guild), loop=object())
         def execute(coro, loop):
             future = Future()
@@ -258,8 +259,9 @@ class BlacklistExpiryTests(unittest.IsolatedAsyncioTestCase):
         module = importlib.import_module("cogs.tickets")
         entry = dict(user_id="123", role_id="555", guild_id="42", expires_ts=1)
         role = SimpleNamespace(id=555)
-        member = SimpleNamespace(roles=[role], remove_roles=AsyncMock())
-        guild = SimpleNamespace(get_member=Mock(return_value=member), get_role=Mock(return_value=role))
+        member = SimpleNamespace(id=123, roles=[role], remove_roles=AsyncMock())
+        guild = SimpleNamespace(id=42, get_member=Mock(return_value=member), get_role=Mock(return_value=role))
+        member.guild = guild
         bot = SimpleNamespace(get_guild=Mock(return_value=guild))
         cog = SimpleNamespace(bot=bot)
         with patch.object(module, "get_blacklist_data", return_value={"blacklisted_users": [entry]}), patch.object(blacklists, "remove") as removed, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock):
@@ -277,7 +279,7 @@ class BlacklistSlashLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_add_custom_profile_keeps_restriction_when_role_assignment_fails(self):
         module = importlib.import_module("cogs.tickets")
         role = SimpleNamespace(id=555)
-        member = SimpleNamespace(id=123, mention="@member", add_roles=AsyncMock(side_effect=RuntimeError("No permission")))
+        member = SimpleNamespace(id=123, mention="@member", roles=[], guild=SimpleNamespace(id=42), add_roles=AsyncMock(side_effect=RuntimeError("No permission")))
         interaction = SimpleNamespace(user=SimpleNamespace(id=99), guild=SimpleNamespace(id=42, get_role=Mock(return_value=role)),
             response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()), followup=SimpleNamespace(send=AsyncMock()))
         cog = SimpleNamespace(bot=object(), _dangerous_command_check=AsyncMock(return_value=True))

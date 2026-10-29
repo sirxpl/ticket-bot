@@ -11,6 +11,18 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 
 ## October 2026
 
+### 2026-10-29 — Expanded Discord logging and access audits
+
+**Status:** Implemented for review; live Discord/Render verification remains pending deployment.
+
+- Expanded Access Control → **Loggings** with independent access-audit delivery, event checkboxes, and an optional Access audit channel. Blacklist events use the blacklist channel first, then the access-audit channel, then the ticket activity channel. Other access events use the access-audit channel or ticket activity channel. Each event posts once as Components V2 with mentions suppressed.
+- Added member blacklist expiry, blacklist-role configuration add/edit/remove, manual Discord blacklist-role assignment/removal, and blacklist-denied ticket-attempt logs. Bot-managed role changes suppress their matching gateway echo so existing blacklist/unblacklist command posts are not duplicated. Manual Discord role updates require Guild Members intent.
+- Added global user block/unblock logs, including bulk unblocking and successful terms-link self-unblocking; cooldown clearing; bulk access removals; and unblock-link creation/revocation. Link logs contain the affected user and actor, never the token or URL. Failed/no-op changes do not announce successful changes.
+- Added ticket move, member add/remove, and autoclose-change events to the ticket delivery checklist, alongside existing open/close/rename/start/end events.
+- Saved history includes the new events and user/role search fields. Pausing or filtering Discord delivery preserves that history; dashboard changes made while the bot is offline are saved without claiming Discord delivery. Logging failures do not undo successful settings/moderation changes.
+- Validation: 173 regression tests passed. Checks cover file/MongoDB-model settings, real authenticated routes, channel priority/fallback, event filters, failure handling, manual-role changes and duplicate suppression, and actual ticket-management callbacks. No new Render environment variables are introduced.
+
+
 ### 2026-10-29 — Fix false blacklist-status error and use configured roles
 
 **Status:** Follow-up fix for review; live Render/Discord verification remains pending deployment.

@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from utils.components import embed_layout
-from utils import blacklists
+from utils import blacklists, audit
 
 from utils.storage import (
     add_active_ticket,
@@ -77,7 +77,7 @@ async def send_ticket_log(bot, action, **fields):
     channel, if one is set. Silently does nothing if no channel is configured
     or the bot can't find/post to it."""
     try:
-        from utils.dashboard_settings import get_ticket_logging_config
+        from utils.dashboard_settings import get_ticket_logging_config, DELIVERY_EVENTS
 
         config = get_ticket_logging_config()
         if not config["enabled"] or action not in config["events"]:
@@ -105,7 +105,7 @@ async def send_ticket_log(bot, action, **fields):
         }
 
         embed = discord.Embed(
-            title=titles.get(action, action.title()),
+            title=titles.get(action, DELIVERY_EVENTS.get(action, action.replace("_", " ").title())),
             color=colors.get(action, discord.Color.greyple()),
             timestamp=datetime.datetime.now(datetime.timezone.utc),
         )
@@ -121,43 +121,8 @@ async def send_ticket_log(bot, action, **fields):
 
 
 async def send_blacklist_log(bot, action, **fields):
-    """Post Components V2 to the separate Blacklist Log Channel (Access Control),
-    used only by /addticketblacklist and /removeticketblacklist — kept apart
-    from the general ticket activity log channel above. Silently does
-    nothing if no channel is configured or the bot can't post to it."""
-    try:
-        from utils.access import get_blacklist_log_channel_id
-
-        channel_id = get_blacklist_log_channel_id()
-        if not channel_id:
-            return
-        channel = bot.get_channel(int(channel_id)) or await bot.fetch_channel(int(channel_id))
-        if not channel:
-            return
-
-        colors = {
-            "blacklist_added": discord.Color.red(),
-            "blacklist_removed": discord.Color.green(),
-        }
-        titles = {
-            "blacklist_added": "🚫 User Blacklisted",
-            "blacklist_removed": "✅ Blacklist Removed",
-        }
-
-        embed = discord.Embed(
-            title=titles.get(action, action.title()),
-            color=colors.get(action, discord.Color.greyple()),
-            timestamp=datetime.datetime.utcnow(),
-        )
-        for key, value in fields.items():
-            if value is not None:
-                embed.add_field(
-                    name=key.replace("_", " ").title(), value=str(value), inline=True
-                )
-
-        await channel.send(view=embed_layout(embed), allowed_mentions=discord.AllowedMentions.none())
-    except Exception:
-        logger.exception(f"Failed to send blacklist log message for action={action}")
+    """One audit delivery path; blacklist channel falls back to access/ticket channel."""
+    await audit.send_event(bot, action, **fields)
 
 
 def build_discord_like_transcript(
@@ -481,6 +446,8 @@ async def send_ticket_form(interaction, modal, category_label):
         return
     if reason:
         await interaction.response.send_message(view=ticket_notice("🚫 Ticket Restricted", reason, okay=False), ephemeral=True)
+        audit.record_event("ticket_creation_denied", interaction.user.id, user_id=str(interaction.user.id), category=category_label, reason=reason)
+        await audit.send_event(interaction.client, "ticket_creation_denied", user_id=str(interaction.user.id), category=category_label, reason=reason)
         return
     await interaction.response.send_modal(modal)
 
@@ -541,6 +508,8 @@ class TicketView(discord.ui.View):
         if blocked_reason:
             await interaction.response.send_message(view=ticket_notice(
                 "🚫 Ticket Restricted", blocked_reason, okay=False), ephemeral=True)
+            audit.record_event("ticket_creation_denied", interaction.user.id, user_id=str(interaction.user.id), category=selection, reason=blocked_reason)
+            await audit.send_event(self.bot, "ticket_creation_denied", user_id=str(interaction.user.id), category=selection, reason=blocked_reason)
             return
 
         # Badge verification gate: a category can require the configured Roblox
@@ -834,6 +803,8 @@ class TicketView(discord.ui.View):
                     return
                 if blocked_reason:
                     await modal_interaction.followup.send(view=ticket_notice("🚫 Ticket Restricted", blocked_reason, okay=False), ephemeral=True)
+                    audit.record_event("ticket_creation_denied", user.id, user_id=str(user.id), category=self.selection, reason=blocked_reason)
+                    await audit.send_event(outer_view.bot, "ticket_creation_denied", user_id=str(user.id), category=self.selection, reason=blocked_reason)
                     return
 
                 overwrites = {
@@ -1292,12 +1263,12 @@ class TicketsCog(commands.Cog):
                         assigned = blacklists.role_id(entry)
                         role = guild.get_role(int(assigned)) if assigned else None
                         if role and any(item.id == role.id for item in member.roles):
-                            await member.remove_roles(role, reason="Timed ticket blacklist expired")
+                            await audit.change_role(member, role, add=False, reason="Timed ticket blacklist expired")
                     blacklists.remove(entry["user_id"], expected_entry=entry)
-                    append_ticket_log({"ticket_id": "global", "action": "blacklist_removed",
+                    append_ticket_log({"ticket_id": "global", "action": "blacklist_expired",
                         "target": {"id": str(entry["user_id"])}, "reason": "Timed blacklist expired",
                         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-                    await send_blacklist_log(self.bot, "blacklist_removed", user=entry["user_id"], reason="Timed blacklist expired")
+                    await send_blacklist_log(self.bot, "blacklist_expired", user=entry["user_id"], reason="Timed blacklist expired")
                 except Exception:
                     logger.exception("Could not clean expired blacklist for user=%s", entry.get("user_id"))
         except Exception:
@@ -1306,6 +1277,26 @@ class TicketsCog(commands.Cog):
     @blacklist_expiry_watcher.before_loop
     async def before_blacklist_expiry(self):
         await self.bot.wait_until_ready()
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before, after):
+        try:
+            old = {role.id for role in before.roles}
+            new = {role.id for role in after.roles}
+            if old == new:
+                return
+            tracked = {int(row["role_id"]) for row in blacklists.get_types(after.guild)}
+            for role_id in sorted((old ^ new) & tracked):
+                added = role_id in new
+                if audit.consume_role_echo(after.guild.id, after.id, role_id, added):
+                    continue
+                action = "blacklist_role_assigned" if added else "blacklist_role_unassigned"
+                fields = {"user_id": str(after.id), "role_id": str(role_id), "role": f"<@&{role_id}>", "guild_id": str(after.guild.id),
+                          "source": "Discord member role update; actor unavailable"}
+                audit.record_event(action, **fields)
+                await audit.send_event(self.bot, action, **fields)
+        except Exception:
+            logger.exception("Could not log blacklist member role update")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -1809,6 +1800,12 @@ class TicketsCog(commands.Cog):
         await send_ticket_log(self.bot, "ticket_finished", ticket=interaction.channel.mention,
                               finished_by=f"{interaction.user} ({interaction.user.id})")
 
+    async def _log_management_event(self, interaction, action, **fields):
+        audit.record_event(action, interaction.user.id, ticket_id=str(interaction.channel.id),
+            ticket_name=interaction.channel.name, **fields)
+        await send_ticket_log(self.bot, action, ticket=interaction.channel.mention,
+            executor=str(interaction.user.id), **fields)
+
     # Slash Command: /autoclose — staff-only, toggles the 24h-inactivity
     # autoclose for this specific ticket on or off
     @app_commands.command(
@@ -1852,6 +1849,7 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 "✅ Autoclose resumed — this ticket will close after 12h/24h of inactivity again."
             )
+        await self._log_management_event(interaction, "autoclose_changed", state=state)
 
     # Slash Command: /add — grants a member access to this ticket channel
     @app_commands.command(
@@ -1890,6 +1888,7 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 f"✅ {user.mention} has been added to this ticket."
             )
+            await self._log_management_event(interaction, "ticket_member_added", user_id=str(user.id))
         except discord.Forbidden:
             await interaction.response.send_message(
                 "❌ I don't have permission to edit this channel's permissions.",
@@ -1914,6 +1913,9 @@ class TicketsCog(commands.Cog):
 
         try:
             overwrite = interaction.channel.overwrites_for(user)
+            if overwrite.read_messages is False:
+                await interaction.response.send_message(f"⚠️ {user.mention} already has ticket access denied.", ephemeral=True)
+                return
             overwrite.read_messages = False
             await interaction.channel.set_permissions(
                 user,
@@ -1923,6 +1925,7 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 f"✅ {user.mention} has been removed from this ticket."
             )
+            await self._log_management_event(interaction, "ticket_member_removed", user_id=str(user.id))
         except discord.Forbidden:
             await interaction.response.send_message(
                 "❌ I don't have permission to edit this channel's permissions.",
@@ -1997,7 +2000,7 @@ class TicketsCog(commands.Cog):
             try:
                 if role is None:
                     raise ValueError("Configured role no longer exists.")
-                await user.add_roles(role, reason=f"Ticket blacklist by {interaction.user}"[:500])
+                await audit.change_role(user, role, add=True, reason=f"Ticket blacklist by {interaction.user}")
             except Exception:
                 logger.exception("Blacklist saved but role assignment failed for user=%s", user.id)
                 role_note = "\n⚠️ The restriction is saved, but its role could not be assigned. Check Manage Roles and role position."
@@ -2204,6 +2207,7 @@ class TicketsCog(commands.Cog):
                 f"✅ Moved to **{category}** — renamed to `{new_name}`.",
                 ephemeral=True,
             )
+            await self._log_management_event(interaction, "ticket_moved", category=category, new_name=new_name)
         except Exception as e:
             await interaction.response.send_message(
                 f"❌ Failed to move ticket: {e}", ephemeral=True

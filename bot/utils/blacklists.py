@@ -153,7 +153,8 @@ async def remove_member(member, entry, reason):
     assigned = role_id(entry)
     role = member.guild.get_role(int(assigned)) if assigned else None
     if role and any(item.id == role.id for item in member.roles):
-        await member.remove_roles(role, reason=reason[:500])
+        from utils.audit import change_role
+        await change_role(member, role, add=False, reason=reason)
     # Failed role removal must leave the record available for retry.
     return remove(member.id, expected_entry=entry)
 
