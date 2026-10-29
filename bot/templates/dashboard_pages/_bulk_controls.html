@@ -1,0 +1,13 @@
+{% macro bulk_toolbar(kind, section, label, action=None) -%}
+<form id="bulk-{{ kind }}" method="post" action="{{ action or url_for('bulk_remove_access_route') }}" class="config-bulk-toolbar" data-bulk-form data-unsaved-ignore>
+    <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+    <input type="hidden" name="list_kind" value="{{ kind }}">
+    <input type="hidden" name="section" value="{{ section }}">
+    <label><input type="checkbox" data-bulk-all aria-label="Select all {{ label }}"> Select all</label>
+    <span data-bulk-count aria-live="polite">0 selected</span>
+    <button type="submit" class="btn-danger" data-bulk-submit>Remove selected</button>
+</form>
+{%- endmacro %}
+{% macro bulk_checkbox(kind, value, label) -%}
+<input class="config-row-check" type="checkbox" name="selected_ids" value="{{ value }}" form="bulk-{{ kind }}" data-bulk-item aria-label="Select {{ label }}">
+{%- endmacro %}

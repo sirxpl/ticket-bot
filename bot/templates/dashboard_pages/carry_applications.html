@@ -3,7 +3,11 @@
         <h1>Carry Team Application</h1>
         <p>Manage responses, reapplication cooldowns, and accepted applications.</p>
     </div>
-    <div class="card">
+    <div class="settings-metrics"><div class="settings-metric"><span>Responses</span><strong>{{ 'Open' if application_config.accepting_responses else 'Closed' }}</strong></div><div class="settings-metric"><span>Denial cooldown</span><strong>{{ application_config.denial_cooldown_days }} days</strong></div><div class="settings-metric"><span>Matching applications</span><strong>{{ application_records.total }}</strong></div></div>
+    <nav class="settings-jump" aria-label="Carry application sections"><a href="#application-response-settings">Responses and cooldown</a><a href="#application-records">Application records</a><a href="{{ url_for('home', page='ticket-logs') }}">Ticket logging</a></nav>
+    <details class="card application-settings-details" id="application-response-settings">
+        <summary><div class="card-head-text"><h3>Response and cooldown settings</h3><p class="card-subtitle">Open or close applications and set the wait after denial.</p></div><span class="card-chevron">▾</span></summary>
+        <div class="card-body">
         <div class="application-card-heading">
             <h3>Application settings</h3>
             <span class="application-badge {{ 'application-accepted' if application_config.accepting_responses else 'application-denied' }}">{{ 'Accepting responses' if application_config.accepting_responses else 'Responses closed' }}</span>
@@ -30,8 +34,9 @@
                 <a class="application-link" href="{{ url_for('carry_application') }}" target="_blank" rel="noopener">Open application portal ↗</a>
             </div>
         </form>
-    </div>
-    <div class="card">
+        </div>
+    </details>
+    <div class="card settings-group" id="application-records">
         <div class="application-card-heading">
             <h3>Applications</h3>
             <span class="application-help">{{ application_records.total }} result{{ '' if application_records.total == 1 else 's' }}</span>

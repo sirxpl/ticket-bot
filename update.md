@@ -4,12 +4,25 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 
 **Last updated:** October 28, 2026
 
-**Most recent merged UI update:** [PR #43 — Docs downtime guide and page consistency](https://github.com/sirxpl/ticket-bot/pull/43) (merged to `main` on October 24, 2026)  
+**Most recent merged UI update:** [PR #46 — Liquid-glass transcript UI](https://github.com/sirxpl/ticket-bot/pull/46), merged to `main` on October 28, 2026.
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
 
 ---
 
 ## October 2026
+
+### 2026-10-28 — Bulk settings, organized carry controls, and Ticket Logging
+
+**Status:** Implemented in the pending dashboard update for review; live Render/Discord verification is pending deployment.
+
+- Added selected-entry and Select All removal to the configurable Access Control role/user lists, plus blocked badges, carry categories, and per-category role/badge lists. Bulk actions preserve entries that were not selected.
+- Grouped Access Control into Dashboard Access, Carry Team, Ticket/Page Permissions, Command Permissions, Logging/Operations, and Restrictions/Recovery. Kept its panels collapsed by default and reorganized the Carry Team sidebar and carry settings.
+- Added **Ticket Logging** at `/dashboard/ticket-logs`: searchable, filtered, 50-event activity pages and admin controls for Discord channels, delivery, and opened/closed/renamed/work-started/work-finished events.
+- Connected `/start-ticket` and `/end-ticket` to the selected Discord logging events. Pausing Discord delivery preserves saved history; blacklist and warning channels remain independent.
+- Replaced the old hidden history view's missing-layout path with a redirect to Ticket Logging, and put the diagnostic history endpoint behind dashboard access.
+- Added a nonmodal, click-through **You have unsaved changes** notice. It does not disable controls, intercept clicks, or prompt/block navigation. Bulk selection and history filters do not mark settings dirty.
+- Category background saves now report confirmed success/failure, run in order, and keep later edits marked unsaved while an earlier save finishes. Fixed checkbox alignment when saving several categories.
+- New bulk/configuration writes use targeted MongoDB updates, CSRF checks, and explicit storage-failure reporting. No new Render environment variables are required.
 
 ### 2026-10-28 — Carry Team Application management
 

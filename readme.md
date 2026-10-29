@@ -148,6 +148,18 @@ The webhook URL is a secret: it is stored in the bot settings database and is ne
 
 ---
 
+## Dashboard management
+
+**Access Control** groups dashboard access, carry-team roles, ticket/page permissions, command permissions, logging/operations, and restrictions/recovery. Configurable role/user lists support selecting specific entries or all entries in that list, then **Remove selected**. Existing single-entry controls remain available.
+
+**Carry Manager Settings** groups availability, categories/verification, ticket messages, and panel publishing. Categories, per-category blacklist roles/badges, and the global blocked-badge list support selected removal. At least one labeled category must remain. The **Carry Team** sidebar groups application management, carry settings, and trial schedules according to the existing page permissions.
+
+**Ticket Logging** (`/dashboard/ticket-logs`) makes saved activity history available through the dashboard with event/search filters and 50-record pages. Admins can select Discord delivery channels and ticket event types. Pausing ticket-event delivery leaves saved history available; blacklist and warning channels are separate. The older `/tickets/logs` URL redirects to this page.
+
+Configuration pages show **You have unsaved changes** when edited settings differ from their saved state. This is an informational notice: controls remain clickable, and navigation is not blocked. Bulk selections and search/filter fields are excluded. Carry-category background saves clear the notice only after confirmed success, while edits made during a save remain marked unsaved. Save each edited section when ready; this notice does not save drafts when navigating away.
+
+These features use the existing Render environment and MongoDB configuration.
+
 ## ⚠️ Privacy & Data
 
 This bot stores Discord user IDs and role IDs (for blacklists, access control, and ticket records) — in MongoDB if configured, otherwise in local JSON files. Keep in mind:

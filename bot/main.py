@@ -52,7 +52,6 @@ from utils.storage import (
     get_transcript_html,
     list_transcript_filenames,
     get_ticket_categories,
-    save_ticket_categories,
     get_ticket_badge_config,
     save_ticket_badge_config,
     add_blocked_ticket_badge,
@@ -156,6 +155,14 @@ from utils.carry_applications import (
     save_application_config,
     submit_application,
 )
+
+from utils.transcripts import render_preview_transcript, theme_saved_transcript
+from utils.dashboard_settings import (
+    ACCESS_LISTS, DELIVERY_EVENTS, LOG_ACTIONS, get_ticket_logging_config,
+    remove_access_entries, remove_blocked_badges, save_categories_checked,
+    save_ticket_logging_config, ticket_log_page,
+)
+
 
 # Environment & OAuth Setup
 load_dotenv()
@@ -1293,7 +1300,7 @@ def status_page():
     return render_template("status.html", base_url=current_base_url(), **_public_schedule_context())
 
 
-DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "blacklists", "warnings", "carry-settings", "carry-applications", "trial-schedules", "warning-builder", "access-control"}
+DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "ticket-logs", "blacklists", "warnings", "carry-settings", "carry-applications", "trial-schedules", "warning-builder", "access-control"}
 
 
 @app.route("/")
@@ -1368,7 +1375,7 @@ def home(page="overview"):
 
     guild = bot.guilds[0] if bot.guilds else None
     # Only populate channel and role lists on pages that actually render them.
-    channels = guild.text_channels if guild and page in ("carry-settings", "trial-schedules", "access-control") else []
+    channels = guild.text_channels if guild and page in ("carry-settings", "trial-schedules", "access-control", "ticket-logs") else []
     categories = guild.categories if guild and page == "carry-settings" else []
     roles = guild.roles if guild and page in ("carry-settings", "warning-builder", "access-control") else []
 
@@ -1384,7 +1391,7 @@ def home(page="overview"):
         {**entry, "url": external_url("terms_unblock", token=entry["token"])}
         for entry in get_active_terms_unblock_tokens()
     ] if page == "access-control" else []
-    access_settings = get_access_settings() if page in ("access-control", "blacklists") else {}
+    access_settings = get_access_settings() if page in ("access-control", "blacklists", "ticket-logs") else {}
 
     allowed_users = []
     for uid in access_settings.get("allowed_users", []):
@@ -1452,6 +1459,20 @@ def home(page="overview"):
         abort(403)
     if page == "transcripts" and not can_access_transcripts:
         abort(403)
+
+    ticket_logging = get_ticket_logging_config(access_settings) if page == "ticket-logs" else None
+    ticket_log_records = None
+    ticket_log_query = request.args.get("log_query", "").strip()[:100]
+    ticket_log_action = request.args.get("log_action", "")
+    if page == "ticket-logs":
+        try:
+            ticket_log_records = ticket_log_page(_application_page_number(request.args.get("log_page")),
+                                                  ticket_log_action, ticket_log_query)
+        except ValueError as error:
+            abort(400, str(error))
+        except Exception:
+            app.logger.exception("Could not read ticket activity logs")
+            return "Ticket logs are temporarily unavailable. Please try again later.", 503
 
     application_config = None
     application_records = None
@@ -1610,6 +1631,13 @@ def home(page="overview"):
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
         can_manage_carry_applications=can_manage_carry_applications,
+        dashboard_csrf_token=_carry_application_csrf_token() if page in ("access-control", "carry-settings", "carry-applications", "ticket-logs") else None,
+        ticket_logging=ticket_logging,
+        ticket_log_records=ticket_log_records,
+        ticket_log_query=ticket_log_query,
+        ticket_log_action=ticket_log_action,
+        ticket_log_actions=LOG_ACTIONS,
+        ticket_delivery_events=DELIVERY_EVENTS,
         application_config=application_config,
         application_records=application_records,
         application_status=application_status,
@@ -2069,32 +2097,28 @@ def get_transcript(filename):
         html = get_transcript_html(filename)
         if html is None:
             abort(404)
-        return Response(html, mimetype="text/html")
+        return Response(theme_saved_transcript(html), mimetype="text/html")
 
     return _serve()
 
 
 @app.route("/preview/transcript")
 def preview_transcript():
-    return render_template("preview_transcript.html")
+    return Response(render_preview_transcript(back_url=url_for("home", page="transcripts")), mimetype="text/html")
 
 
 @app.route("/tickets/logs")
 @access_required
 def view_ticket_logs():
-    logs = get_ticket_logs()
-    # sort descending
-    logs = sorted(logs, key=lambda l: l.get("timestamp", ""), reverse=True)
-    return render_template("ticket_logs.html", logs=logs)
+    return redirect(url_for("home", page="ticket-logs"))
 
 
-# Temporary unauthenticated debug endpoint to inspect ticket logs quickly
+# Keep diagnostic history behind the same dashboard permission check.
 @app.route("/debug/ticket-logs")
+@access_required
 def debug_ticket_logs():
     try:
-        logs = get_ticket_logs()
-        # return last 100 entries
-        last = sorted(logs, key=lambda l: l.get("timestamp", ""), reverse=True)[:100]
+        last = ticket_log_page(per_page=100)["items"]
         return jsonify({"ok": True, "count": len(last), "logs": last})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -2246,6 +2270,65 @@ def deploy_ticket_panel():
         flash("❌ Ticket cog not found.", "danger")
 
     return redirect(url_for("home", page="carry-settings"))
+
+
+@app.post("/dashboard/access/bulk-remove")
+@admin_required
+def bulk_remove_access_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and try again.")
+    kind = request.form.get("list_kind", "")
+    try:
+        changed = remove_access_entries(kind, request.form.getlist("selected_ids"))
+    except ValueError as error:
+        abort(400, str(error))
+    except Exception:
+        app.logger.exception("Could not remove selected access entries")
+        flash("The selected entries could not be removed. Please retry.", "danger")
+    else:
+        flash(f"Removed {changed} selected {ACCESS_LISTS[kind]}.", "success" if changed else "info")
+    section = request.form.get("section", "")
+    if not re.fullmatch(r"[a-z0-9-]{1,100}", section):
+        section = ""
+    return redirect(url_for("home", page="access-control", _anchor=section))
+
+
+@app.post("/dashboard/ticket-badge/bulk-remove")
+@carry_manager_required
+def bulk_remove_ticket_badges_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Carry Manager Settings and try again.")
+    try:
+        changed = remove_blocked_badges(request.form.getlist("selected_ids"))
+    except ValueError as error:
+        abort(400, str(error))
+    except Exception:
+        app.logger.exception("Could not remove selected badge entries")
+        flash("The selected badges could not be removed. Please retry.", "danger")
+    else:
+        flash(f"Removed {changed} selected blocked badges.", "success" if changed else "info")
+    return redirect(url_for("home", page="carry-settings", _anchor="carry-verification"))
+
+
+@app.post("/dashboard/ticket-logs/settings")
+@admin_required
+def save_ticket_logging_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Ticket Logging and try again.")
+    try:
+        enabled = request.form.get("logging_enabled")
+        if enabled not in {"yes", "no"}:
+            raise ValueError("Choose whether Discord ticket logging is enabled.")
+        save_ticket_logging_config(enabled == "yes", request.form.getlist("log_events"),
+            {key: request.form.get(key, "") for key in ("log_channel_id", "blacklist_log_channel_id", "warning_log_channel_id")})
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Could not save ticket logging settings")
+        flash("Ticket logging settings could not be saved. Please retry.", "danger")
+    else:
+        flash("Ticket logging settings saved.", "success")
+    return redirect(url_for("home", page="ticket-logs", _anchor="ticket-log-delivery"))
 
 
 @app.route("/dashboard/access/add-user", methods=["POST"])
@@ -2537,6 +2620,8 @@ def remove_ticket_blocked_badge_route(badge_id):
 @app.route("/dashboard/ticket-categories/save", methods=["POST"])
 @carry_manager_required
 def save_ticket_categories_route():
+    if request.accept_mimetypes.best == "application/json" and not _valid_carry_application_csrf():
+        return jsonify({"ok": False, "error": "Your form expired. Reload and try again."}), 400
     labels = request.form.getlist("cat_label")
     descriptions = request.form.getlist("cat_description")
     emojis = request.form.getlist("cat_emoji")
@@ -2597,14 +2682,26 @@ def save_ticket_categories_route():
         })
 
     if not categories:
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": "Keep at least one category with a label."}), 400
         flash("❌ Add at least one category with a label.", "danger")
         return redirect(url_for("home", page="carry-settings"))
 
+    fully_saved = len(categories) == len(labels) and len(categories) <= 25
     if len(categories) > 25:
         categories = categories[:25]
         flash("⚠️ Only the first 25 categories were saved (Discord's dropdown limit).", "warning")
 
-    save_ticket_categories(categories)
+    try:
+        save_categories_checked(categories)
+    except Exception:
+        app.logger.exception("Could not save ticket categories")
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": "Categories could not be saved. Please retry."}), 503
+        flash("Categories could not be saved. Your saved categories were not changed.", "danger")
+        return redirect(url_for("home", page="carry-settings"))
+    if request.accept_mimetypes.best == "application/json":
+        return jsonify({"ok": True, "fully_saved": fully_saved})
     flash("✅ Ticket dropdown categories saved. New panels you deploy will use them; existing panels update after the bot restarts.", "success")
     return redirect(url_for("home", page="carry-settings"))
 

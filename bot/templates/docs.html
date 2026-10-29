@@ -296,6 +296,7 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
         <tr><td>Overview</td><td>Active tickets, ticket totals and cooldowns</td></tr>
         <tr><td>Analytics</td><td>Ticket activity reporting</td></tr>
         <tr><td>Transcripts</td><td>Saved transcripts, with 50 entries per page</td></tr>
+        <tr><td>Ticket Logging</td><td>Filtered activity history, logging channels, and Discord event delivery</td></tr>
         <tr><td>Blacklists</td><td>Blocked users and blacklist roles</td></tr>
         <tr><td>Warnings</td><td>Moderation warning records</td></tr>
         <tr><td>Carry Manager Settings</td><td>Ticket categories, messages, Components V2 panel builder and admin-only Ad Gag editor</td></tr>
@@ -308,6 +309,11 @@ h1.title{font-size:clamp(32px,3.6vw,46px);line-height:1.2;letter-spacing:-.045em
       <h3 class="sub-h">Carry Team Application</h3>
       <p class="body-p">At <code>/dashboard/carry-applications</code>, carry managers can pause responses and set the denial cooldown from 0 to 365 days (14 by default). Cooldown changes apply to existing denials from their decision time. Applicants see pending, accepted, denied with a live countdown, or closed status at <a href="{{ url_for('carry_application') }}">the application portal</a>.</p>
       <p class="body-p">Select accepted applications to remove their acceptance and allow reapplication while retaining staff history. Select denied applications to clear their cooldown. Cleared cooldowns remain cleared after policy changes; closing responses still prevents new submissions. Review roles and Bot/Webhook delivery remain in Access Control.</p>
+      <h3 class="sub-h">Bulk settings and unsaved changes</h3>
+      <p class="body-p">Access Control is grouped by dashboard access, carry team, ticket/page permissions, commands, operations, and recovery. Select individual role/user entries or use Select All, then Remove Selected. Carry categories and badge lists also support selected removal.</p>
+      <p class="body-p">An informational unsaved-changes notice appears while configuration edits are pending. Controls remain clickable and navigation is not blocked. Bulk selections and search filters are excluded; save each edited section when ready.</p>
+      <h3 class="sub-h">Ticket Logging</h3>
+      <p class="body-p">Open <code>/dashboard/ticket-logs</code> to search and filter saved activity, with 50 events per page. Admins can choose Discord delivery channels and opened, closed, renamed, work-started, and work-finished events. Pausing Discord delivery keeps saved history available.</p>
     </section>
 
     <!-- CATEGORIES -->
