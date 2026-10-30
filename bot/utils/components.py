@@ -2,10 +2,10 @@
 import discord
 
 
-def embed_layout(embed, *, content=None, view=None):
+def embed_layout(embed, *, content=None, view=None, text_budget=3500):
     view = view if view is not None else discord.ui.LayoutView(timeout=None)
     box = discord.ui.Container(accent_color=embed.colour or discord.Color.blurple())
-    remaining = 3500  # Leave room for the ticket status and button outside this container.
+    remaining = text_budget  # Callers may reserve space for surrounding components.
     def text(value, limit):
         nonlocal remaining
         value = str(value)
