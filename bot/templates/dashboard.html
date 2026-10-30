@@ -1052,6 +1052,8 @@
         }
         .pb-toolbar button:hover{ border-color: var(--accent); }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/liquid-glass.css') }}">
+    {% if active_page == 'analytics' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/analytics.css') }}">{% endif %}
     {% if active_page == 'carry-applications' %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/carry-applications.css') }}">
     <script src="{{ url_for('static', filename='js/carry-applications.js') }}" defer></script>
@@ -1064,7 +1066,7 @@
     <nav class="topbar">
         <div class="topbar-left">
             <button type="button" class="hamburger" aria-label="Toggle sidebar" onclick="toggleSidebar()">☰</button>
-            <a href="/" class="brand"><span class="brand-mark">🎫</span> Carry Bot</a>
+            <a href="/" class="brand"><span class="brand-mark">🎫</span> <span class="brand-name">Carry Ticket Bot</span></a>
         </div>
         <div class="topbar-right">
             {% if preview_mode %}
@@ -1076,7 +1078,7 @@
                 <span id="dashBotStatus">Checking...</span>
             </a>
             <div class="user-info">
-                <img src="{{ user.avatar_url }}" width="32" height="32" alt="Avatar">
+                <img src="{{ user.avatar_url or 'https://cdn.discordapp.com/embed/avatars/0.png' }}" width="32" height="32" alt="{{ user.username }}'s Discord avatar" class="discord-avatar">
                 <span>Welcome, <strong>{{ user.username }}</strong></span>
                 <a href="/logout" class="btn-logout">Logout</a>
             </div>
@@ -1147,9 +1149,9 @@
 
             <div class="nav-group">
                 <div class="nav-group-label">General</div>
-                <a href="{{ url_for('home', page='overview') }}" class="nav-item{{ ' active' if active_page == 'overview' else '' }}" data-page="overview" aria-label="Overview">
+                <a href="{{ url_for('home', page='home') }}" class="nav-item{{ ' active' if active_page == 'overview' else '' }}" data-page="overview" aria-label="Home">
 
-                    <span class="nav-icon">📊</span><span class="nav-text">Overview</span></a>
+                    <span class="nav-icon">⌂</span><span class="nav-text">Home</span></a>
                 {% if can_access_analytics %}
                 <a href="{{ url_for('home', page='analytics') }}" class="nav-item{{ ' active' if active_page == 'analytics' else '' }}" data-page="analytics">
 
@@ -1324,61 +1326,11 @@ function showPage(pageId, btn) {
 }
 
 // If we just reloaded via an Analytics period link (?analytics_period=..#analytics),
-// land back on the Analytics tab instead of resetting to Overview.
+// land back on the Analytics tab instead of resetting to Home.
 if (window.location.hash === '#analytics' || window.location.search.includes('analytics_period')) {
     const analyticsBtn = document.querySelector('.nav-item[data-page="analytics"]');
     if (analyticsBtn) showPage('analytics', analyticsBtn);
 }
-
-// --- ANALYTICS: TICKET FLOW CHART (plain SVG, no charting library needed) ---
-(function renderTicketFlowChart() {
-    const svg = document.getElementById('ticketFlowChart');
-    if (!svg) return;
-
-    let daily;
-    try {
-        daily = JSON.parse(document.getElementById('analyticsDailyData').textContent);
-    } catch (e) {
-        return;
-    }
-    if (!daily || !daily.length) return;
-
-    const W = 700, H = 220, padL = 34, padR = 10, padT = 10, padB = 26;
-    const plotW = W - padL - padR, plotH = H - padT - padB;
-
-    const maxVal = Math.max(1, ...daily.map(d => Math.max(d.created, d.closed)));
-    const xStep = daily.length > 1 ? plotW / (daily.length - 1) : 0;
-
-    function pointsFor(key) {
-        return daily.map((d, i) => {
-            const x = padL + i * xStep;
-            const y = padT + plotH - (d[key] / maxVal) * plotH;
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
-        }).join(' ');
-    }
-
-    let svgContent = '';
-
-    // gridlines + y-axis labels (0, mid, max)
-    [0, 0.5, 1].forEach(frac => {
-        const y = padT + plotH - frac * plotH;
-        svgContent += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--border)" stroke-width="1" />`;
-        svgContent += `<text x="${padL - 6}" y="${y + 4}" font-size="10" fill="var(--text-dim)" text-anchor="end">${Math.round(frac * maxVal)}</text>`;
-    });
-
-    // x-axis date labels (skip some if too many to avoid crowding)
-    const labelEvery = Math.ceil(daily.length / 8);
-    daily.forEach((d, i) => {
-        if (i % labelEvery !== 0 && i !== daily.length - 1) return;
-        const x = padL + i * xStep;
-        svgContent += `<text x="${x}" y="${H - 6}" font-size="10" fill="var(--text-dim)" text-anchor="middle">${d.date}</text>`;
-    });
-
-    svgContent += `<polyline points="${pointsFor('created')}" fill="none" stroke="var(--accent)" stroke-width="2" />`;
-    svgContent += `<polyline points="${pointsFor('closed')}" fill="none" stroke="var(--success)" stroke-width="2" />`;
-
-    svg.innerHTML = svgContent;
-})();
 
 // --- GLOBAL FUNCTIONS ---
 let fieldCount = 0;

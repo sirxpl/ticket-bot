@@ -1083,6 +1083,7 @@ class TicketView(discord.ui.View):
                             "creator": {
                                 "id": str(user.id),
                                 "name": str(user),
+                                "avatar_url": str(user.display_avatar.url) if getattr(user, "display_avatar", None) else None,
                             },
                             "fields": {
                                 "timezone": self.timezone.value,
@@ -1316,19 +1317,31 @@ class TicketsCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Whenever the ticket opener posts in their own ticket, reset the
-        24h autoclose clock and clear the 12h reminder flag so it can fire
-        again on the next quiet stretch."""
+        """Record metadata only; keep the opener's inactivity timer unchanged for staff."""
         if message.author.bot or not message.guild:
             return
         try:
             ticket = get_active_ticket(message.channel.id)
-            if ticket and str(ticket.get("user_id")) == str(message.author.id):
+            if not ticket:
+                return
+            owner = str(ticket.get("user_id")) == str(message.author.id)
+            if owner:
                 touch_ticket_activity(message.channel.id)
+            support_role = str(get_settings().get("support_role_id") or "")
+            staff = not owner and (can_manage_ticket(message.author) or any(
+                str(role.id) == support_role for role in getattr(message.author, "roles", [])
+            ))
+            if owner or staff:
+                append_ticket_log({
+                    "ticket_id": str(message.channel.id),
+                    "action": "staff_message" if staff else "member_message",
+                    "timestamp": message.created_at.isoformat(),
+                    "message_id": str(message.id),
+                    "actor": {"id": str(message.author.id), "name": str(message.author),
+                              "avatar_url": str(message.author.display_avatar.url)},
+                })
         except Exception:
-            logger.exception(
-                f"Failed to update ticket activity for channel={message.channel.id}"
-            )
+            logger.exception("Failed to record ticket activity for channel=%s", message.channel.id)
 
     async def _close_departed_ticket(self, channel):
         """Close a departed owner's ticket once, preserving do_close's transcript safeguards."""
@@ -1733,7 +1746,8 @@ class TicketsCog(commands.Cog):
             "action": "ticket_started",
             "ticket_name": interaction.channel.name,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
+            "executor": {"id": str(interaction.user.id), "name": str(interaction.user),
+                         "avatar_url": str(interaction.user.display_avatar.url) if getattr(interaction.user, "display_avatar", None) else None},
         })
 
         await send_ticket_log(self.bot, "ticket_started", ticket=interaction.channel.mention,
@@ -1785,7 +1799,8 @@ class TicketsCog(commands.Cog):
             "action": "ticket_finished",
             "ticket_name": interaction.channel.name,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
+            "executor": {"id": str(interaction.user.id), "name": str(interaction.user),
+                         "avatar_url": str(interaction.user.display_avatar.url) if getattr(interaction.user, "display_avatar", None) else None},
         })
 
         await send_ticket_log(self.bot, "ticket_finished", ticket=interaction.channel.mention,
@@ -2639,7 +2654,11 @@ class TicketsCog(commands.Cog):
                 "executor": {
                     "id": str(getattr(executor, "id", executor)),
                     "name": str(executor),
+                    "avatar_url": str(executor.display_avatar.url) if getattr(executor, "display_avatar", None) else None,
+                    "bot": bool(getattr(executor, "bot", False)),
                 },
+                "close_kind": ("Automatic close" if getattr(executor, "bot", False) else
+                               "Closed by opener" if str(getattr(executor, "id", executor)) == str(creator_id) else "Closed by staff"),
                 "reason": reason,
                 "transcript_file": filename,
                 "allowed_user_id": creator_id,

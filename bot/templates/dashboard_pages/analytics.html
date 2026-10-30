@@ -1,58 +1,59 @@
+{% macro bars(rows, total=none) -%}
+{% set maximum = total if total else (rows|map(attribute='value')|max if rows else 1) %}
+{% for row in rows %}
+<div class="metric-bar-row">
+    <div><span>{{ row.label }}</span><strong>{{ row.value }}{% if row.percent is defined %} <small>({{ row.percent }}%)</small>{% endif %}</strong></div>
+    <progress max="{{ maximum or 1 }}" value="{{ row.value }}" aria-label="{{ row.label }}: {{ row.value }}"></progress>
+    {% if row.open is defined %}<small>{{ row.open }} still open · {{ row.claimed }} work started</small>{% endif %}
+</div>
+{% else %}<p class="analytics-empty">No recorded events in this period.</p>{% endfor %}
+{%- endmacro %}
 <section class="page active" id="page-analytics">
-        <div class="page-head">
-            <h1>Analytics</h1>
-            <p>Ticket volume, response times and staff activity.</p>
-        </div>
-        {% if can_access_analytics %}
-        <div class="period-selector">
-            <a href="?analytics_period=7#analytics" class="{% if analytics_period == 7 %}active{% endif %}">7d</a>
-            <a href="?analytics_period=14#analytics" class="{% if analytics_period == 14 %}active{% endif %}">14d</a>
-            <a href="?analytics_period=30#analytics" class="{% if analytics_period == 30 %}active{% endif %}">30d</a>
-        </div>
-
-        <div class="stat-grid">
-            <div class="stat-card">
-                <div class="stat-label">📥 All-time Created</div>
-                <div class="stat-value">{{ analytics.all_time_created }}</div>
-                <div class="stat-delta">+{{ analytics.last_24h_created }} in the last 24h</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">✅ All-time Closed</div>
-                <div class="stat-value">{{ analytics.all_time_closed }}</div>
-                <div class="stat-delta">+{{ analytics.last_24h_closed }} in the last 24h</div>
-            </div>
-        </div>
-
-        <div class="analytics-chart-card">
-            <h4>Ticket Flow</h4>
-            <p class="card-subtitle" style="margin-top:0;">Created vs. closed, by day</p>
-            <div class="chart-legend">
-                <span><span class="dot" style="background:var(--accent);"></span>Created</span>
-                <span><span class="dot" style="background:var(--success);"></span>Closed</span>
-            </div>
-            <svg id="ticketFlowChart" viewBox="0 0 700 220" style="width:100%; height:220px;"></svg>
-            <script type="application/json" id="analyticsDailyData">{{ analytics.daily | default([]) | tojson }}</script>
-        </div>
-
-        <div class="analytics-chart-card">
-            <h4>Most Active Staff</h4>
-            <p class="card-subtitle" style="margin-top:0;">Closes in the selected period</p>
-            {% for row in analytics.staff_leaderboard[:5] %}
-            <div class="leaderboard-row">
-                <div class="leaderboard-rank {% if loop.index == 1 %}rank-1{% endif %}">{{ loop.index }}</div>
-                <div class="leaderboard-name">{{ row.name }}</div>
-                <div class="leaderboard-closes">{{ row.closed }} close{{ 's' if row.closed != 1 else '' }}</div>
-            </div>
-            {% else %}
-            <p style="color: var(--text-dim);">No tickets closed in this period yet.</p>
-            {% endfor %}
-        </div>
-
-        <p class="card-subtitle">Response-time and per-message activity metrics aren't tracked yet — that needs a message-level logging hook this bot doesn't have set up. Everything above is computed live from your actual ticket_logs data (created/closed events), not sample data.</p>
-        {% else %}
-        <div class="card">
-            <h3>🔒 Restricted</h3>
-            <p style="color: var(--text-dim);">You don't have the required role to view Analytics. Ask an admin to add your role in Access Control.</p>
-        </div>
-        {% endif %}
-        </section>
+    <div class="page-head"><span class="analytics-eyebrow">SERVER INSIGHTS</span><h1>Analytics</h1><p>Your ticket queue, team performance, and the time between them.</p></div>
+    {% if can_access_analytics %}
+    <div class="analytics-tabs"><span aria-current="page">Tickets</span><span class="analytics-live">● Live queue · UTC dates</span></div>
+    <div class="analytics-stats">
+        {% for label,value,note in [('All-time created',analytics.all_time_created,'Tickets opened'),('All-time closed',analytics.all_time_closed,'Tickets resolved'),('All-time work started',analytics.all_time_claimed,'Unique tickets with /start-ticket'),('Average time to close',analytics.metrics.close.average|duration,'Recorded closes in this period')] %}
+        <div class="stat-card"><div class="stat-label">{{ label }}</div><div class="stat-value">{{ value }}</div><div class="stat-delta">{{ note }}</div></div>
+        {% endfor %}
+    </div>
+    <form class="analytics-period" method="get" action="{{ url_for('home', page='analytics') }}">
+        <div><strong>Period</strong><p>Filter the charts and snapshot below. Queue counts are live.</p></div>
+        <label class="sr-only" for="analyticsCategory">Ticket category</label>
+        <select id="analyticsCategory" name="analytics_category"><option value="">All categories</option>{% for category in analytics.categories %}<option value="{{ category }}" {% if category == analytics.selected_category %}selected{% endif %}>{{ category }}</option>{% endfor %}</select>
+        <div class="analytics-period-buttons">{% for days in [7,14,30] %}<button type="submit" name="analytics_period" value="{{ days }}" class="{% if days == analytics_period %}active{% endif %}" aria-pressed="{{ 'true' if days == analytics_period else 'false' }}">{{ days }}d</button>{% endfor %}</div>
+    </form>
+    <div class="analytics-snapshot">
+        {% for label,value,note in [('Open right now',analytics.open_now,'Current active tickets'),('Waiting on staff',analytics.waiting_on_staff,'No recorded staff reply yet'),('Work not started',analytics.unclaimed,'No recorded /start-ticket'),('Oldest open',analytics.oldest_open|duration,'Age since ticket creation'),('Opened',analytics.period_created,'Over the selected period'),('Closed',analytics.period_closed,'Over the selected period'),('Time to start',analytics.metrics.claim.average|duration,'Average wait until /start-ticket'),('First reply',analytics.metrics.reply.average|duration,'Average wait for a staff message')] %}
+        <div class="snapshot-card"><span>{{ label }}</span><strong>{{ value }}</strong><small>{{ note }}</small></div>
+        {% endfor %}
+    </div>
+    <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Ticket flow</h4><p>Opened against closed, day by day</p></div><div class="chart-legend"><span><i class="legend-open"></i>Opened</span><span><i class="legend-close"></i>Closed</span><span>┄ Previous average</span></div></div><div class="analytics-chart" data-chart="flow" tabindex="0" role="group" aria-label="Ticket flow chart. Use left and right arrow keys to inspect dates."></div></div>
+    <div class="analytics-grid two">
+        {% for key,title,subtitle in [('reply','First reply time','How long members waited for a staff message'),('close','Time to close','How long tickets stayed open')] %}
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>{{ title }}</h4><p>{{ subtitle }}</p></div><small>┄ Previous average</small></div><div class="analytics-chart" data-chart="{{ key }}" tabindex="0" role="group" aria-label="{{ title }}. Use left and right arrow keys to inspect dates."></div></div>
+        {% endfor %}
+    </div>
+    <div class="analytics-grid three">
+        {% for key,title in [('claim','Time to start spread'),('reply','Reply time spread'),('close','Time to close spread')] %}
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>{{ title }}</h4><p>{{ analytics.metrics[key].count }} measured tickets</p></div></div><div class="spread-summary"><span>Median <strong>{{ analytics.metrics[key].median|duration }}</strong></span><span>90th percentile <strong>{{ analytics.metrics[key].p90|duration }}</strong></span></div><div class="spread-bars">{% set maximum = analytics.spreads[key]|map(attribute='value')|max %}{% for bucket in analytics.spreads[key] %}<div><div class="spread-track"><span style="height:{{ (bucket.value / maximum * 100) if maximum else 0 }}%" title="{{ bucket.label }}: {{ bucket.value }} tickets"></span></div><strong>{{ bucket.value }}</strong><small>{{ bucket.label }}</small></div>{% endfor %}</div></div>
+        {% endfor %}
+    </div>
+    <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>When tickets arrive</h4><p>Every hour of the week over the selected period · UTC</p></div><small>Less ░ ▓ More</small></div><div class="heatmap-scroll"><div class="arrival-heatmap"><span></span>{% for hour in range(24) %}<small>{{ hour }}</small>{% endfor %}{% for day in analytics.heatmap %}{% set day_name = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][loop.index0] %}<small>{{ day_name }}</small>{% for count in day %}<span class="heat-cell" style="--heat:{{ (count / analytics.heatmap_max) if analytics.heatmap_max else 0 }}" title="{{ day_name }} {{ loop.index0 }}:00 UTC · {{ count }} tickets" tabindex="0" aria-label="{{ day_name }} {{ loop.index0 }}:00 UTC: {{ count }} tickets"></span>{% endfor %}{% endfor %}</div></div></div>
+    <div class="analytics-grid two">
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Categories</h4><p>Tickets opened in this period</p></div></div>{{ bars(analytics.panels) }}</div>
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Ticket lifecycle</h4><p>What became of tickets opened in this period</p></div></div>{{ bars(analytics.lifecycle, analytics.period_created) }}</div>
+    </div>
+    <div class="analytics-grid three">
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Queue age</h4><p>How long active tickets have been open</p></div></div>{{ bars(analytics.queue_age) }}{% if analytics.queue_unknown_age %}<small>{{ analytics.queue_unknown_age }} tickets with unknown creation time.</small>{% endif %}</div>
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>How tickets end</h4><p>Closes during this period</p></div></div>{{ bars(analytics.endings) }}</div>
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Top close reasons</h4><p>Reasons recorded by your team</p></div></div>{{ bars(analytics.close_reasons) }}</div>
+    </div>
+    <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Most active staff</h4><p>Top 5 by closes in this period · excludes known bot and opener closes</p></div></div>
+        {% for row in analytics.staff_leaderboard %}<div class="leaderboard-row{% if loop.first %} leaderboard-first{% endif %}"><div class="leaderboard-rank {% if loop.first %}rank-1{% endif %}">{{ loop.index }}</div><img class="discord-avatar" src="{{ row.avatar_url }}" alt="{{ row.name }}'s Discord avatar" width="44" height="44" loading="lazy" referrerpolicy="no-referrer"><div class="leaderboard-name">{{ row.name }}</div><div class="staff-metrics"><span>Closes<strong>{{ row.closed }}</strong></span><span>Avg first reply<strong>{{ row.avg_reply|duration }}</strong></span><span>Messages<strong>{{ row.responses }}</strong></span></div></div>{% else %}<p class="analytics-empty">No recorded staff activity in this period yet.</p>{% endfor %}
+    </div>
+    <details class="analytics-data-note"><summary>About these numbers</summary><p>Reply and member-message tracking begins with this update. Historical tickets without recorded messages may appear as waiting on staff. Work starts use /start-ticket; ending work does not erase the first start. Charts group events by UTC day, with missing timings left blank. Dashed lines show the preceding {{ analytics_period }} days' recorded average, not a prediction. No ratings or feedback are collected by this bot yet.</p></details>
+    <script type="application/json" id="analyticsData">{{ analytics|tojson }}</script>
+    <script src="{{ url_for('static', filename='js/analytics.js') }}" defer></script>
+    {% else %}<div class="card"><h3>🔒 Restricted</h3><p>You don't have the required role to view Analytics. Ask an admin to add your role in Access Control.</p></div>{% endif %}
+</section>
