@@ -552,37 +552,9 @@ def get_ticket_logs():
     try:return json.load(open(TICKET_LOGS_FILE))
     except Exception:return []
 def get_logs_for_ticket(ticket_id):return [l for l in get_ticket_logs() if str(l.get("ticket_id"))==str(ticket_id)]
-def get_ticket_analytics(days=30):
-    days=max(1,min(int(days or 30),90));logs=get_ticket_logs();now=time.time();last24=now-86400
-    def ts(x):
-        v=x.get("timestamp")
-        if isinstance(v,(int,float)):return float(v)
-        try:return datetime.datetime.fromisoformat(str(v).replace("Z","+00:00")).timestamp()
-        except Exception:return None
-    created=[l for l in logs if l.get("action")=="created"];closed=[l for l in logs if l.get("action")=="closed"];staff=[l for l in logs if l.get("action") in {"staff_message","staff_response"}]
-    daily=[]
-    for o in range(days-1,-1,-1):
-        d=datetime.datetime.now(datetime.timezone.utc).date()-datetime.timedelta(days=o);s=datetime.datetime.combine(d,datetime.time.min,tzinfo=datetime.timezone.utc).timestamp();e=s+86400;daily.append({"date":d.strftime("%b %d"),"created":sum(1 for l in created if s<=(ts(l) or -1)<e),"closed":sum(1 for l in closed if s<=(ts(l) or -1)<e),"activity":sum(1 for l in staff if s<=(ts(l) or -1)<e)})
-    by={};first={}
-    for l in created:
-        tid=str(l.get("ticket_id") or "");t=ts(l)
-        if tid and t is not None:by.setdefault(tid,t)
-    for l in sorted(staff,key=lambda x:ts(x) or 0):
-        tid=str(l.get("ticket_id") or "");t=ts(l);c=by.get(tid)
-        if tid and t is not None and c is not None and t>=c:first.setdefault(tid,t-c)
-    vals=[v for v in first.values() if 0<=v<=30*86400]
-    rows={}
-    for l in staff+closed:
-        a=l.get("actor") or l.get("executor") or {};uid=str(a.get("id") or l.get("user_id") or "")
-        if not uid:continue
-        r=rows.setdefault(uid,{"id":uid,"name":a.get("name") or "Unknown Staff","responses":0,"closed":0});r["responses"]+=1 if l in staff else 0;r["closed"]+=1 if l in closed else 0;r["name"]=a.get("name") or r["name"]
-    board=[]
-    for r in rows.values():r["activity"]=r["responses"]+r["closed"];board.append(r)
-    board.sort(key=lambda r:(-r["activity"],-r["responses"],r["name"].lower()))
-    response_daily=[]
-    for o in range(days-1,-1,-1):
-        d=datetime.datetime.now(datetime.timezone.utc).date()-datetime.timedelta(days=o);s=datetime.datetime.combine(d,datetime.time.min,tzinfo=datetime.timezone.utc).timestamp();e=s+86400;v=[delay for tid,delay in first.items() if s<=by.get(tid,0)+delay<e];response_daily.append({"date":d.strftime("%b %d"),"avg_response_seconds":round(sum(v)/len(v)) if v else None})
-    return {"all_time_created":len(created),"all_time_closed":len(closed),"last_24h_created":sum(1 for l in created if (ts(l) or 0)>=last24),"last_24h_closed":sum(1 for l in closed if (ts(l) or 0)>=last24),"daily":daily,"response_daily":response_daily,"avg_response_seconds":round(sum(vals)/len(vals)) if vals else None,"response_count":len(vals),"staff_leaderboard":board[:10]}
+def get_ticket_analytics(days=30, category=''):
+    from utils.analytics import build_analytics
+    return build_analytics(get_ticket_logs(), get_tickets_data().get('active_tickets', []), days, category)
 
 # --- Transcripts ---
 

@@ -189,6 +189,9 @@ os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 # Flask App
 app = Flask(__name__)
+from utils.analytics import duration as analytics_duration
+app.jinja_env.filters["duration"] = analytics_duration
+
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey123")
 # Hosts like Render terminate TLS in front of the app, so without this Flask
 # builds http:// URLs for an https:// site and Discord rejects the redirect.
@@ -1314,6 +1317,9 @@ def landing():
 @app.route("/dashboard")
 @app.route("/dashboard/<page>")
 def home(page="overview"):
+    # Home is the public label; preserve /dashboard/overview bookmarks.
+    if page == "home":
+        page = "overview"
     if page not in DASHBOARD_PAGES:
         abort(404)
     user_data = session.get("user", None)
@@ -1505,7 +1511,16 @@ def home(page="overview"):
             analytics_period = 7
         if analytics_period not in (7, 14, 30):
             analytics_period = 7
-        analytics = get_ticket_analytics(analytics_period)
+        analytics_category = request.args.get("analytics_category", "").strip()[:100]
+        analytics = get_ticket_analytics(analytics_period, analytics_category)
+        # Resolve from the bot cache only; page loads never fetch every member from Discord.
+        from utils.analytics import avatar_url
+        for row in analytics["staff_leaderboard"]:
+            member = guild.get_member(int(row["id"])) if guild and row["id"].isdigit() else None
+            member = member or (bot.get_user(int(row["id"])) if row["id"].isdigit() else None)
+            if member:
+                row["name"] = getattr(member, "display_name", str(member))
+                row["avatar_url"] = avatar_url(row["id"], str(member.display_avatar.url))
 
     blacklist_roles = []
     for rid in access_settings.get("blacklist_roles", []):
@@ -1797,7 +1812,8 @@ def callback():
     user_id = user_data.get('id')
     avatar_hash = user_data.get('avatar')
     
-    avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png" if avatar_hash else "https://cdn.discordapp.com/embed/avatars/0.png"
+    from utils.analytics import avatar_url as discord_avatar
+    avatar_url = discord_avatar(user_id, f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{'gif' if str(avatar_hash).startswith('a_') else 'png'}?size=128" if avatar_hash else None)
 
     session['user'] = {
         'username': user_data.get('username'),

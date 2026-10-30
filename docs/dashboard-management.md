@@ -62,3 +62,14 @@ Access Control → **Manage Pin Access** grants selected roles Discord's native 
 The setting applies at ticket creation, after adding/removing roles (including bulk removal), at startup/reconnect, and through **Apply to existing tickets**. Removed roles have the managed Pin Messages Allow cleared back to Inherit. Other channel flags remain unchanged: the setting does not grant Manage Messages, message deletion, View Channel, or Send Messages. Existing role/admin permissions can still allow pinning independently.
 
 The bot needs Manage Roles to modify channel overwrites, and discord.py 2.7.1 or newer for the dedicated pin flag. Failed channel updates retry; successful updates do not repeatedly issue Discord requests. Settings/removal work persists through offline periods and database outages do not clear pending revocations using fallback data. No new Render variables are needed.
+
+
+## Home, glass surfaces, and Analytics
+
+The former Overview page is now labeled Home, with `/dashboard/home` as its navigation URL. Existing `/dashboard` and `/dashboard/overview` links continue to work. Dashboard surfaces use translucent glass with solid-background and reduced-motion fallbacks. Supported browsers use native transitions between dashboard pages; links and form submissions remain normal server requests.
+
+Analytics supports 7, 14, and 30 UTC calendar days including today, plus category filtering. Queue counts and age always describe currently active tickets, regardless of the period. Created/closed counts use their event dates; lifecycle follows tickets created in the selected period. Timing samples use the date of the measured reply, first work start, or close, and require a valid creation event. Dashed chart lines are averages from the preceding period, not forecasts.
+
+Message tracking starts with this release and stores only ticket/message IDs, timestamps, and actor identity/avatar metadata. Staff means Manage Channels, configured Basic Command Access, or the configured support role; the opener always counts as the member. Guests and bots are excluded. Staff messages do not reset the opener's autoclose timer. Historical tickets without message events may show no recorded staff reply. Work-start metrics use the first `/start-ticket` per ticket, including after work has ended. No historical message content is scanned or backfilled; ratings and written satisfaction feedback are not collected.
+
+Staff rankings are limited to the selected period/category and exclude known opener and bot closes. Discord avatars resolve from the current bot cache, then saved Discord CDN metadata, then a default avatar. No per-member Discord API requests are made by Analytics page loads. Chart tooltips support arrow keys and provide expandable data tables.

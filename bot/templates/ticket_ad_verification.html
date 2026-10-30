@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% if ready_to_return %}Verified{% else %}Advertisement{% endif %} — Tickety</title>
+<title>{% if ready_to_return %}Verified{% else %}Advertisement{% endif %} — Carry Ticket Bot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -57,11 +57,27 @@
   .notice.good{border-left-color:var(--green);}
   .footer-note{text-align:center; color:var(--muted); font-size:12px; margin-top:18px;}
   .big-check{font-size:46px; text-align:center; margin-bottom:8px;}
+  body{background:radial-gradient(ellipse at 25% 20%,#7060cd24,transparent 50%),radial-gradient(ellipse at 80% 75%,#2f91ab20,transparent 45%),#0b0d14;}
+  .card{background:linear-gradient(135deg,#e0e6ff0c,transparent 60%),#191c2be6;border:1px solid #c1caff29;border-radius:24px;box-shadow:inset 0 1px #fff1,0 28px 90px #0005;}
+  @supports(backdrop-filter:blur(20px)){.card{background:linear-gradient(135deg,#e0e6ff0c,transparent 60%),#191c2ba6;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);}}
+  .account{display:flex;align-items:center;gap:12px;border:1px solid #bbc8ff1a;background:#d1dcff08;}
+  .account img{width:38px;height:38px;object-fit:cover;border-radius:50%;border:1px solid #fff3;}
+  .account small{display:block;font-size:11px;overflow-wrap:anywhere;}
+  .brand{gap:12px;}.brand .brand-name{background:linear-gradient(90deg,#f1f0ff,#a597ff);background-clip:text;-webkit-background-clip:text;color:transparent;}
+  button{box-shadow:inset 0 1px #fff2;border:1px solid #ddd5ff26;}
+  button:focus-visible,a:focus-visible{outline:2px solid #bbb0ff;outline-offset:4px;}
+  @media(max-width:480px){body{padding:16px}.card{padding:22px}.brand{font-size:15px}}
+  @media(prefers-reduced-transparency:reduce){.card{background:#191c2b;backdrop-filter:none;}}
+  @keyframes verification-enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+  main{animation:verification-enter .25s cubic-bezier(.2,.7,.2,1) both;}
+  button{transition:background .18s ease,box-shadow .18s ease,transform .18s ease;}
+  button:not(:disabled):hover{transform:translateY(-1px);box-shadow:0 8px 24px #5ee6a01a;}
+  @media(prefers-reduced-motion:reduce){main{animation:none}button,.countdown-fill{transition:none}}
 </style>
 </head>
 <body>
 <main>
-  <a href="/" class="brand"><span class="stub"></span> Tickety</a>
+  <a href="/" class="brand"><span class="stub"></span> <span class="brand-name">Carry Ticket Bot</span></a>
 
   {% if invalid %}
     <div class="card">
@@ -115,7 +131,8 @@
       {% endif %}
 
       <div class="account">
-        Signed in as <strong>{{ user.username }}</strong> · ID {{ user.id }}
+        <img src="{{ user.avatar_url or 'https://cdn.discordapp.com/embed/avatars/0.png' }}" alt="{{ user.username }}'s Discord avatar" width="38" height="38" referrerpolicy="no-referrer">
+        <div>Signed in as <strong>{{ user.username }}</strong><small>ID {{ user.id }}</small></div>
       </div>
 
       {% if too_early %}
@@ -131,7 +148,7 @@
       </form>
 
       <div class="footer-note">
-        {{ ad.sponsor or "Tickety Ad Network" }} · Ad-free plan available for $0.00/mo
+        {{ ad.sponsor or "Carry Ad Network" }} · Ad-free plan available for $0.00/mo
       </div>
     </div>
   {% endif %}

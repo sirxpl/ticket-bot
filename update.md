@@ -11,6 +11,20 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 
 ## October 2026
 
+### 2026-10-30 — Glass dashboard, Home, and richer ticket analytics
+
+**Status:** Implemented for review; production deployment and live Discord event verification pending.
+
+- Extended the liquid-glass treatment across dashboard surfaces and ad verification, with translucent panels, subtle highlights, solid fallbacks, and Discord account avatars. Staff analytics uses cached Discord avatars with saved CDN URLs/default avatars when members are unavailable.
+- Renamed the Overview navigation and page heading to **Home**. Added `/dashboard/home` while keeping `/dashboard` and `/dashboard/overview` compatible.
+- Matched the recording's short fades and restrained hover transitions across dashboard pages and controls. Added chart drawing and bar entrance effects, native cross-document transitions in supported browsers, and reduced-motion/reduced-transparency fallbacks.
+- Replaced delayed native browser titles with immediate glass tooltips across analytics totals, snapshot cards, distribution buckets (including empty buckets), arrival heatmap, timing summaries, and breakdown bars. Tooltips follow the pointer, stay within the viewport, support focus/tap/Escape, and dismiss on scroll. Chart guides now also appear on pointer entry.
+- Expanded analytics with live queue counts/age, 7/14/30-day and category filters, first reply/work-start/close timing, previous-period averages, distributions with median and 90th percentile, UTC arrival heatmap, categories, lifecycle, close reasons, and a staff leaderboard with avatars and period-specific messages/closes.
+- Added ticket message metadata tracking (IDs, timestamp, staff identity/avatar; no message content). Opener messages still reset autoclose; staff and guest messages do not. `/start-ticket` is the work-start metric, not a separate claim workflow. Known bot/opener closes are excluded from the staff leaderboard.
+- Historical missing timings remain unavailable; they are never converted to zero. Ratings/feedback collection is not implemented. Replayed message IDs and duplicate creation/close records are deduplicated in analytics.
+- Validation: 209 regression tests passed; Python compilation, JavaScript syntax and whitespace checks passed. Inspected desktop and 390px preview layouts, chart keyboard tooltips, and the ad countdown/account avatar in the browser using synthetic preview records. Live Discord/Render validation remains pending.
+
+
 ### 2026-10-30 — Ticket welcome and Status field formatting
 
 **Status:** Implemented for review; live Discord validation remains pending deployment.
