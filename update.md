@@ -11,6 +11,16 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 
 ## October 2026
 
+### 2026-10-30 — Home quick actions and module grid
+
+**Status:** Implemented for review; live deployment pending.
+
+- Redesigned Home around the supplied reference: cached Discord server icon/name, Quick Actions, and a four-column module grid with line icons, glass surfaces, focus outlines, and subtle hover effects. The grid adapts to smaller screens.
+- Quick Actions link to existing Documentation, Service Status, Server Rules, and Carry Guidelines. Module cards link to the bot's existing ticket configuration/logging, analytics, transcripts, applications, blacklist, warning, schedule, and access pages, using the same permission gates as the sidebar.
+- Preserved active-ticket counts, lifetime totals, cooldown controls, and both live lists below the grid. Existing Home/Overview URLs remain compatible. Server icon lookup uses the bot cache and falls back to a shield when unavailable.
+- Validation: 210 regression tests passed, including Home URL compatibility and module permission visibility; compilation/whitespace checks passed. Browser-inspected the admin grid at desktop and 390px widths; no horizontal page overflow. No production deployment performed.
+
+
 ### 2026-10-30 — Glass dashboard, Home, and richer ticket analytics
 
 **Status:** Implemented for review; production deployment and live Discord event verification pending.

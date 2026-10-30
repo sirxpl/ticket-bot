@@ -28,3 +28,5 @@ button:focus-visible,a:focus-visible,select:focus-visible,.analytics-chart:focus
 @supports(interpolate-size:allow-keywords){details{interpolate-size:allow-keywords}details::details-content{block-size:0;overflow:clip;transition:block-size 220ms var(--motion-ease),content-visibility 220ms allow-discrete}details[open]::details-content{block-size:auto}}
 @media(max-width:480px){.topbar .brand-name{display:none}.topbar .brand{gap:0}.topbar-left,.topbar-right{gap:8px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}@view-transition{navigation:none}.app *,.app *::before,.app *::after{animation:none!important;transition:none!important}.analytics-chart .analytics-series{stroke-dashoffset:0}::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}}
+
+.server-discord-icon{object-fit:cover;border-radius:10px}

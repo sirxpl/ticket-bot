@@ -1,6 +1,7 @@
 """Real event timing, range isolation, empty states, and safe avatar rendering."""
 import datetime as dt
 import importlib
+import re
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -120,8 +121,24 @@ class AnalyticsRouteTests(DashboardFixture, unittest.TestCase):
             with self.subTest(path=path), patch.object(self.module,'is_admin',return_value=True), patch.object(self.module,'has_dashboard_access',return_value=True), patch.object(self.module,'remember_base_url'):
                 response=self.client.get(path)
             self.assertEqual(response.status_code,200)
-            self.assertIn(b'<h1>Home</h1>',response.data)
             self.assertIn(b'aria-label="Home"',response.data)
+            self.assertIn(b'id="home-modules"',response.data)
+            self.assertIn(b'id="home-quick-actions"',response.data)
+
+    def test_home_module_links_respect_dashboard_permissions(self):
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for name in ['is_admin', 'has_analytics_access', 'has_transcripts_access',
+                         'has_carry_manager_access', 'has_carry_application_management_access']:
+                stack.enter_context(patch.object(self.module, name, return_value=False))
+            stack.enter_context(patch.object(self.module, 'has_dashboard_access', return_value=True))
+            stack.enter_context(patch.object(self.module, 'get_member_role_ids', return_value=[]))
+            stack.enter_context(patch.object(self.module, 'remember_base_url'))
+            response = self.client.get('/dashboard/home')
+        self.assertEqual(response.status_code, 200)
+        links = re.findall(r'<a class="home-tile[^"\n]*" href="([^"]+)"', response.get_data(as_text=True))
+        self.assertEqual(set(links), {'/docs', '/status', '/rules', '/guidelines',
+                                      '/dashboard/ticket-logs', '/dashboard/blacklists'})
 
     def test_analytics_role_restriction_still_applies(self):
         with patch.object(self.module,'is_admin',return_value=False),patch.object(self.module,'get_member_role_ids',return_value=[]),patch.object(self.module,'has_dashboard_access',return_value=True),patch.object(self.module,'has_analytics_access',return_value=False):
