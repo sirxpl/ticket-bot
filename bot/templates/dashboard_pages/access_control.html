@@ -395,16 +395,17 @@
 <details class="card" id="access-message-pinning-access">
             <summary>
                 <div class="card-head-text">
-                    <h3><span class="card-icon">⚙️</span> Message Pinning Access</h3>
+                    <h3><span class="card-icon">⚙️</span> Manage Pin Access</h3>
 
                 </div>
                 <span class="card-chevron">▾</span>
             </summary>
             <div class="card-body">
 <p class="card-subtitle">
-                Members with one of these roles can use the bot's pin command. Administrators always have access.
+                Roles listed here receive Discord’s native <strong>Pin Messages</strong> channel permission in every active ticket, including existing tickets. Members can use Discord’s normal Pin/Unpin menu. This setting grants only the pin permission; channel visibility and other permissions stay separate.
             </p>
             <form action="/dashboard/access/add-pin-message-role" method="POST" class="access-form">
+                <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
                 <div>
                     <label>Role:</label>
                     <select name="role_id" required>
@@ -422,13 +423,19 @@
                     {{ bulk_checkbox('pin_message_roles', r.id, r.id) }}
                     <span><strong>@{{ r.name or 'Unknown role' }}</strong> ({{ r.id }})</span>
                     <form action="/dashboard/access/remove-pin-message-role/{{ r.id }}" method="POST" style="margin:0;">
+                        <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
                         <button type="submit" class="btn-danger">Remove</button>
                     </form>
                 </div>
             {% else %}
-                <p style="color: var(--text-dim);">No roles configured — only administrators can pin through the bot.</p>
+                <p style="color: var(--text-dim);">No pin overrides configured. Discord’s inherited role and administrator permissions still apply.</p>
             {% endfor %}
 
+            <p class="card-subtitle">Removing a role clears its managed Pin Messages Allow back to Inherit. The bot needs Manage Roles to edit channel permission overwrites. Updates run at startup and after changes; failures retry automatically.</p>
+            <form method="post" action="{{ url_for('access_sync_pin_permissions_route') }}" data-unsaved-ignore>
+                <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+                <button type="submit" class="btn-view">Apply to existing tickets</button>
+            </form>
             </div>
         </details>
 </section>

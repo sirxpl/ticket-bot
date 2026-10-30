@@ -11,6 +11,18 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 
 ## October 2026
 
+### 2026-10-29 — Native Discord Pin Messages access in ticket channels
+
+**Status:** Implemented for review; live Render/Discord validation remains pending deployment.
+
+- Changed **Manage Pin Access** to grant the native Discord **Pin Messages** channel permission. Removed the bot's Toggle Pin context menu and its separate command-access check; Discord's normal Pin/Unpin controls now govern usage.
+- New ticket creation grants only `pin_messages=True` for selected roles. Removed the old Manage Messages fallback and the extra View/Send grants; existing unrelated overwrites are preserved.
+- Added reconciliation for every active ticket at startup/reconnect, after role add/removal (including bulk removal), and via **Apply to existing tickets**. Removing a selected role clears its managed pin Allow back to Inherit, without erasing explicit Deny or other permissions.
+- Permission failures retry automatically without repeatedly patching channels that already match. Pending removals persist while the bot is offline; revision checks prevent an older sync from clearing newer removal work, and database outages do not treat fallback data as successful cleanup.
+- Validation: 197 regression tests passed, including actual ticket creation overwrites, native pin grants, role removal, offline persistence, stale-revision protection and failure retries. Python compilation and whitespace checks passed.
+- Added admin/CSRF checks to the native pin controls and explicit messages for queued/offline updates. The bot needs Manage Roles to edit channel overwrites. Raised the discord.py minimum to 2.7.1 for its native pin flag; no new Render variables are needed.
+
+
 ### 2026-10-29 — Expanded Discord logging and access audits
 
 **Status:** Implemented for review; live Discord/Render verification remains pending deployment.

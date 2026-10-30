@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from utils.components import embed_layout
-from utils import blacklists, audit
+from utils import blacklists, audit, pin_permissions
 
 from utils.storage import (
     add_active_ticket,
@@ -847,30 +847,11 @@ class TicketView(discord.ui.View):
                     pass
 
                 try:
-                    # Roles granted Pin Message Access get Discord's actual
-                    # Pin Messages permission inside this ticket channel —
-                    # Discord split this out from Manage Messages, so this
-                    # grants pinning only, nothing else. Falls back to
-                    # Manage Messages only if the installed discord.py
-                    # version predates the dedicated Pin Messages flag.
-                    from utils.access import get_pin_message_role_ids
-
-                    for rid in get_pin_message_role_ids():
-                        pin_role = guild.get_role(int(rid))
-                        if not pin_role:
-                            continue
-                        existing = overwrites.get(pin_role)
-                        if existing is None:
-                            existing = discord.PermissionOverwrite(
-                                read_messages=True, send_messages=True
-                            )
-                        if hasattr(existing, "pin_messages"):
-                            existing.pin_messages = True
-                        else:
-                            existing.manage_messages = True
-                        overwrites[pin_role] = existing
+                    pin_roles = pin_permissions.apply_new_ticket_overwrites(guild, overwrites)
                 except Exception:
-                    pass
+                    logger.exception("Could not prepare native ticket pin permissions")
+                    await modal_interaction.followup.send("❌ Could not prepare ticket channel permissions. Please retry shortly.", ephemeral=True)
+                    return
 
                 categories = get_ticket_categories()
                 category_cfg = next(
@@ -1058,6 +1039,7 @@ class TicketView(discord.ui.View):
                         update_active_ticket(
                             str(ticket_channel.id),
                             welcome_message_id=str(welcome_msg.id),
+                            pin_permission_managed_roles=pin_roles,
                             category_label=self.selection,
                             category_prefix=prefix,
                             category_number=category_number,
@@ -1216,31 +1198,46 @@ class TicketsCog(commands.Cog):
         # the same ticket. The do_close guard separately covers all close paths.
         self._departing_ticket_ids = set()
         self._last_member_reconciliation_at = 0.0
+        self._pin_sync_needed = True
+        self._pin_sync_lock = asyncio.Lock()
 
     def get_ticket_view(self):
         return TicketView(self.bot)
 
-    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
-    #
-    # NOTE: @app_commands.context_menu() cannot decorate a method defined
-    # inside a class body — discord.py raises "context menus cannot be
-    # defined inside a class" at import time if you try. The actual
-    # implementation lives in the module-level `_toggle_pin_message`
-    # function below and is manually attached to the bot's command tree in
-    # cog_load/cog_unload.
-
     async def cog_load(self):
         self.autoclose_watcher.start()
         self.blacklist_expiry_watcher.start()
-        self.bot.tree.add_command(toggle_pin_message_context_menu)
+        self.pin_permission_watcher.start()
 
     def cog_unload(self):
         self.autoclose_watcher.cancel()
         self.blacklist_expiry_watcher.cancel()
-        self.bot.tree.remove_command(
-            toggle_pin_message_context_menu.name,
-            type=toggle_pin_message_context_menu.type,
-        )
+        self.pin_permission_watcher.cancel()
+
+    async def sync_native_pin_permissions(self):
+        async with self._pin_sync_lock:
+            self._pin_sync_needed = False
+            try:
+                result = await pin_permissions.sync_active_tickets(self.bot)
+                self._pin_sync_needed = result["failed"] > 0
+                return result
+            except Exception:
+                self._pin_sync_needed = True
+                logger.exception("Native ticket pin permission synchronization failed")
+                return {"updated": 0, "failed": 1}
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        self._pin_sync_needed = True  # Also catch dashboard edits made during a disconnect.
+
+    @tasks.loop(minutes=1)
+    async def pin_permission_watcher(self):
+        if self._pin_sync_needed:
+            await self.sync_native_pin_permissions()
+
+    @pin_permission_watcher.before_loop
+    async def before_pin_permission_sync(self):
+        await self.bot.wait_until_ready()
 
     @tasks.loop(minutes=1)
     async def blacklist_expiry_watcher(self):
@@ -1560,31 +1557,6 @@ class TicketsCog(commands.Cog):
             await interaction.response.send_message(
                 "❌ Only authorized staff (Manage Channels or explicit Basic Command "
                 "Access) may manage tickets.", ephemeral=True
-            )
-            return False
-        return True
-
-    async def _pin_command_check(self, interaction: discord.Interaction) -> bool:
-        """Guard for pinning/unpinning messages inside a ticket channel.
-
-        Strictly gated by Access Control's Pin Message Access list (roles
-        or user IDs explicitly added there), plus admins. Discord's native
-        Manage Messages / channel-level Pin Messages permission is
-        intentionally NOT a fallback here — access is controlled entirely
-        through the bot's own role list, so someone with Manage Messages
-        but no matching role still can't use this until they're added.
-        """
-        if not await self._require_ticket_channel(interaction):
-            return False
-
-        from utils.access import has_pin_message_access
-
-        member_role_ids = [str(r.id) for r in getattr(interaction.user, "roles", [])]
-        if not has_pin_message_access(interaction.user.id, member_role_ids):
-            await interaction.response.send_message(
-                "❌ You need a role or user ID granted in the Pin Message Access "
-                "list (Access Control) to pin or unpin messages.",
-                ephemeral=True,
             )
             return False
         return True
@@ -2056,9 +2028,6 @@ class TicketsCog(commands.Cog):
         await interaction.followup.send(view=ticket_notice("✅ Blacklist Removed",
             f"{user.mention}'s saved restriction and assigned role have been removed.\n**Reason:** {reason}\n"
             "Any other configured role restrictions still apply."), ephemeral=True)
-
-    # Message Context Menu: right-click a message -> Apps -> 📌 Toggle Pin
-    # (actual implementation is the module-level toggle_pin_message_context_menu below)
 
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")
@@ -2812,42 +2781,6 @@ class TicketsCog(commands.Cog):
         except Exception as global_err:
             logger.exception(f"Error in do_close: {global_err}")
             return False
-
-
-@app_commands.context_menu(name="📌 Toggle Pin")
-async def toggle_pin_message_context_menu(interaction: discord.Interaction, message: discord.Message):
-    """Right-click a message -> Apps -> 📌 Toggle Pin.
-
-    Must live at module level, not inside TicketsCog — discord.py raises
-    "context menus cannot be defined inside a class" if you try to
-    decorate a method with @app_commands.context_menu directly. It's
-    manually attached to the bot's tree in TicketsCog.cog_load instead of
-    being auto-discovered like a normal @app_commands.command.
-    """
-    cog = interaction.client.get_cog("TicketsCog")
-    if cog is None or not await cog._pin_command_check(interaction):
-        return
-    try:
-        if message.pinned:
-            await message.unpin(reason=f"Unpinned by {interaction.user}")
-            await interaction.response.send_message(
-                f"📌 Unpinned [that message]({message.jump_url}).", ephemeral=True
-            )
-        else:
-            await message.pin(reason=f"Pinned by {interaction.user}")
-            await interaction.response.send_message(
-                f"📌 Pinned [that message]({message.jump_url}).", ephemeral=True
-            )
-    except discord.Forbidden:
-        await interaction.response.send_message(
-            "❌ I don't have permission to pin/unpin messages in this channel.",
-            ephemeral=True,
-        )
-    except discord.HTTPException as e:
-        await interaction.response.send_message(
-            f"❌ Failed to update the pin — {e.text if hasattr(e, 'text') else e}",
-            ephemeral=True,
-        )
 
 
 async def setup(bot):

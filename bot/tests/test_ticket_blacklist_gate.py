@@ -64,6 +64,17 @@ class TicketBlacklistGateTests(unittest.IsolatedAsyncioTestCase):
         channel.send.assert_awaited_once()  # One welcome panel; no duplicate close message.
         self.assertIn("ticket_close_btn", str(channel.send.await_args.kwargs["view"].to_components()))
 
+    async def test_ticket_creation_passes_native_pin_permission_to_discord(self):
+        role = Mock(id=555)
+        self.guild.get_role.return_value = role
+        with patch.object(access, "get_access_settings", return_value={"pin_message_roles": ["555"]}):
+            modal = await self.open_form()
+            await modal.on_submit(self.interaction)
+        overwrite = self.guild.create_text_channel.await_args.kwargs["overwrites"][role]
+        self.assertTrue(overwrite.pin_messages)
+        self.assertIsNone(overwrite.manage_messages)
+        self.assertIsNone(overwrite.view_channel)
+
     async def test_role_blacklist_blocks_before_badge_gate_or_form(self):
         self.member.roles = [SimpleNamespace(id=555)]
         with patch.object(access, "get_access_settings", return_value={"blacklist_roles": ["555"]}), patch.object(self.tickets, "get_ticket_badge_config") as badges:
