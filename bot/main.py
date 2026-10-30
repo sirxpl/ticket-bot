@@ -1612,6 +1612,7 @@ def home(page="overview"):
         active_page=page,
         user=user_data,
         guild_name=guild.name if guild else None,
+        guild_icon_url=str(guild.icon.url) if guild and getattr(guild, "icon", None) else None,
         channels=channels,
         categories=categories,
         roles=roles,

@@ -1053,6 +1053,7 @@
         .pb-toolbar button:hover{ border-color: var(--accent); }
     </style>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/liquid-glass.css') }}">
+    {% if active_page == 'overview' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">{% endif %}
     {% if active_page == 'analytics' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/analytics.css') }}">{% endif %}
     {% if active_page == 'carry-applications' %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/carry-applications.css') }}">
@@ -1140,7 +1141,7 @@
         <div class="sidebar-backdrop" onclick="toggleSidebar()"></div>
         <aside class="sidebar">
             <div class="server-card">
-                <span class="server-mark">🛡️</span>
+                {% if guild_icon_url %}<img class="server-mark server-discord-icon" src="{{ guild_icon_url }}" alt="{{ guild_name }} server icon" width="34" height="34">{% else %}<span class="server-mark">🛡️</span>{% endif %}
                 <div style="min-width:0;">
                     <div class="server-name">{{ guild_name or 'Your Server' }}</div>
                     <div class="server-sub">Carry ticket system</div>

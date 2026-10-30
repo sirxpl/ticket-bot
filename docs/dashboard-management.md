@@ -73,3 +73,8 @@ Analytics supports 7, 14, and 30 UTC calendar days including today, plus categor
 Message tracking starts with this release and stores only ticket/message IDs, timestamps, and actor identity/avatar metadata. Staff means Manage Channels, configured Basic Command Access, or the configured support role; the opener always counts as the member. Guests and bots are excluded. Staff messages do not reset the opener's autoclose timer. Historical tickets without message events may show no recorded staff reply. Work-start metrics use the first `/start-ticket` per ticket, including after work has ended. No historical message content is scanned or backfilled; ratings and written satisfaction feedback are not collected.
 
 Staff rankings are limited to the selected period/category and exclude known opener and bot closes. Discord avatars resolve from the current bot cache, then saved Discord CDN metadata, then a default avatar. No per-member Discord API requests are made by Analytics page loads. Chart tooltips support arrow keys and provide expandable data tables.
+
+
+### Home navigation cards
+
+Home opens with the connected server's cached Discord icon/name, four Quick Actions (Documentation, Service Status, Server Rules, Carry Guidelines), and a module grid. Every module points to an existing dashboard page and is shown only when its matching sidebar permission allows it. No new module permissions are granted. The grid uses four columns on desktop, then three/two/one as space decreases. Active tickets, total lifetime tickets, cooldowns, and the existing live lists remain below the navigation grid. When the bot has no cached server icon, the header uses a shield fallback.
