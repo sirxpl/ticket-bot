@@ -147,6 +147,11 @@ class TicketClosePanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(buttons[0].custom_id, "ticket_close_btn")
         self.assertTrue(panel.is_persistent())
         self.assertIn("Answers", str(panel.to_components()))
+        self.assertIsInstance(panel.children[0], discord.ui.TextDisplay)
+        self.assertEqual(panel.children[0].content, "@opener")
+        box = next(item for item in panel.children if isinstance(item, discord.ui.Container))
+        status = next(item for item in box.children if isinstance(item, discord.ui.TextDisplay) and item.id == 9001)
+        self.assertEqual(status.content, "**Status**\nOpen - you may close this ticket")
 
     async def test_owner_button_explains_ongoing_then_allows_close_after_end(self):
         cog = object()
@@ -174,13 +179,19 @@ class TicketClosePanelTests(unittest.IsolatedAsyncioTestCase):
         import discord
         from discord.components import _component_factory
         panel = self.module.welcome_panel(object(), discord.Embed(title="Created"))
+        box = next(item for item in panel.children if isinstance(item, discord.ui.Container))
+        status = next(item for item in box.children if isinstance(item, discord.ui.TextDisplay) and item.id == 9001)
+        box.remove_item(status)
+        panel.add_item(status)
         message = SimpleNamespace(components=[_component_factory(item) for item in panel.to_components()], edit=AsyncMock())
         channel = SimpleNamespace(id=42, fetch_message=AsyncMock(return_value=message))
         with patch.object(self.module, "get_active_ticket", return_value={"welcome_message_id": "99"}):
-            for locked, text in [(True, "Still ongoing"), (False, "works again")]:
+            for locked, text in [(True, "Still ongoing"), (False, "Open - you may close this ticket")]:
                 await self.module.refresh_ticket_status(object(), channel, locked)
                 view = message.edit.await_args.kwargs["view"]
                 self.assertIn(text, str(view.to_components()))
+                box = next(item for item in view.children if isinstance(item, discord.ui.Container))
+                self.assertTrue(any(item.id == 9001 for item in box.children))
                 self.assertEqual(len([item for item in view.walk_children() if isinstance(item, discord.ui.Button)]), 1)
                 button = next(item for item in view.walk_children() if isinstance(item, discord.ui.Button))
                 self.assertEqual(type(button.callback), type(self.module.CloseConfirmView(object()).close_button.callback))

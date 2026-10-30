@@ -409,9 +409,21 @@ class WelcomeCloseButton(discord.ui.Button):
         await CloseConfirmView(self.bot).close_button.callback(interaction)
 
 
+def ticket_status_text(locked=False):
+    value = ("Still ongoing - staff must end work before you may close this ticket"
+             if locked else "Open - you may close this ticket")
+    return "**Status**\n" + value
+
+
 def welcome_panel(bot, embed, content=None):
-    view = embed_layout(embed, content=content)
-    view.add_item(discord.ui.TextDisplay("**Status:** Open — you can close this ticket.", id=9001))
+    view = discord.ui.LayoutView(timeout=None)
+    # Match the reference: mention above the card, status inside with the other fields.
+    content = str(content or "")[:700]
+    if content:
+        view.add_item(discord.ui.TextDisplay(content))
+    embed_layout(embed, view=view, text_budget=min(3500, 3800 - len(content)))
+    box = next(item for item in view.children if isinstance(item, discord.ui.Container))
+    box.add_item(discord.ui.TextDisplay(ticket_status_text(), id=9001))
     view.add_item(discord.ui.ActionRow(WelcomeCloseButton(bot)))
     return view
 
@@ -424,10 +436,17 @@ async def refresh_ticket_status(bot, channel, locked):
     try:
         message = await channel.fetch_message(int(message_id))
         view = discord.ui.LayoutView.from_message(message, timeout=None)
-        for item in view.walk_children():
+        box = next((item for item in view.children if isinstance(item, discord.ui.Container)), None)
+        for item in list(view.walk_children()):
             if isinstance(item, discord.ui.TextDisplay) and item.id == 9001:
-                item.content = ("**Status:** Still ongoing — staff must end work before the opener can close."
-                                if locked else "**Status:** Work finished — the Close Ticket button works again.")
+                item.content = ticket_status_text(locked)
+                # Move the old outside status into the card when an existing panel updates.
+                if box is not None and item.parent is not box:
+                    if item.parent is None:
+                        view.remove_item(item)
+                    else:
+                        item.parent.remove_item(item)
+                    box.add_item(item)
             if isinstance(item, discord.ui.Button) and item.custom_id == "ticket_close_btn":
                 item.callback = CloseConfirmView(bot).close_button.callback
         await message.edit(view=view, allowed_mentions=discord.AllowedMentions.none())
@@ -991,7 +1010,7 @@ class TicketView(discord.ui.View):
                             plain_parts.append(f"**Note:** {category_cfg['open_note']}")
                         welcome_msg = await ticket_channel.send(
                             view=welcome_panel(outer_view.bot, discord.Embed(
-                                title="🎫 Ticket Created", description="\n".join(plain_parts))),
+                                title="🎫 Ticket Created", description="\n".join(plain_parts[1:])), plain_parts[0]),
                             allowed_mentions=discord.AllowedMentions(users=[user], roles=False, everyone=False),
                         )
 

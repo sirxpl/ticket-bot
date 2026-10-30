@@ -2,7 +2,7 @@
 
 A running changelog for the **Carry Ticket Bot** Discord commands, ticket system, web dashboard, documentation, and reliability fixes. Newest updates appear first.
 
-**Last updated:** October 29, 2026
+**Last updated:** October 30, 2026
 
 **Most recent merged UI update:** [PR #46 — Liquid-glass transcript UI](https://github.com/sirxpl/ticket-bot/pull/46), merged to `main` on October 28, 2026.
 **Deployment note:** Merged into `main` does not necessarily mean Render has deployed it. Production deployment, live Discord slash-command sync, and end-to-end testing have **not been verified** in this changelog.
@@ -10,6 +10,16 @@ A running changelog for the **Carry Ticket Bot** Discord commands, ticket system
 ---
 
 ## October 2026
+
+### 2026-10-30 — Ticket welcome and Status field formatting
+
+**Status:** Implemented for review; live Discord validation remains pending deployment.
+
+- Moved the configurable welcome mention/content above the Components V2 ticket card to match the reference layout. Kept the ticket title, description and answer fields inside the card, with one Close Ticket button below.
+- Made Status a field inside the card: **Status** followed by `Open - you may close this ticket` on its own line. Starting work shows a matching ongoing field; ending work restores the Open text.
+- Validation: 197 regression tests passed, including mention/status placement, existing-panel status updates, and one persistent close button. Python compilation and whitespace checks passed.
+- Existing V2 panels move their old outside status into the card when `/start-ticket` or `/end-ticket` updates them. Preserved persistent button IDs and reserved message text space for the outside content/status.
+
 
 ### 2026-10-29 — Native Discord Pin Messages access in ticket channels
 
