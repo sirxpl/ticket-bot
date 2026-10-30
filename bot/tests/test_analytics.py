@@ -109,6 +109,8 @@ class AnalyticsRouteTests(DashboardFixture, unittest.TestCase):
         html=response.get_data(as_text=True)
         self.assertIn('analytics.js',html)
         self.assertIn('arrival-heatmap',html)
+        self.assertIn('data-analytics-tooltip=',html)
+        self.assertNotIn(' title=',html[html.index('<section class="page active" id="page-analytics">'):html.index('id="analyticsData"')])
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;',html)
         self.assertNotIn('<script>alert(1)</script>',html)
         self.assertIn("Helper's Discord avatar",html)

@@ -1,7 +1,7 @@
 {% macro bars(rows, total=none) -%}
 {% set maximum = total if total else (rows|map(attribute='value')|max if rows else 1) %}
 {% for row in rows %}
-<div class="metric-bar-row">
+<div class="metric-bar-row" tabindex="0" data-analytics-tooltip="{{ row.label }}: {{ row.value }}{% if row.percent is defined %} ({{ row.percent }}%){% endif %}{% if row.open is defined %} · {{ row.open }} still open · {{ row.claimed }} work started{% endif %}">
     <div><span>{{ row.label }}</span><strong>{{ row.value }}{% if row.percent is defined %} <small>({{ row.percent }}%)</small>{% endif %}</strong></div>
     <progress max="{{ maximum or 1 }}" value="{{ row.value }}" aria-label="{{ row.label }}: {{ row.value }}"></progress>
     {% if row.open is defined %}<small>{{ row.open }} still open · {{ row.claimed }} work started</small>{% endif %}
@@ -14,7 +14,7 @@
     <div class="analytics-tabs"><span aria-current="page">Tickets</span><span class="analytics-live">● Live queue · UTC dates</span></div>
     <div class="analytics-stats">
         {% for label,value,note in [('All-time created',analytics.all_time_created,'Tickets opened'),('All-time closed',analytics.all_time_closed,'Tickets resolved'),('All-time work started',analytics.all_time_claimed,'Unique tickets with /start-ticket'),('Average time to close',analytics.metrics.close.average|duration,'Recorded closes in this period')] %}
-        <div class="stat-card"><div class="stat-label">{{ label }}</div><div class="stat-value">{{ value }}</div><div class="stat-delta">{{ note }}</div></div>
+        <div class="stat-card" tabindex="0" data-analytics-tooltip="{{ label }}: {{ value }} · {{ note }}"><div class="stat-label">{{ label }}</div><div class="stat-value">{{ value }}</div><div class="stat-delta">{{ note }}</div></div>
         {% endfor %}
     </div>
     <form class="analytics-period" method="get" action="{{ url_for('home', page='analytics') }}">
@@ -25,7 +25,7 @@
     </form>
     <div class="analytics-snapshot">
         {% for label,value,note in [('Open right now',analytics.open_now,'Current active tickets'),('Waiting on staff',analytics.waiting_on_staff,'No recorded staff reply yet'),('Work not started',analytics.unclaimed,'No recorded /start-ticket'),('Oldest open',analytics.oldest_open|duration,'Age since ticket creation'),('Opened',analytics.period_created,'Over the selected period'),('Closed',analytics.period_closed,'Over the selected period'),('Time to start',analytics.metrics.claim.average|duration,'Average wait until /start-ticket'),('First reply',analytics.metrics.reply.average|duration,'Average wait for a staff message')] %}
-        <div class="snapshot-card"><span>{{ label }}</span><strong>{{ value }}</strong><small>{{ note }}</small></div>
+        <div class="snapshot-card" tabindex="0" data-analytics-tooltip="{{ label }}: {{ value }} · {{ note }}"><span>{{ label }}</span><strong>{{ value }}</strong><small>{{ note }}</small></div>
         {% endfor %}
     </div>
     <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Ticket flow</h4><p>Opened against closed, day by day</p></div><div class="chart-legend"><span><i class="legend-open"></i>Opened</span><span><i class="legend-close"></i>Closed</span><span>┄ Previous average</span></div></div><div class="analytics-chart" data-chart="flow" tabindex="0" role="group" aria-label="Ticket flow chart. Use left and right arrow keys to inspect dates."></div></div>
@@ -36,10 +36,10 @@
     </div>
     <div class="analytics-grid three">
         {% for key,title in [('claim','Time to start spread'),('reply','Reply time spread'),('close','Time to close spread')] %}
-        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>{{ title }}</h4><p>{{ analytics.metrics[key].count }} measured tickets</p></div></div><div class="spread-summary"><span>Median <strong>{{ analytics.metrics[key].median|duration }}</strong></span><span>90th percentile <strong>{{ analytics.metrics[key].p90|duration }}</strong></span></div><div class="spread-bars">{% set maximum = analytics.spreads[key]|map(attribute='value')|max %}{% for bucket in analytics.spreads[key] %}<div><div class="spread-track"><span style="height:{{ (bucket.value / maximum * 100) if maximum else 0 }}%" title="{{ bucket.label }}: {{ bucket.value }} tickets"></span></div><strong>{{ bucket.value }}</strong><small>{{ bucket.label }}</small></div>{% endfor %}</div></div>
+        <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>{{ title }}</h4><p>{{ analytics.metrics[key].count }} measured tickets</p></div></div><div class="spread-summary"><span tabindex="0" data-analytics-tooltip="{{ title }} · Median: {{ analytics.metrics[key].median|duration }}"><span>Median</span> <strong>{{ analytics.metrics[key].median|duration }}</strong></span><span tabindex="0" data-analytics-tooltip="{{ title }} · 90th percentile: {{ analytics.metrics[key].p90|duration }}"><span>90th percentile</span> <strong>{{ analytics.metrics[key].p90|duration }}</strong></span></div><div class="spread-bars">{% set maximum = analytics.spreads[key]|map(attribute='value')|max %}{% for bucket in analytics.spreads[key] %}<div tabindex="0" data-analytics-tooltip="{{ title }} · {{ bucket.label }}: {{ bucket.value }} tickets"><div class="spread-track"><span style="height:{{ (bucket.value / maximum * 100) if maximum else 0 }}%"></span></div><strong>{{ bucket.value }}</strong><small>{{ bucket.label }}</small></div>{% endfor %}</div></div>
         {% endfor %}
     </div>
-    <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>When tickets arrive</h4><p>Every hour of the week over the selected period · UTC</p></div><small>Less ░ ▓ More</small></div><div class="heatmap-scroll"><div class="arrival-heatmap"><span></span>{% for hour in range(24) %}<small>{{ hour }}</small>{% endfor %}{% for day in analytics.heatmap %}{% set day_name = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][loop.index0] %}<small>{{ day_name }}</small>{% for count in day %}<span class="heat-cell" style="--heat:{{ (count / analytics.heatmap_max) if analytics.heatmap_max else 0 }}" title="{{ day_name }} {{ loop.index0 }}:00 UTC · {{ count }} tickets" tabindex="0" aria-label="{{ day_name }} {{ loop.index0 }}:00 UTC: {{ count }} tickets"></span>{% endfor %}{% endfor %}</div></div></div>
+    <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>When tickets arrive</h4><p>Every hour of the week over the selected period · UTC</p></div><small>Less ░ ▓ More</small></div><div class="heatmap-scroll"><div class="arrival-heatmap"><span></span>{% for hour in range(24) %}<small>{{ hour }}</small>{% endfor %}{% for day in analytics.heatmap %}{% set day_name = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][loop.index0] %}<small>{{ day_name }}</small>{% for count in day %}<span class="heat-cell" style="--heat:{{ (count / analytics.heatmap_max) if analytics.heatmap_max else 0 }}" data-analytics-tooltip="{{ day_name }} {{ loop.index0 }}:00 UTC · {{ count }} tickets" tabindex="0" aria-label="{{ day_name }} {{ loop.index0 }}:00 UTC: {{ count }} tickets"></span>{% endfor %}{% endfor %}</div></div></div>
     <div class="analytics-grid two">
         <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Categories</h4><p>Tickets opened in this period</p></div></div>{{ bars(analytics.panels) }}</div>
         <div class="analytics-chart-card"><div class="analytics-card-head"><div><h4>Ticket lifecycle</h4><p>What became of tickets opened in this period</p></div></div>{{ bars(analytics.lifecycle, analytics.period_created) }}</div>

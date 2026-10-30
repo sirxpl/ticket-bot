@@ -3,3 +3,6 @@
 @media(max-width:650px){.analytics-grid.two,.analytics-grid.three{grid-template-columns:1fr}.analytics-stats,.analytics-snapshot{gap:9px}.analytics-stats .stat-card{padding:16px}.analytics-stats .stat-value{font-size:22px}.snapshot-card{padding:14px}.analytics-period select{flex:1;min-width:130px}.analytics-live{font-size:9px}.analytics-chart-card{padding:0 15px 15px}.leaderboard-row{flex-wrap:wrap;padding:13px 10px;gap:9px}.staff-metrics{width:100%;padding-left:31px;justify-content:space-between}.analytics-chart{min-height:160px}}
 
 .analytics-data-note table{width:100%;border-collapse:collapse;font-size:11px}.analytics-data-note th,.analytics-data-note td{text-align:left;padding:8px;border-bottom:1px solid var(--border)}.analytics-stats .stat-delta{color:var(--text-dim)}
+
+.analytics-detail-tooltip{position:fixed;z-index:1000;max-width:min(300px,calc(100vw - 16px));overflow-wrap:anywhere;line-height:1.6;transition:none!important;animation:none!important}
+[data-analytics-tooltip]:focus-visible{outline:2px solid #b7b0ff;outline-offset:3px}

@@ -18,6 +18,61 @@
         if (value < 86400) return `${(value / 3600).toFixed(1)}h`;
         return `${(value / 86400).toFixed(1)}d`;
     }
+    // One viewport-level tooltip avoids native title delays and clipped card/heatmap content.
+    const detailTip = document.createElement('div');
+    detailTip.id = 'analyticsDetailTooltip';
+    detailTip.className = 'analytics-tooltip analytics-detail-tooltip';
+    detailTip.setAttribute('role', 'tooltip');
+    detailTip.hidden = true;
+    document.body.append(detailTip);
+    let tipTarget = null;
+    function hideDetail() {
+        if (tipTarget) {
+            const ids = (tipTarget.getAttribute('aria-describedby') || '').split(/\s+/).filter(id => id && id !== detailTip.id);
+            if (ids.length) tipTarget.setAttribute('aria-describedby', ids.join(' '));
+            else tipTarget.removeAttribute('aria-describedby');
+        }
+        tipTarget = null;
+        detailTip.hidden = true;
+    }
+    function showDetail(target, pointer) {
+        if (tipTarget !== target) hideDetail();
+        tipTarget = target;
+        detailTip.textContent = target.dataset.analyticsTooltip;
+        detailTip.hidden = false;
+        const ids = new Set((target.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+        ids.add(detailTip.id);
+        target.setAttribute('aria-describedby', [...ids].join(' '));
+        const rect = target.getBoundingClientRect();
+        const edge = 8, gap = 14;
+        const anchorX = pointer ? pointer.clientX : rect.left + rect.width / 2;
+        const anchorY = pointer ? pointer.clientY : rect.top;
+        const left = Math.max(edge, Math.min(window.innerWidth-detailTip.offsetWidth-edge, anchorX+gap));
+        let top = anchorY-detailTip.offsetHeight-gap;
+        if (top < edge) top = pointer ? pointer.clientY+gap : rect.bottom+gap;
+        top = Math.max(edge, Math.min(window.innerHeight-detailTip.offsetHeight-edge, top));
+        detailTip.style.left = `${left}px`;
+        detailTip.style.top = `${top}px`;
+    }
+    document.querySelectorAll('[data-analytics-tooltip]').forEach(target => {
+        target.addEventListener('pointerenter', event => showDetail(target, event));
+        target.addEventListener('pointermove', event => showDetail(target, event));
+        target.addEventListener('pointerleave', hideDetail);
+        target.addEventListener('focus', () => showDetail(target));
+        target.addEventListener('blur', hideDetail);
+        target.addEventListener('pointerdown', event => showDetail(target, event));
+    });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') hideDetail(); });
+    document.addEventListener('pointerdown', event => {
+        if (!event.target.closest('[data-analytics-tooltip]')) hideDetail();
+    });
+    function moveOrHideDetail() {
+        // Keyboard focus may scroll a bucket/cell into view after its focus event.
+        if (tipTarget && tipTarget === document.activeElement) showDetail(tipTarget);
+        else hideDetail();
+    }
+    document.addEventListener('scroll', moveOrHideDetail, true);
+    window.addEventListener('resize', moveOrHideDetail);
     document.querySelectorAll('[data-chart]').forEach(host => {
         const kind = host.dataset.chart;
         const series = kind === 'flow'
@@ -114,11 +169,13 @@
             tooltip.style.top=`${Math.max(4,Math.min(rect.height-tooltip.offsetHeight-4,top))}px`;
         }
         function hide() { tooltip.hidden = true; guide.setAttribute('visibility','hidden'); markers.forEach(marker=>marker.setAttribute('visibility','hidden')); }
-        svg.addEventListener('pointermove', event => {
+        function inspectPointer(event) {
             const point = svg.createSVGPoint(); point.x = event.clientX; point.y = event.clientY;
             const local = point.matrixTransform(svg.getScreenCTM().inverse());
             inspect(Math.round((local.x-L)/width*(daily.length-1)), event);
-        });
+        }
+        svg.addEventListener('pointerenter', inspectPointer);
+        svg.addEventListener('pointermove', inspectPointer);
         host.addEventListener('pointerleave',hide);
         host.addEventListener('focus',() => inspect(selected));
         host.addEventListener('blur',hide);
