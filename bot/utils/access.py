@@ -21,6 +21,7 @@ _DEFAULTS = {
     "blacklist_log_channel_id": None,
     "warning_log_channel_id": None,
     "status_log_channel_id": None,
+    "manual_bot_enabled": True,
     "blacklist_roles": [],
     "carry_manager_roles": [],
     "ticket_viewer_roles": [],
@@ -129,6 +130,26 @@ def save_status_log_channel(channel_id: str | None):
     return data["status_log_channel_id"]
 
 
+def save_manual_bot_enabled(enabled: bool):
+    """Persist whether the Discord bot should connect, without stopping Flask."""
+    if type(enabled) is not bool:
+        raise ValueError("Bot enabled state must be true or false.")
+    db = get_db()
+    if db is None and os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is unavailable. Bot control was not changed.")
+    if db is not None:
+        db.access_control.update_one(
+            {"_id": "singleton"},
+            {"$set": {"manual_bot_enabled": enabled}},
+            upsert=True,
+        )
+    else:
+        data = get_access_settings()
+        data["manual_bot_enabled"] = enabled
+        _save(data)
+    return enabled
+
+
 def get_access_settings():
     """Return the access-control config: allowed viewer users/roles, the
     channel ticket activity gets logged to, and roles that are blocked from
@@ -148,6 +169,7 @@ def get_access_settings():
         doc.setdefault("blacklist_log_channel_id", None)
         doc.setdefault("warning_log_channel_id", None)
         doc.setdefault("status_log_channel_id", None)
+        doc.setdefault("manual_bot_enabled", True)
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
         doc.setdefault("ticket_viewer_roles", [])
@@ -184,6 +206,7 @@ def get_access_settings():
         data.setdefault("blacklist_log_channel_id", None)
         data.setdefault("warning_log_channel_id", None)
         data.setdefault("status_log_channel_id", None)
+        data.setdefault("manual_bot_enabled", True)
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])
         data.setdefault("ticket_viewer_roles", [])
