@@ -147,6 +147,7 @@ from utils.access import (
     get_offline_schedule,
     save_offline_schedule,
     save_status_log_channel,
+    save_manual_bot_enabled,
 )
 from utils.carry_applications import (
     ApplicationStateError,
@@ -731,6 +732,11 @@ def _lockdown_gate():
     path = request.path
     if path in LOCKDOWN_ALLOWED_PATHS or path.startswith("/static/"):
         return None
+    if path in {"/dashboard/access-control", "/dashboard/access/set-bot-state"}:
+        user = session.get("user") or {}
+        if is_admin(user.get("id")):
+            return None
+        return None
     # Hosting health checks / uptime pingers hit "/" - keep answering 200 so
     # the host doesn't decide the service is dead and restart it (which would
     # just re-trigger the Discord block).
@@ -866,7 +872,7 @@ def access_required(f):
             flash("⛔ Your account is blocked from using this dashboard.", "danger")
             session.pop("user", None)
             return redirect(url_for("home"))
-        role_ids = get_member_role_ids(user_data["id"])
+        role_ids = [] if is_admin(user_data["id"]) else get_member_role_ids(user_data["id"])
         if not has_dashboard_access(user_data["id"], role_ids):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
             session.pop("user", None)
@@ -2007,6 +2013,8 @@ def home(page="overview"):
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         status_log_channel_id=access_settings.get("status_log_channel_id"),
+        manual_bot_enabled=access_settings.get("manual_bot_enabled", True) is not False,
+        bot_connected=bool(bot.is_ready()) and not bot.is_closed(),
         offline_schedule=get_offline_schedule() if page == "access-control" else {},
         globally_blocked_users=get_globally_blocked_users() if page == "access-control" else [],
         generated_unblock_link=generated_unblock_link,
