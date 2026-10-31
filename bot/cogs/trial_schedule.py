@@ -303,11 +303,21 @@ class TrialSchedule(commands.Cog):
                         exc,
                     )
                 else:
-                    logger.warning(
-                        "Could not resolve trial schedule channel %s: %s",
-                        target_id,
-                        exc,
-                    )
+                    if isinstance(exc, discord.Forbidden):
+                        self._rate_limit_until = (
+                            asyncio.get_running_loop().time() + 300.0
+                        )
+                        logger.warning(
+                            "Trial schedule channel access was forbidden; "
+                            "pausing lookups for 300s: %s",
+                            exc,
+                        )
+                    else:
+                        logger.warning(
+                            "Could not resolve trial schedule channel %s: %s",
+                            target_id,
+                            exc,
+                        )
                 return None
 
             embed, slot_no = build_trial_schedule_embed()
