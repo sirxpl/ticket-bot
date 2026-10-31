@@ -10,12 +10,23 @@
             <summary><div class="card-head-text"><h3><span class="card-icon">🏆</span> Points Slash Command Access</h3><p class="card-subtitle">Choose which roles can run point-management slash commands.</p></div><span class="card-chevron">▾</span></summary>
             <div class="card-body">
                 <p class="card-subtitle">When no Points roles are selected, the existing Carry Manager role access is used. Administrators always retain access.</p>
-                <label class="points-admin-label" for="points-command-role-ids">Allowed roles</label>
-                <select id="points-command-role-ids" name="command_role_ids" multiple size="6" class="points-admin-multi">
-                    {% for role in roles if not role.is_default() %}
-                    <option value="{{ role.id }}" {% if role.id|string in points_config.command_role_ids %}selected{% endif %}>@{{ role.name }}</option>
-                    {% endfor %}
-                </select>
+                <label class="points-admin-label">Allowed roles</label>
+                <div class="points-admin-selector" data-points-selector data-input-name="command_role_ids">
+                    <div class="points-admin-selector-controls">
+                        <select aria-label="Choose an allowed role" class="points-admin-single">
+                            <option value="">Choose a role...</option>
+                            {% for role in roles if not role.is_default() %}
+                            <option value="{{ role.id }}">@{{ role.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" class="points-admin-add" data-selector-add>Add role</button>
+                    </div>
+                    <div class="points-admin-selected" data-selector-selected aria-live="polite">
+                        {% for role in roles if role.id|string in points_config.command_role_ids %}
+                        <span class="points-admin-selected-item"><input type="hidden" name="command_role_ids" value="{{ role.id }}"><span>@{{ role.name }}</span><button type="button" data-selector-remove aria-label="Remove {{ role.name }}">×</button></span>
+                        {% endfor %}
+                    </div>
+                </div>
             </div>
         </details>
         <details class="card" id="access-points-discord-logging">
@@ -46,14 +57,13 @@
             <div class="card-body">
                 <label class="points-admin-check"><input type="checkbox" name="thread_automation_enabled" value="yes" {% if points_config.thread_automation.enabled %}checked{% endif %}> Enable Thread Automation</label>
                 <label class="points-admin-label" for="points-thread-channels">Channels</label>
-                <select id="points-thread-channels" name="thread_channel_ids" multiple size="6" class="points-admin-multi">
-                    {% for channel in channels %}
-                    <option value="{{ channel.id }}" {% if channel.id|string in points_config.thread_automation.channel_ids %}selected{% endif %}>#{{ channel.name }}</option>
-                    {% endfor %}
-                </select>
+                <div class="points-admin-selector" data-points-selector data-input-name="thread_channel_ids">
+                    <div class="points-admin-selector-controls"><select id="points-thread-channels" aria-label="Choose thread automation channels" class="points-admin-single"><option value="">Choose a channel...</option>{% for channel in channels %}<option value="{{ channel.id }}">#{{ channel.name }}</option>{% endfor %}</select><button type="button" class="points-admin-add" data-selector-add>Add channel</button></div>
+                    <div class="points-admin-selected" data-selector-selected aria-live="polite">{% for channel in channels if channel.id|string in points_config.thread_automation.channel_ids %}<span class="points-admin-selected-item"><input type="hidden" name="thread_channel_ids" value="{{ channel.id }}"><span>#{{ channel.name }}</span><button type="button" data-selector-remove aria-label="Remove {{ channel.name }}">×</button></span>{% endfor %}</div>
+                </div>
                 <label class="points-admin-label" for="points-thread-name">Thread name template</label>
                 <input id="points-thread-name" name="thread_name" maxlength="100" value="{{ points_config.thread_automation.thread_name }}" placeholder="{author} - {ticket_number}" class="points-admin-input">
-                <p class="card-subtitle">Available placeholders: {author}, {ticket_number}, {gamemode}, {channel}. Threads request auto-archive after one week of inactivity. Format Checker submissions create a thread only after they pass validation.</p>
+                <p class="card-subtitle">Available placeholders: {author}, {ticket_number}, {gamemode}, {channel}. Threads request auto-archive after one week of inactivity. Format Checker submissions create a thread after passing validation; exempt roles also get a thread but never receive automatic points.</p>
             </div>
         </details>
     </section>
@@ -65,17 +75,15 @@
             <div class="card-body">
                 <label class="points-admin-check"><input type="checkbox" name="format_checker_enabled" value="yes" {% if points_config.format_checker.enabled %}checked{% endif %}> Enable Format Checker</label>
                 <label class="points-admin-label" for="points-format-channels">Format Checker channels</label>
-                <select id="points-format-channels" name="format_checker_channel_ids" multiple size="6" class="points-admin-multi">
-                    {% for channel in channels %}
-                    <option value="{{ channel.id }}" {% if channel.id|string in points_config.format_checker.channel_ids %}selected{% endif %}>#{{ channel.name }}</option>
-                    {% endfor %}
-                </select>
-                <label class="points-admin-label" for="points-exempt-roles">Roles exempt from format enforcement</label>
-                <select id="points-exempt-roles" name="format_checker_exempt_role_ids" multiple size="6" class="points-admin-multi">
-                    {% for role in roles if not role.is_default() %}
-                    <option value="{{ role.id }}" {% if role.id|string in points_config.format_checker.exempt_role_ids %}selected{% endif %}>@{{ role.name }}</option>
-                    {% endfor %}
-                </select>
+                <div class="points-admin-selector" data-points-selector data-input-name="format_checker_channel_ids">
+                    <div class="points-admin-selector-controls"><select id="points-format-channels" aria-label="Choose Format Checker channels" class="points-admin-single"><option value="">Choose a channel...</option>{% for channel in channels %}<option value="{{ channel.id }}">#{{ channel.name }}</option>{% endfor %}</select><button type="button" class="points-admin-add" data-selector-add>Add channel</button></div>
+                    <div class="points-admin-selected" data-selector-selected aria-live="polite">{% for channel in channels if channel.id|string in points_config.format_checker.channel_ids %}<span class="points-admin-selected-item"><input type="hidden" name="format_checker_channel_ids" value="{{ channel.id }}"><span>#{{ channel.name }}</span><button type="button" data-selector-remove aria-label="Remove {{ channel.name }}">×</button></span>{% endfor %}</div>
+                </div>
+                <label class="points-admin-label" for="points-exempt-roles">Roles exempt from format enforcement (thread created, no automatic points)</label>
+                <div class="points-admin-selector" data-points-selector data-input-name="format_checker_exempt_role_ids">
+                    <div class="points-admin-selector-controls"><select id="points-exempt-roles" aria-label="Choose exempt roles" class="points-admin-single"><option value="">Choose a role...</option>{% for role in roles if not role.is_default() %}<option value="{{ role.id }}">@{{ role.name }}</option>{% endfor %}</select><button type="button" class="points-admin-add" data-selector-add>Add role</button></div>
+                    <div class="points-admin-selected" data-selector-selected aria-live="polite">{% for role in roles if role.id|string in points_config.format_checker.exempt_role_ids %}<span class="points-admin-selected-item"><input type="hidden" name="format_checker_exempt_role_ids" value="{{ role.id }}"><span>@{{ role.name }}</span><button type="button" data-selector-remove aria-label="Remove {{ role.name }}">×</button></span>{% endfor %}</div>
+                </div>
                 <div class="points-admin-format">
                     <strong>Required format; Notes are optional</strong>
                     <code>1. @carry1 @carry2</code>

@@ -17,3 +17,12 @@
 .points-admin-add { background:var(--raised); border:1px solid var(--border); color:var(--text); border-radius:9px; padding:9px 12px; cursor:pointer; font-weight:700; }
 .points-admin-save-row { display:flex; justify-content:space-between; align-items:center; gap:14px; color:var(--text-dim); font-size:.8rem; padding:4px 0 16px; }
 @media(max-width:700px){.points-admin-event-grid{grid-template-columns:1fr}.points-admin-gamemode-row{grid-template-columns:minmax(0,1fr) auto}.points-admin-gamemode-row input:nth-child(3){grid-column:1/-1}.points-admin-remove{grid-column:2;grid-row:1}.points-admin-save-row{align-items:stretch;flex-direction:column}.points-admin-save-row button{width:100%}}
+.points-admin-selector { display:grid; gap:9px; }
+.points-admin-selector-controls { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; }
+.points-admin-selector-controls select { min-width:0; }
+.points-admin-selected { display:flex; flex-wrap:wrap; gap:7px; min-height:0; }
+.points-admin-selected:empty { display:none; }
+.points-admin-selected-item { display:inline-flex; align-items:center; gap:8px; max-width:100%; padding:6px 8px 6px 10px; border:1px solid var(--border); border-radius:999px; background:var(--raised); color:var(--text); font-size:.8rem; }
+.points-admin-selected-item span { overflow-wrap:anywhere; }
+.points-admin-selected-item button { border:0; background:transparent; color:var(--danger); font-size:1.1rem; line-height:1; cursor:pointer; padding:0 2px; }
+@media(max-width:520px){.points-admin-selector-controls{grid-template-columns:1fr}.points-admin-selector-controls button{width:100%}}
