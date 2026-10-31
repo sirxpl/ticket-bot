@@ -130,6 +130,24 @@ def save_status_log_channel(channel_id: str | None):
     return data["status_log_channel_id"]
 
 
+def get_manual_bot_enabled() -> bool:
+    """Read the persistent override; fail closed if configured MongoDB is unavailable."""
+    try:
+        db = get_db()
+        if db is None and os.getenv("MONGODB_URI"):
+            return False
+        if db is not None:
+            doc = db.access_control.find_one(
+                {"_id": "singleton"}, {"manual_bot_enabled": 1}
+            )
+            return (doc or {}).get("manual_bot_enabled", True) is not False
+        return get_access_settings().get("manual_bot_enabled", True) is not False
+    except Exception:
+        if os.getenv("MONGODB_URI"):
+            return False
+        raise
+
+
 def save_manual_bot_enabled(enabled: bool):
     """Persist whether the Discord bot should connect, without stopping Flask."""
     if type(enabled) is not bool:
