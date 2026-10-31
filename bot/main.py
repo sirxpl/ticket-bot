@@ -156,7 +156,7 @@ from utils.carry_applications import (
     submit_application,
 )
 
-from utils import blacklists, audit, pin_permissions
+from utils import blacklists, audit, pin_permissions, points
 from utils.transcripts import render_preview_transcript, theme_saved_transcript
 from utils.dashboard_settings import (
     ACCESS_LISTS, DELIVERY_EVENTS, LOG_ACTIONS, get_ticket_logging_config,
@@ -1305,7 +1305,7 @@ def status_page():
     return render_template("status.html", base_url=current_base_url(), **_public_schedule_context())
 
 
-DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "ticket-logs", "blacklists", "warnings", "carry-settings", "carry-applications", "trial-schedules", "warning-builder", "access-control"}
+DASHBOARD_PAGES = {"overview", "analytics", "transcripts", "ticket-logs", "blacklists", "warnings", "carry-settings", "carry-applications", "trial-schedules", "warning-builder", "access-control", "points"}
 
 
 @app.route("/")
@@ -1383,9 +1383,9 @@ def home(page="overview"):
 
     guild = bot.guilds[0] if bot.guilds else None
     # Only populate channel and role lists on pages that actually render them.
-    channels = guild.text_channels if guild and page in ("carry-settings", "trial-schedules", "access-control", "ticket-logs") else []
+    channels = guild.text_channels if guild and page in ("carry-settings", "trial-schedules", "access-control", "ticket-logs", "points") else []
     categories = guild.categories if guild and page == "carry-settings" else []
-    roles = guild.roles if guild and page in ("carry-settings", "warning-builder", "access-control") else []
+    roles = guild.roles if guild and page in ("carry-settings", "warning-builder", "access-control", "points") else []
 
     # Never read unrelated collections while opening a single dashboard page.
     tickets_info = get_tickets_data() if page == "overview" else {}
@@ -1455,6 +1455,43 @@ def home(page="overview"):
     can_access_transcripts = has_transcripts_access(user_data["id"], role_ids)
     can_remove_cooldown = has_remove_cooldown_access(user_data["id"], role_ids)
     can_access_analytics = has_analytics_access(user_data["id"], role_ids)
+    can_manage_points = has_carry_manager_access(user_data["id"], role_ids)
+    points_config = points.default_points_config()
+    points_config_unavailable = False
+    points_leaderboard = {"items": [], "total": 0, "page": 1, "pages": 1, "per_page": points.PAGE_SIZE, "query": ""}
+    points_activity = {"items": [], "total": 0, "page": 1, "pages": 1, "per_page": points.PAGE_SIZE, "query": "", "action": ""}
+    if page == "access-control":
+        try:
+            points_config = points.get_points_config(guild.id if guild else "global")
+        except Exception:
+            # Keep existing Access Control usable during a Points-specific database outage.
+            # The partial displays an explicit warning, and the save endpoint remains strict.
+            points_config_unavailable = True
+            app.logger.exception("Could not load Points configuration for Access Control")
+    elif page == "points":
+        try:
+            points_config = points.get_points_config(guild.id if guild else "global")
+            points_query = request.args.get("points_query", "").strip()[:100]
+            points_log_query = request.args.get("points_log_query", "").strip()[:100]
+            points_log_action = request.args.get("points_log_action", "").strip()
+            points_leaderboard = points.get_points_leaderboard(
+                guild.id if guild else "global",
+                _application_page_number(request.args.get("points_page")),
+                points_query,
+            )
+            points_activity = points.get_points_activity(
+                guild.id if guild else "global",
+                _application_page_number(request.args.get("points_log_page")),
+                points_log_query,
+                points_log_action,
+            )
+            for row in points_leaderboard["items"]:
+                member = guild.get_member(int(row["user_id"])) if guild and str(row["user_id"]).isdigit() else None
+                if member:
+                    row["username"] = getattr(member, "display_name", str(member))
+        except Exception:
+            app.logger.exception("Could not load Carry Team Points leaderboard or audit history")
+            return "Points data is temporarily unavailable. Please try again later.", 503
 
     # Pages are separate URLs: enforce the same restrictions server-side.
     if page == "carry-applications" and not can_manage_carry_applications:
@@ -1650,7 +1687,7 @@ def home(page="overview"):
         is_admin_user=is_admin_user,
         can_access_carry_settings=can_access_carry_settings,
         can_manage_carry_applications=can_manage_carry_applications,
-        dashboard_csrf_token=_carry_application_csrf_token() if page in ("access-control", "carry-settings", "carry-applications", "ticket-logs", "blacklists") else None,
+        dashboard_csrf_token=_carry_application_csrf_token() if page in ("access-control", "carry-settings", "carry-applications", "ticket-logs", "blacklists", "points") else None,
         ticket_logging=ticket_logging,
         audit_delivery_events=audit.AUDIT_EVENTS,
         ticket_log_records=ticket_log_records,
@@ -1666,6 +1703,19 @@ def home(page="overview"):
         can_access_transcripts=can_access_transcripts,
         can_remove_cooldown=can_remove_cooldown,
         can_access_analytics=can_access_analytics,
+        can_manage_points=can_manage_points,
+        points_config=points_config,
+        points_config_unavailable=points_config_unavailable,
+        points_leaderboard=points_leaderboard,
+        points_activity=points_activity,
+        points_log_events=points.LOG_EVENTS,
+        points_action_icons={
+            "manual_add": "＋", "manual_subtract": "−", "manual_set": "＝",
+            "leaderboard_removed": "×", "excluded": "⊘", "included": "✓",
+            "automatic_awarded": "✦", "automatic_skipped": "!", "duplicate_ticket": "⛨",
+            "format_passed": "✓", "format_rejected": "!", "thread_created": "↗",
+            "thread_archived": "▣", "thread_failed": "!", "settings_updated": "⚙",
+        },
         analytics=analytics,
         analytics_period=analytics_period,
         ticket_categories=get_ticket_categories() if page == "carry-settings" else [],
@@ -2331,6 +2381,154 @@ def deploy_ticket_panel():
         flash("❌ Ticket cog not found.", "danger")
 
     return redirect(url_for("home", page="carry-settings"))
+
+
+
+@app.post("/dashboard/points/settings")
+@admin_required
+def points_save_settings_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your Points settings form expired. Reload Access Control and try again.")
+    guild = bot.guilds[0] if bot.guilds else None
+    try:
+        command_roles = request.form.getlist("command_role_ids")
+        thread_channels = request.form.getlist("thread_channel_ids")
+        checker_channels = request.form.getlist("format_checker_channel_ids")
+        exempt_roles = request.form.getlist("format_checker_exempt_role_ids")
+        log_channel_id = request.form.get("points_log_channel_id", "").strip()
+
+        if not guild and any((thread_channels, checker_channels, command_roles, exempt_roles, log_channel_id)):
+            raise ValueError("The connected Discord server is unavailable. Try again when the bot is online.")
+        if guild:
+            for channel_id in thread_channels + checker_channels + ([log_channel_id] if log_channel_id else []):
+                channel = guild.get_channel(int(channel_id)) if str(channel_id).isdigit() else None
+                if not isinstance(channel, discord.TextChannel):
+                    raise ValueError("Choose only text channels from the connected server.")
+            for role_id in command_roles + exempt_roles:
+                role = guild.get_role(int(role_id)) if str(role_id).isdigit() else None
+                if role is None or role.is_default():
+                    raise ValueError("Choose valid server roles for Points access and exemptions.")
+
+        gamemode_texts = request.form.getlist("gamemode_text")
+        gamemode_points = request.form.getlist("gamemode_points")
+        gamemode_reasons = request.form.getlist("gamemode_reason")
+        gamemodes = []
+        for index, text_value in enumerate(gamemode_texts):
+            amount = gamemode_points[index] if index < len(gamemode_points) else ""
+            reason = gamemode_reasons[index] if index < len(gamemode_reasons) else ""
+            if not str(text_value or "").strip() and not str(amount or "").strip() and not str(reason or "").strip():
+                continue
+            gamemodes.append({"text": text_value, "points": amount or 0, "reason": reason})
+
+        config = {
+            "command_role_ids": command_roles,
+            "thread_automation": {
+                "enabled": request.form.get("thread_automation_enabled") == "yes",
+                "channel_ids": thread_channels,
+                "thread_name": request.form.get("thread_name", "{author} - {ticket_number}"),
+            },
+            "format_checker": {
+                "enabled": request.form.get("format_checker_enabled") == "yes",
+                "channel_ids": checker_channels,
+                "exempt_role_ids": exempt_roles,
+            },
+            "gamemodes": gamemodes,
+            "logging": {
+                "enabled": request.form.get("points_logging_enabled") == "yes",
+                "channel_id": log_channel_id or None,
+                "events": request.form.getlist("points_log_events"),
+            },
+        }
+        if config["thread_automation"]["enabled"] and not thread_channels:
+            raise ValueError("Choose at least one channel before enabling Thread Automation.")
+        if config["format_checker"]["enabled"] and not checker_channels:
+            raise ValueError("Choose at least one channel before enabling the Format Checker.")
+        if config["logging"]["enabled"] and not log_channel_id:
+            raise ValueError("Choose a logging channel before enabling Discord Points Logging.")
+        saved = points.save_points_config(guild.id if guild else "global", config)
+        if guild:
+            try:
+                points.record_event(
+                    guild.id, "settings_updated",
+                    actor_id=session["user"]["id"],
+                    actor_name=session["user"].get("username", "Dashboard"),
+                    details="Gamemodes, command access, automation, or logging settings were updated.",
+                )
+                cog = bot.get_cog("PointsCog")
+                if cog and bot.loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        cog._deliver_log(
+                            guild, "settings_updated",
+                            actor_id=session["user"]["id"],
+                            actor_name=session["user"].get("username", "Dashboard"),
+                            details="Points dashboard settings were updated.",
+                        ),
+                        bot.loop,
+                    )
+            except Exception:
+                app.logger.exception("Could not record Points settings update")
+        if saved["format_checker"]["enabled"] and not bot.intents.message_content:
+            flash("Points settings saved. Enable Message Content Intent in Discord and set DISCORD_MESSAGE_CONTENT_INTENT=true for Format Checker scanning.", "warning")
+        else:
+            flash("Points settings saved successfully.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Could not save Points settings")
+        flash("Points settings could not be saved. Please retry.", "danger")
+    return redirect(url_for("home", page="access-control", _anchor="access-points"))
+
+
+@app.post("/dashboard/points/adjust")
+@carry_manager_required
+def points_adjust_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your Points form expired. Reload the page and try again.")
+    user_id = request.form.get("user_id", "").strip()
+    username = request.form.get("username", "").strip()[:100]
+    operation = request.form.get("operation", "").strip().lower()
+    reason = request.form.get("reason", "").strip()
+    try:
+        amount = int(request.form.get("amount", ""))
+    except (TypeError, ValueError):
+        amount = -1
+    if not user_id.isdigit():
+        flash("Enter a valid Discord user ID.", "danger")
+        return redirect(url_for("home", page="points", _anchor="points-manager"))
+    try:
+        if operation not in {"set", "add", "subtract"}:
+            raise ValueError("Choose Set, Add, or Subtract.")
+        if amount < 0 or (operation != "set" and amount < 1):
+            raise ValueError("Set may use 0; Add and Subtract require at least 1 point.")
+        guild = bot.guilds[0] if bot.guilds else None
+        member = guild.get_member(int(user_id)) if guild else None
+        username = username or (getattr(member, "display_name", None) if member else None) or user_id
+        updated = points.adjust_points(
+            guild.id if guild else "global", user_id, username,
+            operation, amount, reason,
+            session["user"]["id"], session["user"].get("username", "Dashboard"),
+        )
+        if guild:
+            action = {"add": "manual_add", "subtract": "manual_subtract", "set": "manual_set"}[operation]
+            cog = bot.get_cog("PointsCog")
+            if cog and bot.loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    cog._deliver_log(
+                        guild, action, user_id=user_id, username=username,
+                        amount=amount if operation != "subtract" else -amount,
+                        points_after=int(updated.get("points", 0)), reason=reason,
+                        actor_id=session["user"]["id"],
+                        actor_name=session["user"].get("username", "Dashboard"),
+                    ),
+                    bot.loop,
+                )
+        flash(f"Points updated for {username}. New balance: {int(updated.get('points', 0)):,}.", "success")
+    except ValueError as error:
+        flash(str(error), "danger")
+    except Exception:
+        app.logger.exception("Dashboard Points adjustment failed")
+        flash("The Points balance could not be updated. Please retry.", "danger")
+    return redirect(url_for("home", page="points", _anchor="points-manager"))
 
 
 @app.post("/dashboard/access/bulk-remove")

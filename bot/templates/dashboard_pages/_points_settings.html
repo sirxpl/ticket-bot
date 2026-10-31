@@ -1,0 +1,118 @@
+<form action="{{ url_for('points_save_settings_route') }}" method="POST" class="points-admin-settings">
+    <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+    {% if points_config_unavailable %}
+    <div class="alert alert-warning" role="alert">Points configuration could not be loaded. Existing Access Control settings are still available, but Points settings are read-only until the Points database connection is restored. Saving will fail safely.</div>
+    {% endif %}
+
+    <section class="settings-group points-admin-group" id="access-points">
+        <h2 class="settings-group-title">Points</h2>
+        <details class="card" id="access-points-command-roles">
+            <summary><div class="card-head-text"><h3><span class="card-icon">🏆</span> Points Slash Command Access</h3><p class="card-subtitle">Choose which roles can run point-management slash commands.</p></div><span class="card-chevron">▾</span></summary>
+            <div class="card-body">
+                <p class="card-subtitle">When no Points roles are selected, the existing Carry Manager role access is used. Administrators always retain access.</p>
+                <label class="points-admin-label" for="points-command-role-ids">Allowed roles</label>
+                <select id="points-command-role-ids" name="command_role_ids" multiple size="6" class="points-admin-multi">
+                    {% for role in roles if not role.is_default() %}
+                    <option value="{{ role.id }}" {% if role.id|string in points_config.command_role_ids %}selected{% endif %}>@{{ role.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </details>
+        <details class="card" id="access-points-discord-logging">
+            <summary><div class="card-head-text"><h3><span class="card-icon">🧾</span> Points Discord Logging</h3><p class="card-subtitle">Send audit updates using full Components V2 layouts.</p></div><span class="card-chevron">▾</span></summary>
+            <div class="card-body">
+                <label class="points-admin-check"><input type="checkbox" name="points_logging_enabled" value="yes" {% if points_config.logging.enabled %}checked{% endif %}> Enable Discord Points logging</label>
+                <label class="points-admin-label" for="points-log-channel">Logging channel</label>
+                <select id="points-log-channel" name="points_log_channel_id" class="points-admin-single">
+                    <option value="">Choose a text channel</option>
+                    {% for channel in channels %}
+                    <option value="{{ channel.id }}" {% if channel.id|string == (points_config.logging.channel_id or '') %}selected{% endif %}>#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="card-subtitle">Select which events should be posted in Discord. Dashboard audit history is always retained.</p>
+                <div class="points-admin-event-grid">
+                    {% for key, label in points_log_events.items() %}
+                    <label><input type="checkbox" name="points_log_events" value="{{ key }}" {% if key in points_config.logging.events %}checked{% endif %}> {{ label }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+        </details>
+    </section>
+
+    <section class="settings-group points-admin-group" id="access-thread-automation">
+        <h2 class="settings-group-title">Thread Automation</h2>
+        <details class="card" id="access-points-thread-automation">
+            <summary><div class="card-head-text"><h3><span class="card-icon">🧵</span> Automatic Thread Creation</h3><p class="card-subtitle">Create a thread when someone posts in selected channels.</p></div><span class="card-chevron">▾</span></summary>
+            <div class="card-body">
+                <label class="points-admin-check"><input type="checkbox" name="thread_automation_enabled" value="yes" {% if points_config.thread_automation.enabled %}checked{% endif %}> Enable Thread Automation</label>
+                <label class="points-admin-label" for="points-thread-channels">Channels</label>
+                <select id="points-thread-channels" name="thread_channel_ids" multiple size="6" class="points-admin-multi">
+                    {% for channel in channels %}
+                    <option value="{{ channel.id }}" {% if channel.id|string in points_config.thread_automation.channel_ids %}selected{% endif %}>#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+                <label class="points-admin-label" for="points-thread-name">Thread name template</label>
+                <input id="points-thread-name" name="thread_name" maxlength="100" value="{{ points_config.thread_automation.thread_name }}" placeholder="{author} - {ticket_number}" class="points-admin-input">
+                <p class="card-subtitle">Available placeholders: {author}, {ticket_number}, {gamemode}, {channel}. Threads request auto-archive after one week of inactivity. Format Checker submissions create a thread only after they pass validation.</p>
+            </div>
+        </details>
+    </section>
+
+    <section class="settings-group points-admin-group" id="access-format-checker">
+        <h2 class="settings-group-title">Format Checker</h2>
+        <details class="card" id="access-points-format-checker">
+            <summary><div class="card-head-text"><h3><span class="card-icon">✅</span> Carry Format Validation</h3><p class="card-subtitle">Validate every required section before processing points.</p></div><span class="card-chevron">▾</span></summary>
+            <div class="card-body">
+                <label class="points-admin-check"><input type="checkbox" name="format_checker_enabled" value="yes" {% if points_config.format_checker.enabled %}checked{% endif %}> Enable Format Checker</label>
+                <label class="points-admin-label" for="points-format-channels">Format Checker channels</label>
+                <select id="points-format-channels" name="format_checker_channel_ids" multiple size="6" class="points-admin-multi">
+                    {% for channel in channels %}
+                    <option value="{{ channel.id }}" {% if channel.id|string in points_config.format_checker.channel_ids %}selected{% endif %}>#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+                <label class="points-admin-label" for="points-exempt-roles">Roles exempt from format enforcement</label>
+                <select id="points-exempt-roles" name="format_checker_exempt_role_ids" multiple size="6" class="points-admin-multi">
+                    {% for role in roles if not role.is_default() %}
+                    <option value="{{ role.id }}" {% if role.id|string in points_config.format_checker.exempt_role_ids %}selected{% endif %}>@{{ role.name }}</option>
+                    {% endfor %}
+                </select>
+                <div class="points-admin-format">
+                    <strong>Required format; Notes are optional</strong>
+                    <code>1. @carry1 @carry2</code>
+                    <code>2. @carried-user</code>
+                    <code>3. Gamemode</code>
+                    <code>4. 2011</code>
+                    <code>Notes: Optional extra information</code>
+                </div>
+                <p class="card-subtitle">Sections 1, 2, 3, 4, and optional Notes are scanned. Only section 1 receives points and section 3 determines the configured amount. Sections 2 and 4 and Notes are ignored for point calculation. Invalid submissions are deleted.</p>
+                <p class="card-subtitle"><strong>Requirement:</strong> Format Checker needs Message Content Intent enabled in the Discord Developer Portal and DISCORD_MESSAGE_CONTENT_INTENT=true in the hosting environment.</p>
+            </div>
+        </details>
+    </section>
+
+    <section class="settings-group points-admin-group" id="access-automatic-points">
+        <h2 class="settings-group-title">Automatic points</h2>
+        <details class="card" id="access-points-gamemodes">
+            <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Gamemode Rewards</h3><p class="card-subtitle">Set the point amount and reason that match section 3.</p></div><span class="card-chevron">▾</span></summary>
+            <div class="card-body">
+                <p class="card-subtitle">The section 3 gamemode must exactly match a row below, ignoring letter case. Unknown gamemodes do not award points. Each row contains match text, points, and an optional reason.</p>
+                <div class="points-admin-gamemodes" id="points-gamemodes">
+                    {% for mode in points_config.gamemodes %}
+                    <div class="points-admin-gamemode-row">
+                        <input name="gamemode_text" value="{{ mode.text }}" maxlength="80" placeholder="Gamemode" aria-label="Gamemode text">
+                        <input name="gamemode_points" value="{{ mode.points }}" type="number" min="0" max="1000000000" step="1" placeholder="Points" aria-label="Points amount">
+                        <input name="gamemode_reason" value="{{ mode.reason }}" maxlength="500" placeholder="Optional reason" aria-label="Points reason">
+                        <button type="button" class="points-admin-remove" aria-label="Remove gamemode">Remove</button>
+                    </div>
+                    {% endfor %}
+                </div>
+                <button class="points-admin-add" type="button" id="points-add-gamemode">＋ Add gamemode</button>
+            </div>
+        </details>
+    </section>
+
+    <div class="points-admin-save-row">
+        <span>All settings are saved together for this server.</span>
+        <button class="btn-view" type="submit">Save Points configuration</button>
+    </div>
+</form>

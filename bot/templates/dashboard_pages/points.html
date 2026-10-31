@@ -1,0 +1,177 @@
+<section class="page active points-page" id="page-points">
+    <div class="page-head points-heading">
+        <div>
+            <p class="points-eyebrow">CARRY TEAM</p>
+            <h1>Points</h1>
+            <p>Carry Team leaderboard, point management, automation, and audit history.</p>
+        </div>
+        <div class="points-live-state"><span></span> Server points</div>
+    </div>
+
+    <div class="points-stats">
+        <article class="points-stat">
+            <span class="points-stat-label">Leaderboard members</span>
+            <strong>{{ points_leaderboard.total }}</strong>
+            <span>Visible members with a Points record</span>
+        </article>
+        <article class="points-stat">
+            <span class="points-stat-label">Configured gamemodes</span>
+            <strong>{{ points_config.gamemodes|length }}</strong>
+            <span>Dashboard point rules</span>
+        </article>
+        <article class="points-stat">
+            <span class="points-stat-label">Recent audit events</span>
+            <strong>{{ points_activity.total }}</strong>
+            <span>Recorded Points actions</span>
+        </article>
+    </div>
+
+    <section class="points-panel">
+        <div class="points-panel-head">
+            <div>
+                <h2>🏆 Points Leaderboard</h2>
+                <p>Search by display name or Discord user ID.</p>
+            </div>
+            <span class="points-count">{{ points_leaderboard.total }} members</span>
+        </div>
+        <form class="points-search" method="GET" action="{{ url_for('home', page='points') }}">
+            <label class="sr-only" for="points-query">Search members</label>
+            <input id="points-query" type="search" name="points_query" value="{{ points_leaderboard.query }}" placeholder="Search username or user ID...">
+            <button class="btn-view" type="submit">Search</button>
+            {% if points_leaderboard.query %}<a class="points-clear" href="{{ url_for('home', page='points') }}">Clear</a>{% endif %}
+        </form>
+        <div class="points-table-wrap">
+            <table class="points-table">
+                <thead><tr><th>Rank</th><th>Member</th><th>Discord ID</th><th>Points</th><th>Status</th>{% if can_manage_points %}<th></th>{% endif %}</tr></thead>
+                <tbody>
+                {% for row in points_leaderboard.items %}
+                    <tr>
+                        <td><span class="points-rank">{{ (points_leaderboard.page - 1) * points_leaderboard.per_page + loop.index }}</span></td>
+                        <td><strong>{{ row.username or 'Unknown member' }}</strong></td>
+                        <td><code>{{ row.user_id }}</code></td>
+                        <td><strong class="points-value">{{ "{:,}".format(row.points|int) }}</strong></td>
+                        <td>{% if row.excluded %}<span class="points-status points-status-warning">Excluded</span>{% else %}<span class="points-status">Active</span>{% endif %}</td>
+                        {% if can_manage_points %}<td><button class="points-use-member" type="button" data-points-user="{{ row.user_id }}" data-points-name="{{ row.username or row.user_id }}">Manage</button></td>{% endif %}
+                    </tr>
+                {% else %}
+                    <tr><td colspan="{{ 6 if can_manage_points else 5 }}" class="points-empty">No matching members yet. Points will appear here after the first award.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if points_leaderboard.pages > 1 %}
+        <nav class="points-pagination" aria-label="Points leaderboard pages">
+            {% if points_leaderboard.page > 1 %}<a href="{{ url_for('home', page='points', points_query=points_leaderboard.query, points_page=points_leaderboard.page - 1) }}">← Previous</a>{% endif %}
+            <span>Page {{ points_leaderboard.page }} of {{ points_leaderboard.pages }}</span>
+            {% if points_leaderboard.page < points_leaderboard.pages %}<a href="{{ url_for('home', page='points', points_query=points_leaderboard.query, points_page=points_leaderboard.page + 1) }}">Next →</a>{% endif %}
+        </nav>
+        {% endif %}
+    </section>
+
+    {% if can_manage_points %}
+    <section class="points-panel points-manager-panel" id="points-manager">
+        <div class="points-panel-head">
+            <div>
+                <h2>⚙️ Points Management</h2>
+                <p>Carry Managers can set, add, or subtract a member's balance.</p>
+            </div>
+            <span class="points-manager-tag">Carry Manager</span>
+        </div>
+        <form class="points-adjust-form" method="POST" action="{{ url_for('points_adjust_route') }}">
+            <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+            <div class="points-field points-user-id-field">
+                <label for="points-adjust-user">User ID</label>
+                <input id="points-adjust-user" name="user_id" inputmode="numeric" pattern="[0-9]+" required placeholder="Discord user ID">
+            </div>
+            <div class="points-field">
+                <label for="points-adjust-name">Username (optional)</label>
+                <input id="points-adjust-name" name="username" maxlength="100" placeholder="Display name">
+            </div>
+            <div class="points-field">
+                <label for="points-adjust-operation">Operation</label>
+                <select id="points-adjust-operation" name="operation">
+                    <option value="set">Set balance</option>
+                    <option value="add">Add points</option>
+                    <option value="subtract">Subtract points</option>
+                </select>
+            </div>
+            <div class="points-field">
+                <label for="points-adjust-amount">Amount</label>
+                <input id="points-adjust-amount" name="amount" type="number" min="0" max="1000000000" step="1" required placeholder="0">
+            </div>
+            <div class="points-field points-reason-field">
+                <label for="points-adjust-reason">Reason (required for audit)</label>
+                <input id="points-adjust-reason" name="reason" maxlength="500" required placeholder="Why is this balance changing?">
+            </div>
+            <button class="btn-view points-submit" type="submit">Save points change</button>
+        </form>
+        <p class="points-note">Use a row's Manage action above to fill in its user ID and display name. Every manual change is recorded in the Points audit history.</p>
+    </section>
+
+    <section class="points-panel points-settings-link">
+        <div class="points-panel-head">
+            <div>
+                <h2>🛠️ Points Configuration</h2>
+                <p>Gamemode rewards, Format Checker, Thread Automation, command roles, and Discord logging are managed in Access Control.</p>
+            </div>
+            {% if is_admin_user %}
+            <a class="btn-view" href="{{ url_for('home', page='access-control') }}#access-points">Open Points settings</a>
+            {% else %}
+            <span class="points-manager-tag">Server admin managed</span>
+            {% endif %}
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="points-panel" id="points-audit">
+        <div class="points-panel-head">
+            <div>
+                <h2>🧾 Points Audit History</h2>
+                <p>Manual balance changes and automated decisions, including skipped and rejected submissions.</p>
+            </div>
+            <span class="points-count">{{ points_activity.total }} events</span>
+        </div>
+        <form class="points-search points-audit-search" method="GET" action="{{ url_for('home', page='points') }}#points-audit">
+            <label class="sr-only" for="points-log-query">Search audit history</label>
+            <input id="points-log-query" type="search" name="points_log_query" value="{{ points_activity.query }}" placeholder="Search username, user ID, reason, or ticket number...">
+            <select name="points_log_action" aria-label="Filter by event">
+                <option value="">All events</option>
+                {% for key, label in points_log_events.items() %}
+                <option value="{{ key }}" {% if key == points_activity.action %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn-view" type="submit">Filter</button>
+        </form>
+        <div class="points-activity-list">
+            {% for item in points_activity.items %}
+            <article class="points-activity-row">
+                <div class="points-activity-icon">{{ points_action_icons.get(item.action, '•') }}</div>
+                <div class="points-activity-main">
+                    <strong>{{ points_log_events.get(item.action, item.action.replace('_', ' ').title()) }}</strong>
+                    <span>
+                        {% if item.username %}{{ item.username }}{% elif item.user_id %}{{ item.user_id }}{% else %}Points automation{% endif %}
+                        {% if item.ticket_number %} · Ticket #{{ item.ticket_number }}{% endif %}
+                        {% if item.gamemode %} · {{ item.gamemode }}{% endif %}
+                    </span>
+                    {% if item.reason %}<small>{{ item.reason }}</small>{% endif %}
+                    {% if item.details %}<small>{{ item.details }}</small>{% endif %}
+                </div>
+                <div class="points-activity-meta">
+                    {% if item.amount %}<strong class="{% if item.amount > 0 %}points-positive{% else %}points-negative{% endif %}">{{ "%+d"|format(item.amount) }}</strong>{% endif %}
+                    <time>{{ item.created_at }}</time>
+                    {% if item.actor_name %}<small>By {{ item.actor_name }}</small>{% endif %}
+                </div>
+            </article>
+            {% else %}
+            <div class="points-empty">No audit events match this filter yet.</div>
+            {% endfor %}
+        </div>
+        {% if points_activity.pages > 1 %}
+        <nav class="points-pagination" aria-label="Points audit pages">
+            {% if points_activity.page > 1 %}<a href="{{ url_for('home', page='points', points_log_query=points_activity.query, points_log_action=points_activity.action, points_log_page=points_activity.page - 1) }}#points-audit">← Previous</a>{% endif %}
+            <span>Page {{ points_activity.page }} of {{ points_activity.pages }}</span>
+            {% if points_activity.page < points_activity.pages %}<a href="{{ url_for('home', page='points', points_log_query=points_activity.query, points_log_action=points_activity.action, points_log_page=points_activity.page + 1) }}#points-audit">Next →</a>{% endif %}
+        </nav>
+        {% endif %}
+    </section>
+</section>
