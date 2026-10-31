@@ -4274,14 +4274,14 @@ if __name__ == "__main__":
                 if remaining <= 0 or not _manual_bot_enabled():
                     break
                 time.sleep(min(1, remaining))
-            if _manual_bot_enabled():
-                print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
-                run_bot_with_cooldown()
-            else:
-                bot_sleeping = True
-                print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
-                while True:
-                    time.sleep(3600)
+        if _manual_bot_enabled():
+            print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
+            run_bot_with_cooldown()
+        else:
+            bot_sleeping = True
+            print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
+            while True:
+                time.sleep(3600)
     elif TOKEN:
         bot_sleeping = True
         print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
