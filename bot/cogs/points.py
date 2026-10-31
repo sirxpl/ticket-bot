@@ -148,6 +148,54 @@ class PointsCog(commands.Cog):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+    @app_commands.command(name="points-leaderboard", description="Show the server's Carry Team Points leaderboard")
+    @app_commands.guild_only()
+    async def points_leaderboard(self, interaction: discord.Interaction):
+        """Display the current server leaderboard publicly using Components V2."""
+        await interaction.response.defer()
+        try:
+            leaderboard = await asyncio.to_thread(
+                points.get_points_leaderboard, interaction.guild.id, 1, ""
+            )
+        except Exception:
+            logger.exception("Could not load the Points leaderboard for Discord")
+            await interaction.edit_original_response(
+                view=_v2_notice(
+                    "Leaderboard Unavailable",
+                    "The Points leaderboard could not be loaded right now. Please try again shortly.",
+                    okay=False,
+                )
+            )
+            return
+
+        rows = leaderboard.get("items") or []
+        total = int(leaderboard.get("total", 0))
+        container = discord.ui.Container(accent_color=discord.Color.blurple())
+        container.add_item(discord.ui.TextDisplay("## 🏆 Carry Team Points Leaderboard"))
+        container.add_item(discord.ui.Separator())
+        if rows:
+            lines = []
+            for index, row in enumerate(rows, start=1):
+                user_id = str(row.get("user_id") or "").strip()
+                if not user_id.isdigit():
+                    continue
+                points_value = int(row.get("points", 0))
+                lines.append(f"**#{index}** <@{user_id}> — **{points_value:,}** points")
+            body = "\\n".join(lines) if lines else "No leaderboard members are available yet."
+            container.add_item(discord.ui.TextDisplay(body))
+        else:
+            container.add_item(discord.ui.TextDisplay("No points have been recorded yet."))
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(
+            f"-# Showing {len(rows)} of {total} members • Carry Ticket Bot"
+        ))
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(container)
+        await interaction.edit_original_response(
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
     @app_commands.command(name="points-add", description="Add points to a Carry Team member")
     @app_commands.guild_only()
     @app_commands.describe(user="Member receiving points", amount="Number of points to add", reason="Why points are being added")
