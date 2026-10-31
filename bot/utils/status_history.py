@@ -137,7 +137,9 @@ def record_check(is_online: bool):
     last_state = data.get("last_state")
     now = _now_iso()
 
+    transition = None
     if last_state is True and is_online is False:
+        transition = "offline"
         incident = {
             "id": uuid.uuid4().hex[:8],
             "title": "Bot Disconnected",
@@ -151,6 +153,7 @@ def record_check(is_online: bool):
         data.setdefault("incidents", []).append(incident)
         data["open_incident_id"] = incident["id"]
     elif last_state is False and is_online is True:
+        transition = "online"
         open_id = data.get("open_incident_id")
         if open_id:
             for inc in data.get("incidents", []):
@@ -164,6 +167,7 @@ def record_check(is_online: bool):
 
     data["last_state"] = is_online
     _save(data)
+    return transition
 
 
 def get_daily_uptime(days: int = 90):
