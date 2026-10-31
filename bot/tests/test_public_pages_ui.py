@@ -71,7 +71,7 @@ class PublicPagesLayoutTests(unittest.TestCase):
         self.assertEqual(content.count("<details"), 21)
         self.assertIn("dashboard_pages/_logging_settings.html", content)
         self.assertIn("dashboard_pages/_blacklist_types.html", content)
-        self.assertNotRegex(content, r"<details\\b[^>]*\\bopen(?:\\s|=|>)")
+        self.assertNotRegex(content, r"<details\b[^>]*\bopen(?:\s|=|>)")
         self.assertIn('id="access-bot-controls"', content)
         self.assertIn('/dashboard/access/set-bot-state', content)
         self.assertIn('name="enabled" value="off"', content)
