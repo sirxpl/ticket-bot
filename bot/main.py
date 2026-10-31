@@ -4013,7 +4013,7 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
     With can_recover=True, if the bot reconnects by itself during the wait the
     cooldown is cancelled instead of restarting. Returns True in that case."""
     import sys
-    global web_lockdown_until, last_start_error, _cooldown_active
+    global web_lockdown_until, last_start_error, _cooldown_active, bot_sleeping
     with _cooldown_lock:
         if _cooldown_active:
             return False
@@ -4060,6 +4060,7 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
 
 
 def run_bot_with_cooldown():
+    global bot_sleeping
     """Run the bot. If startup/login fails, keep the process (and status
     pages) alive and retry after a backoff instead of exiting, so the host
     isn't tempted into an instant restart loop that keeps the API block alive."""
