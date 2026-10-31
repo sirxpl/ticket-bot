@@ -1,0 +1,103 @@
+/* Carry Team Points page */
+.points-page { max-width: 1380px; margin: 0 auto; }
+.points-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+.points-eyebrow { color:var(--accent); font-size:.72rem; font-weight:800; letter-spacing:.15em; margin:0 0 5px; }
+.points-live-state,.points-manager-tag,.points-count { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:999px; padding:7px 12px; color:var(--text-dim); font-size:.78rem; font-weight:700; white-space:nowrap; }
+.points-live-state span { width:8px; height:8px; border-radius:50%; background:#35c98a; box-shadow:0 0 0 4px rgba(53,201,138,.12); }
+.points-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:20px 0; }
+.points-stat,.points-panel { background:var(--panel); border:1px solid var(--border); border-radius:18px; }
+.points-stat { padding:18px; display:flex; flex-direction:column; gap:5px; min-width:0; }
+.points-stat-label { color:var(--text-dim); font-size:.8rem; font-weight:700; }
+.points-stat strong { font-size:1.8rem; letter-spacing:-.04em; }
+.points-stat>span:last-child { color:var(--text-dim); font-size:.76rem; }
+.points-panel { padding:20px; margin:16px 0; min-width:0; }
+.points-panel-head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
+.points-panel-head h2 { margin:0; font-size:1.12rem; letter-spacing:-.02em; }
+.points-panel-head p { color:var(--text-dim); font-size:.84rem; margin:5px 0 0; }
+.points-search { display:flex; gap:9px; align-items:center; margin:0 0 14px; }
+.points-search input,.points-search select,.points-field input,.points-field select,.points-single-select,.points-settings-section input:not([type=checkbox]),.points-multi-select { width:100%; min-width:0; color:var(--text); background:var(--raised); border:1px solid var(--border); border-radius:10px; padding:10px 12px; outline:none; }
+.points-search input:focus,.points-field input:focus,.points-settings-section input:focus,.points-multi-select:focus,.points-single-select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+.points-search button,.points-submit { flex-shrink:0; }
+.points-clear,.points-pagination a { color:var(--accent); text-decoration:none; font-weight:700; font-size:.84rem; }
+.points-table-wrap { width:100%; overflow-x:auto; }
+.points-table { width:100%; border-collapse:collapse; min-width:620px; }
+.points-table th { text-align:left; color:var(--text-dim); font-size:.72rem; text-transform:uppercase; letter-spacing:.08em; padding:11px 10px; border-bottom:1px solid var(--border); }
+.points-table td { padding:13px 10px; border-bottom:1px solid var(--border); font-size:.86rem; }
+.points-table tbody tr:last-child td { border-bottom:0; }
+.points-table code { color:var(--text-dim); font-size:.78rem; }
+.points-rank { display:inline-flex; min-width:30px; height:30px; align-items:center; justify-content:center; border-radius:9px; background:var(--raised); color:var(--text-dim); font-weight:800; }
+.points-value { font-variant-numeric:tabular-nums; }
+.points-status { display:inline-block; padding:4px 8px; border-radius:999px; background:rgba(53,201,138,.11); color:#39c98b; font-size:.7rem; font-weight:800; }
+.points-status-warning { background:rgba(230,157,66,.13); color:#e6a044; }
+.points-use-member,.points-remove-row { background:transparent; border:1px solid var(--border); color:var(--text-dim); border-radius:8px; padding:6px 9px; cursor:pointer; font-weight:700; }
+.points-use-member:hover,.points-remove-row:hover { color:var(--text); border-color:var(--accent); }
+.points-empty { padding:24px 12px !important; color:var(--text-dim); text-align:center; }
+.points-pagination { display:flex; justify-content:center; align-items:center; gap:18px; border-top:1px solid var(--border); padding-top:14px; margin-top:12px; color:var(--text-dim); font-size:.8rem; }
+.points-manager-tag { color:var(--accent); border-color:var(--accent); }
+.points-adjust-form { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.points-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.points-field label,.points-field-label { font-size:.78rem; font-weight:700; color:var(--text-dim); }
+.points-reason-field { grid-column:span 3; }
+.points-submit { align-self:end; min-height:42px; }
+.points-note { color:var(--text-dim); font-size:.78rem; line-height:1.5; margin:12px 0 0; }
+.points-settings-form { display:grid; gap:14px; }
+.points-settings-section { border:1px solid var(--border); border-radius:14px; padding:16px; min-width:0; }
+.points-settings-section h3 { margin:0 0 5px; font-size:.98rem; }
+.points-settings-section>p { color:var(--text-dim); font-size:.8rem; line-height:1.55; margin:0 0 13px; }
+.points-settings-section small { color:var(--text-dim); display:block; margin-top:6px; font-size:.74rem; }
+.points-toggle { display:inline-flex; align-items:center; gap:9px; margin:5px 0 13px; font-size:.84rem; font-weight:700; cursor:pointer; }
+.points-toggle input,.points-log-event-grid input { accent-color:var(--accent); width:16px; height:16px; }
+.points-field-label { display:block; margin:10px 0 6px; }
+.points-multi-select { min-height:90px; }
+.points-single-select { max-width:460px; }
+.points-gamemodes { display:grid; gap:8px; margin:12px 0; }
+.points-gamemode-row { display:grid; grid-template-columns:minmax(130px,1fr) minmax(90px,.55fr) minmax(160px,1.4fr) auto; gap:8px; }
+.points-gamemode-row input { width:100%; min-width:0; }
+.points-remove-row { border-color:rgba(241,85,108,.25); color:var(--danger); }
+.points-secondary-button { background:var(--raised); border:1px solid var(--border); color:var(--text); border-radius:9px; padding:9px 12px; cursor:pointer; font-weight:700; }
+.points-format-example { display:grid; gap:5px; padding:12px; margin-top:13px; background:var(--raised); border-radius:11px; }
+.points-format-example strong { font-size:.8rem; margin-bottom:4px; }
+.points-format-example code { color:var(--text-dim); font-size:.76rem; }
+.points-log-event-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px 16px; margin:13px 0 4px; }
+.points-log-event-grid label { display:flex; align-items:center; gap:8px; font-size:.78rem; color:var(--text-dim); }
+.points-settings-footer { display:flex; align-items:center; justify-content:space-between; gap:14px; padding-top:4px; color:var(--text-dim); font-size:.78rem; }
+.points-activity-list { display:grid; }
+.points-activity-row { display:grid; grid-template-columns:38px minmax(0,1fr) minmax(110px,auto); align-items:center; gap:12px; padding:13px 0; border-bottom:1px solid var(--border); }
+.points-activity-row:last-child { border-bottom:0; }
+.points-activity-icon { width:36px; height:36px; display:grid; place-items:center; background:var(--raised); border-radius:11px; font-size:1rem; }
+.points-activity-main { min-width:0; display:grid; gap:4px; }
+.points-activity-main strong { font-size:.85rem; }
+.points-activity-main span,.points-activity-main small,.points-activity-meta small { color:var(--text-dim); font-size:.75rem; overflow-wrap:anywhere; }
+.points-activity-meta { display:grid; justify-items:end; gap:4px; text-align:right; }
+.points-activity-meta time { color:var(--text-dim); font-size:.68rem; }
+.points-positive { color:#35c98a; }
+.points-negative { color:var(--danger); }
+.points-audit-search select { min-width:180px; max-width:240px; color:var(--text); background:var(--raised); border:1px solid var(--border); border-radius:10px; padding:10px; }
+@media(max-width:850px) {
+ .points-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .points-adjust-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .points-reason-field { grid-column:span 2; }
+ .points-gamemode-row { grid-template-columns:1fr 100px; }
+ .points-gamemode-row input:nth-child(3) { grid-column:1 / 2; }
+ .points-gamemode-row .points-remove-row { grid-column:2; grid-row:2; }
+}
+@media(max-width:600px) {
+ .points-heading,.points-panel-head { align-items:flex-start; flex-direction:column; }
+ .points-stats { grid-template-columns:1fr; }
+ .points-stat { padding:14px; }
+ .points-panel { padding:15px; border-radius:14px; }
+ .points-search { align-items:stretch; flex-wrap:wrap; }
+ .points-search input { flex:1 1 100%; }
+ .points-search select { flex:1 1 100%; max-width:none; }
+ .points-adjust-form { grid-template-columns:1fr; }
+ .points-reason-field { grid-column:auto; }
+ .points-submit { width:100%; }
+ .points-gamemode-row { grid-template-columns:minmax(0,1fr) auto; }
+ .points-gamemode-row input:nth-child(3) { grid-column:1 / -1; }
+ .points-gamemode-row .points-remove-row { grid-column:2; grid-row:1; }
+ .points-settings-footer { align-items:stretch; flex-direction:column; }
+ .points-settings-footer button { width:100%; }
+ .points-log-event-grid { grid-template-columns:1fr; }
+ .points-activity-row { grid-template-columns:34px minmax(0,1fr); }
+ .points-activity-meta { grid-column:2; justify-items:start; text-align:left; }
+}

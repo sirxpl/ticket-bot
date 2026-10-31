@@ -5,7 +5,7 @@
             <p>Decide who can reach each part of this control panel.</p>
         </div>
         {% if is_admin_user %}
-        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-loggings">Loggings</a><a href="#access-operations">Operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
+        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-points">Points</a><a href="#access-thread-automation">Thread Automation</a><a href="#access-format-checker">Format Checker</a><a href="#access-automatic-points">Automatic points</a><a href="#access-loggings">Loggings</a><a href="#access-operations">Operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
 <section class="settings-group" id="access-dashboard"><h2 class="settings-group-title">Dashboard access</h2>
 <details class="card" id="access-overview">
             <summary>
@@ -618,6 +618,7 @@
             </div>
         </details>
 </section>
+{% include 'dashboard_pages/_points_settings.html' %}
 <section class="settings-group" id="access-logging-group"><h2 class="settings-group-title">Loggings</h2>
 <p class="card-subtitle"><a href="{{ url_for('home', page='ticket-logs') }}">Browse ticket activity history</a>. Choose delivery channels and ticket events below.</p>
 {% set logging_section_id = 'access-loggings' %}

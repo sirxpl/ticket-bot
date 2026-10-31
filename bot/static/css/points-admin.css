@@ -1,0 +1,19 @@
+.points-admin-settings { display:grid; gap:16px; }
+.points-admin-group { margin-top:18px; }
+.points-admin-label { display:block; margin:10px 0 6px; font-weight:700; font-size:.82rem; }
+.points-admin-multi,.points-admin-single,.points-admin-input,.points-admin-gamemode-row input { width:100%; box-sizing:border-box; background:var(--raised); color:var(--text); border:1px solid var(--border); border-radius:9px; padding:9px 11px; min-width:0; }
+.points-admin-multi { min-height:100px; }
+.points-admin-check { display:flex; align-items:center; gap:9px; font-size:.85rem; font-weight:700; margin:4px 0 12px; }
+.points-admin-check input,.points-admin-event-grid input { accent-color:var(--accent); width:16px; height:16px; }
+.points-admin-event-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px 16px; margin-top:13px; }
+.points-admin-event-grid label { display:flex; gap:8px; align-items:center; font-size:.8rem; color:var(--text-dim); }
+.points-admin-format { display:grid; gap:5px; padding:12px; background:var(--raised); border-radius:10px; margin:13px 0; }
+.points-admin-format strong { font-size:.8rem; margin-bottom:4px; }
+.points-admin-format code { font-size:.76rem; color:var(--text-dim); }
+.points-admin-gamemodes { display:grid; gap:8px; margin:12px 0; }
+.points-admin-gamemode-row { display:grid; grid-template-columns:minmax(130px,1fr) minmax(90px,.55fr) minmax(150px,1.2fr) auto; gap:8px; }
+.points-admin-gamemode-row input { padding:9px; }
+.points-admin-remove { background:transparent; border:1px solid rgba(241,85,108,.25); color:var(--danger); border-radius:8px; padding:7px 9px; cursor:pointer; }
+.points-admin-add { background:var(--raised); border:1px solid var(--border); color:var(--text); border-radius:9px; padding:9px 12px; cursor:pointer; font-weight:700; }
+.points-admin-save-row { display:flex; justify-content:space-between; align-items:center; gap:14px; color:var(--text-dim); font-size:.8rem; padding:4px 0 16px; }
+@media(max-width:700px){.points-admin-event-grid{grid-template-columns:1fr}.points-admin-gamemode-row{grid-template-columns:minmax(0,1fr) auto}.points-admin-gamemode-row input:nth-child(3){grid-column:1/-1}.points-admin-remove{grid-column:2;grid-row:1}.points-admin-save-row{align-items:stretch;flex-direction:column}.points-admin-save-row button{width:100%}}

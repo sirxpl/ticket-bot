@@ -4,8 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carry Bot Control Panel</title>
-    {% if active_page in ['access-control','carry-settings','carry-applications','ticket-logs','trial-schedules'] %}
+    {% if active_page in ['access-control','carry-settings','carry-applications','ticket-logs','trial-schedules','points'] %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard-settings.css') }}">
+    {% endif %}
+    {% if active_page == 'points' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/points.css') }}">
+    {% endif %}
+    {% if active_page in ['points','access-control'] %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/points-admin.css') }}">
+    <script src="{{ url_for('static', filename='js/points.js') }}" defer></script>
     {% endif %}
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/nano.min.css"/>
@@ -1184,6 +1191,12 @@
 
             </div>
 
+            <div class="nav-group">
+                <div class="nav-group-label">Carry Team</div>
+                <a href="{{ url_for('home', page='points') }}" class="nav-item{{ ' active' if active_page == 'points' else '' }}" data-page="points">
+                    <span class="nav-icon">🏆</span><span class="nav-text">Points</span></a>
+            </div>
+
             {% if can_manage_carry_applications or (is_admin_user and can_access_carry_settings) %}
             <div class="nav-group"><div class="nav-group-label">Carry team</div>
                 {% if can_manage_carry_applications %}
@@ -1275,6 +1288,8 @@
 {% include 'dashboard_pages/warning_builder.html' %}
 {% elif active_page == 'access-control' %}
 {% include 'dashboard_pages/access_control.html' %}
+{% elif active_page == 'points' %}
+{% include 'dashboard_pages/points.html' %}
 {% endif %}
 
 
