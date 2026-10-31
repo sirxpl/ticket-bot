@@ -427,6 +427,52 @@ class PointsCog(commands.Cog):
             )
             return
 
+        # Discord keeps files attached to the original message when that
+        # message is used as a thread starter. Allow file-only submissions to
+        # create a thread, but do not treat them as a valid points submission.
+        attachments = list(getattr(message, "attachments", []) or [])
+        if not (message.content or "").strip() and attachments:
+            thread = await self._create_thread(
+                message, (config.get("thread_automation") or {}).get("thread_name")
+            )
+            if thread:
+                try:
+                    await thread.send(
+                        view=_v2_notice(
+                            "Attachments Received",
+                            "This thread was created from an attachment-only submission. "
+                            "The original files are available in the thread starter message. "
+                            "Automatic points were not awarded because the required Format Checker text was not provided.",
+                            okay=False,
+                        ),
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except discord.HTTPException:
+                    logger.exception(
+                        "Could not post attachment-only submission note for message=%s",
+                        message.id,
+                    )
+                await self._record_and_log(
+                    message.guild, "thread_created",
+                    user_id=message.author.id,
+                    username=_member_name(message.author),
+                    thread_id=thread.id,
+                    details=(
+                        f"Created from an attachment-only Format Checker submission "
+                        f"in #{message.channel.name}; {len(attachments)} attachment(s) "
+                        "were retained on the thread starter. No automatic points were awarded."
+                    ),
+                )
+            await self._record_and_log(
+                message.guild, "automatic_skipped",
+                user_id=message.author.id,
+                username=_member_name(message.author),
+                thread_id=thread.id if thread else None,
+                reason="Attachment-only submission; required Format Checker text was not provided.",
+                details="Thread creation was attempted, but attachment-only submissions are not eligible for automatic points.",
+            )
+            return
+
         parsed, error = points.validate_format(message.content)
         if error:
             deleted = False
@@ -471,7 +517,10 @@ class PointsCog(commands.Cog):
             message.guild, "format_passed", user_id=message.author.id,
             username=_member_name(message.author), ticket_number=parsed["ticket_number"],
             thread_id=thread.id if thread else None, gamemode=parsed["gamemode"],
-            details=f"Validated sections 1-4; notes={'present' if parsed['notes'] else 'empty'}.",
+            details=(
+                f"Validated sections 1-4; notes={'present' if parsed['notes'] else 'empty'}; "
+                f"attachments={len(attachments)}."
+            ),
         )
 
         if not thread:
