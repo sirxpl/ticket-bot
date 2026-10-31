@@ -185,3 +185,16 @@ This bot stores Discord user IDs and role IDs (for blacklists, access control, a
 Add your preferred license here (MIT, GPL, etc.) — none is currently specified.
 
 
+
+
+## Bot status notification fallback
+
+The Access Control **Bot Status Logs** channel continues to receive Components V2 status messages while the bot is connected. To keep alerts working when the bot cannot log in, configure these private Render environment variables:
+
+- `STATUS_DISCORD_WEBHOOK_URL`: a Discord webhook URL for fallback status embeds. Keep it private and never commit it.
+- `RENDER_WEBHOOK_SECRET`: the signing secret shown in the Render workspace webhook settings.
+- `RENDER_STATUS_SERVICE_ID` (optional): restrict incoming Render events to this service ID.
+
+After deploying, create a Render workspace webhook pointing to `https://YOUR-SERVICE-DOMAIN/webhooks/render/status`. Select deployment events such as **Deploy Started**, **Deploy Ended**, **Build Ended**, **Server Failed**, and **Server Available**. The endpoint validates Render's Standard Webhooks signature and rejects stale requests. Render workspace webhooks require a Pro-or-higher plan.
+
+The Discord webhook is used for fallback and Render lifecycle alerts; normal connected-bot status messages remain Components V2. A failed deployment can be reported by Render even when the new bot process never starts, as long as Render can still reach the webhook endpoint.
