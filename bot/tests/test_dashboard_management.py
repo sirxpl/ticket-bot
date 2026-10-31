@@ -91,6 +91,16 @@ class SettingsChecks:
         self.assertEqual(config["log_channel_id"], "777")
         self.assertEqual(access.get_access_settings()["allowed_roles"], ["101"])
 
+    def test_manual_bot_control_persists_without_changing_access_lists(self):
+        self.seed_access({"allowed_users": ["101"], "manual_bot_enabled": True})
+        self.assertTrue(access.get_access_settings()["manual_bot_enabled"])
+        self.assertFalse(access.save_manual_bot_enabled(False))
+        saved = access.get_access_settings()
+        self.assertFalse(saved["manual_bot_enabled"])
+        self.assertEqual(saved["allowed_users"], ["101"])
+        self.assertTrue(access.save_manual_bot_enabled(True))
+        self.assertTrue(access.get_access_settings()["manual_bot_enabled"])
+
     def test_logging_rejects_unknown_events_and_non_numeric_channels(self):
         for enabled, events, channels in [(True, ["arbitrary_event"], {}), (True, [], {"log_channel_id": "not-a-channel"}), ("yes", [], {})]:
             with self.subTest(events=events), self.assertRaises(ValueError):
@@ -137,6 +147,7 @@ class MongoDashboardSettingsTests(SettingsChecks, DashboardFixture, unittest.Tes
     def test_database_outage_does_not_claim_or_write_fallback_settings(self):
         for module, operation in [(access, lambda: settings.remove_access_entries("allowed_roles", ["101"])),
                                   (access, lambda: settings.save_ticket_logging_config(True, ["opened"], {})),
+                                  (access, lambda: access.save_manual_bot_enabled(False)),
                                   (storage, lambda: settings.remove_blocked_badges(["101"])),
                                   (storage, lambda: settings.save_categories_checked([])),
                                   (storage, settings.ticket_log_page)]:
