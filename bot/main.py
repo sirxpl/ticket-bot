@@ -3458,6 +3458,8 @@ def access_set_warning_log_channel():
 @app.route("/dashboard/access/save-status-log-channel", methods=["POST"])
 @admin_required
 def access_save_status_log_channel():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and try again.")
     channel_id = request.form.get("status_log_channel_id", "").strip()
     try:
         save_status_log_channel(channel_id or None)
