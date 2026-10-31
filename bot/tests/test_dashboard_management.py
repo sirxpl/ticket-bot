@@ -144,6 +144,10 @@ class LocalDashboardSettingsTests(SettingsChecks, DashboardFixture, unittest.Tes
 
 
 class MongoDashboardSettingsTests(SettingsChecks, DashboardFixture, unittest.TestCase):
+    def test_manual_bot_control_fails_closed_when_configured_mongodb_is_unavailable(self):
+        with patch.object(access, "get_db", return_value=None):
+            self.assertFalse(access.get_manual_bot_enabled())
+
     def test_database_outage_does_not_claim_or_write_fallback_settings(self):
         for module, operation in [(access, lambda: settings.remove_access_entries("allowed_roles", ["101"])),
                                   (access, lambda: settings.save_ticket_logging_config(True, ["opened"], {})),
