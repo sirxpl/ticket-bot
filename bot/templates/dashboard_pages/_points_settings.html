@@ -1,5 +1,8 @@
 <form action="{{ url_for('points_save_settings_route') }}" method="POST" class="points-admin-settings">
     <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+    {% if points_config_unavailable %}
+    <div class="alert alert-warning" role="alert">Points configuration could not be loaded. Existing Access Control settings are still available, but Points settings are read-only until the Points database connection is restored. Saving will fail safely.</div>
+    {% endif %}
 
     <section class="settings-group points-admin-group" id="access-points">
         <h2 class="settings-group-title">Points</h2>

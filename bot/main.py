@@ -1457,32 +1457,40 @@ def home(page="overview"):
     can_access_analytics = has_analytics_access(user_data["id"], role_ids)
     can_manage_points = has_carry_manager_access(user_data["id"], role_ids)
     points_config = points.default_points_config()
+    points_config_unavailable = False
     points_leaderboard = {"items": [], "total": 0, "page": 1, "pages": 1, "per_page": points.PAGE_SIZE, "query": ""}
     points_activity = {"items": [], "total": 0, "page": 1, "pages": 1, "per_page": points.PAGE_SIZE, "query": "", "action": ""}
-    if page in ("points", "access-control"):
+    if page == "access-control":
         try:
             points_config = points.get_points_config(guild.id if guild else "global")
-            if page == "points":
-                points_query = request.args.get("points_query", "").strip()[:100]
-                points_log_query = request.args.get("points_log_query", "").strip()[:100]
-                points_log_action = request.args.get("points_log_action", "").strip()
-                points_leaderboard = points.get_points_leaderboard(
-                    guild.id if guild else "global",
-                    _application_page_number(request.args.get("points_page")),
-                    points_query,
-                )
-                points_activity = points.get_points_activity(
-                    guild.id if guild else "global",
-                    _application_page_number(request.args.get("points_log_page")),
-                    points_log_query,
-                    points_log_action,
-                )
-                for row in points_leaderboard["items"]:
-                    member = guild.get_member(int(row["user_id"])) if guild and str(row["user_id"]).isdigit() else None
-                    if member:
-                        row["username"] = getattr(member, "display_name", str(member))
         except Exception:
-            app.logger.exception("Could not load Carry Team Points configuration or history")
+            # Keep existing Access Control usable during a Points-specific database outage.
+            # The partial displays an explicit warning, and the save endpoint remains strict.
+            points_config_unavailable = True
+            app.logger.exception("Could not load Points configuration for Access Control")
+    elif page == "points":
+        try:
+            points_config = points.get_points_config(guild.id if guild else "global")
+            points_query = request.args.get("points_query", "").strip()[:100]
+            points_log_query = request.args.get("points_log_query", "").strip()[:100]
+            points_log_action = request.args.get("points_log_action", "").strip()
+            points_leaderboard = points.get_points_leaderboard(
+                guild.id if guild else "global",
+                _application_page_number(request.args.get("points_page")),
+                points_query,
+            )
+            points_activity = points.get_points_activity(
+                guild.id if guild else "global",
+                _application_page_number(request.args.get("points_log_page")),
+                points_log_query,
+                points_log_action,
+            )
+            for row in points_leaderboard["items"]:
+                member = guild.get_member(int(row["user_id"])) if guild and str(row["user_id"]).isdigit() else None
+                if member:
+                    row["username"] = getattr(member, "display_name", str(member))
+        except Exception:
+            app.logger.exception("Could not load Carry Team Points leaderboard or audit history")
             return "Points data is temporarily unavailable. Please try again later.", 503
 
     # Pages are separate URLs: enforce the same restrictions server-side.
@@ -1697,6 +1705,7 @@ def home(page="overview"):
         can_access_analytics=can_access_analytics,
         can_manage_points=can_manage_points,
         points_config=points_config,
+        points_config_unavailable=points_config_unavailable,
         points_leaderboard=points_leaderboard,
         points_activity=points_activity,
         points_log_events=points.LOG_EVENTS,
