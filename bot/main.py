@@ -745,7 +745,6 @@ def _lockdown_gate():
         user = session.get("user") or {}
         if is_admin(user.get("id")):
             return None
-        return None
     # Hosting health checks / uptime pingers hit "/" - keep answering 200 so
     # the host doesn't decide the service is dead and restart it (which would
     # just re-trigger the Discord block).
@@ -4279,10 +4278,10 @@ if __name__ == "__main__":
                 print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
                 run_bot_with_cooldown()
             else:
-            bot_sleeping = True
-            print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
-            while True:
-                time.sleep(3600)
+                bot_sleeping = True
+                print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
+                while True:
+                    time.sleep(3600)
     elif TOKEN:
         bot_sleeping = True
         print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
