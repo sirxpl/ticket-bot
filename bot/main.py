@@ -3565,6 +3565,8 @@ async def on_ready():
 
 @bot.event
 async def on_disconnect():
+    if bot_sleeping or _offline_schedule_active:
+        return
     _queue_status_event(
         "disconnected",
         "Bot disconnected",
