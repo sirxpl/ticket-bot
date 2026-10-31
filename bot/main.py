@@ -434,6 +434,8 @@ def _build_status_v2_view(event):
         "deployment": discord.Color.blurple(),
         "restart": discord.Color.gold(),
         "startup": discord.Color.blurple(),
+        "sleeping": discord.Color.dark_grey(),
+        "awake": discord.Color.green(),
     }
     event_time = event.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat()
     try:
@@ -3673,9 +3675,6 @@ def run_offline_schedule_watcher():
                         "The dashboard and status page remain available.",
                         "bot_sleeping",
                     )
-                    _deliver = asyncio.run_coroutine_threadsafe(
-                        _deliver_pending_status_notifications(), bot.loop
-                    ) if bot.loop and not bot.loop.is_closed() else None
                 except Exception as exc:
                     print(f"Offline schedule disconnect failed: {exc}")
                     bot_sleeping = False
