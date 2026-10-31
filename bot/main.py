@@ -1381,6 +1381,7 @@ def _wake_process():
     print("☀️ Waking bot from idle sleep - restarting process to log in again...")
     _send_alert("☀️ Carry Ticket Bot is waking up from idle sleep.")
     os.environ["BOT_START_ATTEMPT"] = "0"
+    os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -3551,7 +3552,15 @@ async def on_ready():
     global bot_ready_since
     print("🔧 on_ready started.", flush=True)
     bot_ready_since = time.time()
-    _queue_status_event("bot_online", "Bot back online", "Carry Ticket Bot is connected and ready.", dedupe_key="bot_online")
+    if os.getenv("BOT_WAKING_FROM_SLEEP") == "1":
+        os.environ.pop("BOT_WAKING_FROM_SLEEP", None)
+        _queue_status_event(
+            "awake", "Bot is awake",
+            "Carry Ticket Bot has finished waking up and is connected to Discord.",
+            dedupe_key="bot_awake",
+        )
+    else:
+        _queue_status_event("bot_online", "Bot back online", "Carry Ticket Bot is connected and ready.", dedupe_key="bot_online")
     await _deliver_pending_status_notifications()
     # If this process was started by the cooldown/watchdog restart, tell the
     # owner the bot is back (once), then reset the retry counter.
@@ -3658,6 +3667,15 @@ def run_offline_schedule_watcher():
                 try:
                     if bot.loop and not bot.loop.is_closed():
                         asyncio.run_coroutine_threadsafe(bot.close(), bot.loop).result(timeout=30)
+                    _queue_status_event(
+                        "sleeping", "Bot is sleeping",
+                        "Carry Ticket Bot entered its configured offline schedule.",
+                        "The dashboard and status page remain available.",
+                        "bot_sleeping",
+                    )
+                    _deliver = asyncio.run_coroutine_threadsafe(
+                        _deliver_pending_status_notifications(), bot.loop
+                    ) if bot.loop and not bot.loop.is_closed() else None
                 except Exception as exc:
                     print(f"Offline schedule disconnect failed: {exc}")
                     bot_sleeping = False
@@ -3665,6 +3683,7 @@ def run_offline_schedule_watcher():
             elif not active and _offline_schedule_active:
                 print("🕒 Offline schedule ended — restarting process to reconnect Discord bot.")
                 os.environ["BOT_START_ATTEMPT"] = "0"
+                os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
                 import sys
                 os.execv(sys.executable, [sys.executable] + sys.argv)
         except SystemExit:
@@ -3923,6 +3942,12 @@ def _go_to_sleep(idle_seconds):
         print(f"Idle sleep failed, staying awake: {e}")
         bot_sleeping = False
         return
+    _queue_status_event(
+        "sleeping", "Bot is sleeping",
+        f"Carry Ticket Bot entered idle sleep after {hours} hours without activity and with no open tickets.",
+        "The dashboard and status page remain available.",
+        "bot_sleeping",
+    )
     _send_alert(f"💤 Carry Ticket Bot went to sleep after {hours}h without activity. Wake it from the status page when needed.")
 
 
