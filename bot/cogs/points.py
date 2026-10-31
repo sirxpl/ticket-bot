@@ -124,9 +124,9 @@ class PointsCog(commands.Cog):
             lines.append("")
             lines.append("**Excluded from automatic points**")
             lines.extend(f"• <@{user_id}>" for user_id in excluded)
-        body = "\\n".join(lines)
+        body = "\n".join(lines)
         if len(body) > 3800:
-            body = body[:3750] + "\\n… Additional recipients omitted from this summary."
+            body = body[:3750] + "\n… Additional recipients omitted from this summary."
         container.add_item(discord.ui.TextDisplay(body))
         container.add_item(discord.ui.Separator())
         container.add_item(discord.ui.TextDisplay("-# Carry Ticket Bot • Automatic Points"))
@@ -222,7 +222,7 @@ class PointsCog(commands.Cog):
                     continue
                 points_value = int(row.get("points", 0))
                 lines.append(f"**#{index}** <@{user_id}> — **{points_value:,}** points")
-            body = "\\n".join(lines) if lines else "No leaderboard members are available yet."
+            body = "\n".join(lines) if lines else "No leaderboard members are available yet."
             container.add_item(discord.ui.TextDisplay(body))
         else:
             container.add_item(discord.ui.TextDisplay("No points have been recorded yet."))
