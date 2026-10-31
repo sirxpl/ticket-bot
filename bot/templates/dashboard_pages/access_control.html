@@ -5,7 +5,7 @@
             <p>Decide who can reach each part of this control panel.</p>
         </div>
         {% if is_admin_user %}
-        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-points">Points</a><a href="#access-thread-automation">Thread Automation</a><a href="#access-format-checker">Format Checker</a><a href="#access-automatic-points">Automatic points</a><a href="#access-loggings">Loggings</a><a href="#access-operations">Operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
+        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-points">Points</a><a href="#access-thread-automation">Thread Automation</a><a href="#access-format-checker">Format Checker</a><a href="#access-automatic-points">Automatic points</a><a href="#access-loggings">Loggings</a><a href="#access-status-logging">Bot Status Logs</a><a href="#access-operations">Operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
 <section class="settings-group" id="access-dashboard"><h2 class="settings-group-title">Dashboard access</h2>
 <details class="card" id="access-overview">
             <summary>
@@ -623,6 +623,33 @@
 <p class="card-subtitle"><a href="{{ url_for('home', page='ticket-logs') }}">Browse ticket activity history</a>. Choose delivery channels and ticket events below.</p>
 {% set logging_section_id = 'access-loggings' %}
 {% include 'dashboard_pages/_logging_settings.html' %}
+</section>
+<section class="settings-group" id="access-status-logging"><h2 class="settings-group-title">Bot Status Logs</h2>
+<details class="card" id="access-bot-status-logs" open>
+    <summary>
+        <div class="card-head-text">
+            <h3><span class="card-icon">📡</span> Discord Status Notifications</h3>
+            <p class="card-subtitle">Send Components V2 updates when the bot disconnects, hits API rate limits, redeploys, or comes back online.</p>
+        </div>
+        <span class="card-chevron">▾</span>
+    </summary>
+    <div class="card-body">
+        <form action="/dashboard/access/save-status-log-channel" method="POST" class="access-form">
+            <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+            <div>
+                <label for="statusLogChannel">Status log channel:</label>
+                <select id="statusLogChannel" name="status_log_channel_id">
+                    <option value="">Disabled</option>
+                    {% for channel in channels %}
+                    <option value="{{ channel.id }}" {% if status_log_channel_id and status_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn-view">Save Status Logging</button>
+        </form>
+        <p class="card-subtitle">Rate-limit and disconnect events are queued while Discord is unavailable, then delivered after the bot reconnects. Deployment notices include the Render commit when available.</p>
+    </div>
+</details>
 </section>
 <section class="settings-group" id="access-operations"><h2 class="settings-group-title">Operations</h2>
 <details class="card" id="access-bot-offline-schedule">
