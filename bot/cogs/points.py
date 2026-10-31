@@ -362,14 +362,13 @@ class PointsCog(commands.Cog):
             details=f"Validated sections 1-4; notes={'present' if parsed['notes'] else 'empty'}.",
         )
 
-        if not parsed["recipients"]:
+        if not thread:
             await self._record_and_log(
                 message.guild, "automatic_skipped",
                 user_id=message.author.id, username=_member_name(message.author),
-                ticket_number=parsed["ticket_number"], thread_id=thread.id if thread else None,
-                gamemode=parsed["gamemode"],
-                reason="Section 1 contains no eligible recipients after excluding the carried user in section 2.",
-                details="The format passed validation, but nobody can receive points from this submission.",
+                ticket_number=parsed["ticket_number"], gamemode=parsed["gamemode"],
+                reason="The Format Checker passed, but a thread could not be created. Automatic points were not awarded.",
+                details="Automatic points processing begins only after the submission thread has been created.",
             )
             return
 
