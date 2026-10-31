@@ -5,6 +5,8 @@ import re
 import asyncio
 import datetime
 import hmac
+import base64
+import hashlib
 import secrets
 import time
 import aiohttp
@@ -12,6 +14,8 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
 from urllib.parse import urlsplit
+from urllib.request import Request as URLRequest, urlopen
+from urllib.error import URLError, HTTPError
 from dotenv import load_dotenv
 
 import discord
@@ -406,12 +410,18 @@ bot = DiagnosticBot(
 )
 
 def _queue_status_event(event_type, title, message, details=None, dedupe_key=None):
-    """Queue status messages only when an admin has configured a destination."""
+    """Queue status messages for the bot channel and/or webhook fallback."""
     try:
-        if not get_access_settings().get("status_log_channel_id"):
+        webhook_configured = bool(os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip())
+        if not get_access_settings().get("status_log_channel_id") and not webhook_configured:
             return None
-        from utils.status_history import queue_notification
-        return queue_notification(event_type, title, message, details, dedupe_key)
+        from utils.status_history import queue_notification, mark_notification_delivered
+        event = queue_notification(event_type, title, message, details, dedupe_key)
+        # A Discord webhook remains usable when the bot cannot complete login.
+        if event and webhook_configured and (not bot.is_ready() or bot.is_closed()):
+            if _send_status_discord_webhook(event):
+                mark_notification_delivered(event.get("id"))
+        return event
     except Exception as exc:
         print(f"Status notification queue failed: {type(exc).__name__}: {exc}", flush=True)
         return None
@@ -459,6 +469,140 @@ def _build_status_v2_view(event):
             self.add_item(container)
 
     return BotStatusV2View()
+
+
+def _send_status_discord_webhook(event):
+    """Send a compact fallback embed without requiring a logged-in bot session."""
+    webhook_url = os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False
+    parsed = urlsplit(webhook_url)
+    if parsed.scheme != "https" or parsed.hostname not in {"discord.com", "canary.discord.com", "ptb.discord.com"} or not parsed.path.startswith("/api/webhooks/"):
+        raise ValueError("STATUS_DISCORD_WEBHOOK_URL must be a Discord HTTPS webhook URL.")
+    colors = {
+        "rate_limited": 0xE74C3C, "disconnected": 0xE67E22, "bot_offline": 0xE67E22,
+        "online": 0x2ECC71, "bot_online": 0x2ECC71, "deployment": 0x5865F2,
+        "restart": 0xF1C40F, "startup": 0x5865F2, "sleeping": 0x555555, "awake": 0x2ECC71,
+        "deploy_failed": 0xE74C3C, "deploy_succeeded": 0x2ECC71,
+    }
+    description = str(event.get("message") or "")[:3500]
+    details = str(event.get("details") or "")[:900]
+    if details:
+        description += "\\n\\n" + details
+    payload = {
+        "embeds": [{
+            "title": str(event.get("title") or "Bot Status Update")[:240],
+            "description": description[:4000],
+            "color": colors.get(event.get("type"), 0x5865F2),
+            "timestamp": event.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }],
+        "allowed_mentions": {"parse": []},
+    }
+    request = URLRequest(
+        webhook_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "CarryTicketBot-Status/1.0"},
+        method="POST",
+    )
+    with urlopen(request, timeout=6) as response:
+        if not 200 <= response.status < 300:
+            raise RuntimeError(f"Discord webhook returned HTTP {response.status}.")
+    return True
+
+
+def _valid_render_webhook(raw_body):
+    """Validate Render's Standard Webhooks HMAC signature and five-minute timestamp."""
+    secret = os.getenv("RENDER_WEBHOOK_SECRET", "").strip()
+    webhook_id = request.headers.get("webhook-id", "")
+    timestamp = request.headers.get("webhook-timestamp", "")
+    signatures = request.headers.get("webhook-signature", "")
+    if not secret or not webhook_id or not timestamp or not signatures:
+        return False
+    try:
+        sent_at = int(timestamp)
+        if abs(time.time() - sent_at) > 300:
+            return False
+        encoded_secret = secret.removeprefix("whsec_")
+        key = base64.b64decode(encoded_secret + "=" * (-len(encoded_secret) % 4), validate=True)
+        signed = webhook_id.encode() + b"." + timestamp.encode() + b"." + raw_body
+        expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode("ascii")
+    except (ValueError, TypeError):
+        return False
+    for candidate in signatures.split():
+        try:
+            version, supplied = candidate.split(",", 1)
+        except ValueError:
+            continue
+        if version == "v1" and hmac.compare_digest(supplied, expected):
+            return True
+    return False
+
+
+@app.post("/webhooks/render/status")
+def receive_render_status_webhook():
+    """Receive authenticated Render lifecycle events and forward them to Discord."""
+    raw_body = request.get_data(cache=True)
+    if len(raw_body) > 32768:
+        return jsonify({"error": "payload too large"}), 413
+    if not _valid_render_webhook(raw_body):
+        return jsonify({"error": "invalid webhook signature"}), 401
+    if not os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+        return jsonify({"error": "status Discord webhook is not configured"}), 503
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return jsonify({"error": "invalid JSON"}), 400
+    event_type = str(payload.get("type") or "")
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    event_id = str(data.get("id") or request.headers.get("webhook-id") or "")[:120]
+    expected_service = os.getenv("RENDER_STATUS_SERVICE_ID", "").strip()
+    if expected_service and str(data.get("serviceId") or "") != expected_service:
+        return jsonify({"ignored": True, "reason": "different service"}), 202
+    if not event_id:
+        return jsonify({"error": "missing event ID"}), 400
+
+    from utils.status_history import has_render_event, mark_render_event, queue_notification, mark_notification_delivered
+    if has_render_event(event_id):
+        return jsonify({"received": True, "duplicate": True}), 200
+
+    service_name = str(data.get("serviceName") or "Carry Ticket Bot")[:120]
+    status = str(data.get("status") or "").lower()
+    event_map = {
+        "deploy_started": ("deployment", "Render deployment started", f"{service_name} deployment has started."),
+        "build_started": ("deployment", "Render build started", f"A new build for {service_name} has started."),
+        "server_failed": ("disconnected", "Render service unavailable", f"{service_name} became unavailable on Render."),
+        "server_available": ("bot_online", "Render service available", f"{service_name} is available on Render again."),
+        "server_restarted": ("restart", "Render restarted the service", f"Render restarted {service_name}."),
+        "zero_downtime_redeploy_started": ("deployment", "Render redeployment started", f"Render started a zero-downtime redeployment for {service_name}."),
+        "zero_downtime_redeploy_ended": ("deployment", "Render redeployment finished", f"Render finished the zero-downtime redeployment for {service_name}."),
+    }
+    if event_type == "deploy_ended":
+        if status == "succeeded":
+            event_type_key, title, message = "deploy_succeeded", "Deployment succeeded", f"Render successfully deployed {service_name}."
+        elif status == "failed":
+            event_type_key, title, message = "deploy_failed", "Deployment failed", f"Render could not complete the deployment for {service_name}."
+        else:
+            event_type_key, title, message = "deployment", "Deployment canceled", f"The deployment for {service_name} was canceled."
+    elif event_type == "build_ended" and status == "failed":
+        event_type_key, title, message = "deploy_failed", "Build failed", f"Render could not build {service_name}; the previous live version may remain active."
+    elif event_type in event_map:
+        event_type_key, title, message = event_map[event_type]
+    else:
+        mark_render_event(event_id)
+        return jsonify({"received": True, "ignored": True}), 200
+
+    details = f"Render event: {event_type} | Event ID: {event_id}"
+    if status:
+        details += f" | Result: {status}"
+    event = queue_notification(event_type_key, title, message, details, f"render:{event_id}")
+    try:
+        _send_status_discord_webhook(event)
+    except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
+        print(f"Render status webhook forwarding failed: {type(exc).__name__}", flush=True)
+        return jsonify({"error": "Discord status delivery failed; Render may retry"}), 502
+    mark_notification_delivered(event.get("id"))
+    mark_render_event(event_id)
+    return jsonify({"received": True, "forwarded": True}), 200
 
 
 _status_notification_retry_at = 0.0
