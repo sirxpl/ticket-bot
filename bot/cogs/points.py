@@ -80,6 +80,22 @@ class PointsCog(commands.Cog):
             return False
         return True
 
+    async def _announce_public(self, interaction, title, body, *, okay=True):
+        """Post a successful Points management action where the whole channel can see it."""
+        channel = interaction.channel
+        if channel is None or not hasattr(channel, "send"):
+            logger.warning("Could not publish Points announcement: interaction channel unavailable")
+            return False
+        try:
+            await channel.send(
+                view=_v2_notice(title, body, okay=okay),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return True
+        except Exception:
+            logger.exception("Could not publish Points management announcement")
+            return False
+
     async def _manual_adjust(self, interaction, user, mode, amount, reason):
         if user.bot:
             await interaction.response.send_message(
@@ -115,11 +131,18 @@ class PointsCog(commands.Cog):
             points_after=int(result.get("points", 0)), reason=reason,
             actor_id=interaction.user.id, actor_name=_member_name(interaction.user),
         )
+        public_body = (
+            f"{user.mention} now has {int(result.get('points', 0)):,} points.\n"
+            f"Action: {mode.title()} {amount:,}\n"
+            f"Reason: {discord.utils.escape_mentions(reason)}\n"
+            f"Changed by: {discord.utils.escape_markdown(_member_name(interaction.user))}"
+        )
+        await self._announce_public(interaction, "Points Updated", public_body)
         await interaction.followup.send(
             view=_v2_notice(
                 "Points Updated",
-                f"{user.mention} now has {int(result.get('points', 0)):,} points.\n"
-                f"Action: {mode.title()} {amount:,}\nReason: {discord.utils.escape_mentions(reason)}",
+                f"Your change was processed. {user.mention} now has "
+                f"{int(result.get('points', 0)):,} points.",
             ),
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -164,8 +187,14 @@ class PointsCog(commands.Cog):
             interaction.guild, "leaderboard_removed", user_id=user.id, username=_member_name(user),
             reason=clean_reason, actor_id=interaction.user.id, actor_name=_member_name(interaction.user),
         )
+        await self._announce_public(
+            interaction, "User Removed",
+            f"{user.mention} has been removed from the Points leaderboard.\n"
+            f"Reason: {discord.utils.escape_mentions(clean_reason)}\n"
+            f"Changed by: {discord.utils.escape_markdown(_member_name(interaction.user))}",
+        )
         await interaction.followup.send(
-            view=_v2_notice("User Removed", f"{user.mention} has been removed from the Points leaderboard."),
+            view=_v2_notice("User Removed", "The member was removed from the Points leaderboard."),
             ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -196,11 +225,17 @@ class PointsCog(commands.Cog):
             interaction.guild, action, user_id=user.id, username=_member_name(user),
             reason=clean_reason, actor_id=interaction.user.id, actor_name=_member_name(interaction.user),
         )
+        await self._announce_public(
+            interaction, "Automatic Points Exclusion Updated" if excluded else "Automatic Points Inclusion Updated",
+            f"{user.mention} {'will no longer receive' if excluded else 'can receive'} automatic points.\n"
+            "Their existing points balance was preserved.\n"
+            f"Reason: {discord.utils.escape_mentions(clean_reason)}\n"
+            f"Changed by: {discord.utils.escape_markdown(_member_name(interaction.user))}",
+        )
         await interaction.followup.send(
             view=_v2_notice(
                 "Automatic Points Exclusion Updated",
-                f"{user.mention} {'will no longer receive' if excluded else 'can receive'} automatic points.\n"
-                "Their existing points balance was preserved.",
+                "The member's automatic-points eligibility was updated. Their existing balance was preserved.",
             ),
             ephemeral=True, allowed_mentions=discord.AllowedMentions.none(),
         )
