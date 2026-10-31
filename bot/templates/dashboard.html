@@ -1195,26 +1195,17 @@
                 <div class="nav-group-label">Carry Team</div>
                 <a href="{{ url_for('home', page='points') }}" class="nav-item{{ ' active' if active_page == 'points' else '' }}" data-page="points">
                     <span class="nav-icon">🏆</span><span class="nav-text">Points</span></a>
-            </div>
-
-            {% if can_manage_carry_applications or (is_admin_user and can_access_carry_settings) %}
-            <div class="nav-group"><div class="nav-group-label">Carry team</div>
                 {% if can_manage_carry_applications %}
                 <a href="{{ url_for('home', page='carry-applications') }}" class="nav-item{{ ' active' if active_page == 'carry-applications' else '' }}" data-page="carry-applications">
                     <span class="nav-icon">📋</span><span class="nav-text">Carry Team Application</span></a>
                 {% endif %}
-{% if is_admin_user %}
-                {% if can_access_carry_settings %}
+                {% if is_admin_user and can_access_carry_settings %}
                 <a href="{{ url_for('home', page='carry-settings') }}" class="nav-item{{ ' active' if active_page == 'carry-settings' else '' }}" data-page="carry-settings">
-
                     <span class="nav-icon">⚙️</span><span class="nav-text">Carry Manager Settings</span></a>
                 <a href="{{ url_for('home', page='trial-schedules') }}" class="nav-item{{ ' active' if active_page == 'trial-schedules' else '' }}" data-page="trial-schedules">
-
                     <span class="nav-icon">🗓️</span><span class="nav-text">Trial Schedules</span></a>
                 {% endif %}
-{% endif %}
-</div>
-{% endif %}
+            </div>
             {% if is_admin_user %}
             <div class="nav-group">
                 <div class="nav-group-label">ADMIN PANEL</div>
