@@ -369,6 +369,13 @@ async def _discord_http_request_end(session, trace_config_ctx, params):
                 "dashboard lockdown countdown updated.",
                 flush=True,
             )
+        _queue_status_event(
+            "rate_limited",
+            "Discord API rate limited",
+            "Discord temporarily blocked REST API access. This notice will be delivered when access recovers.",
+            f"HTTP 429 · Retry-After: {retry_after:.0f}s · CF-Ray: {cf_ray}",
+            "discord_api_rate_limited",
+        )
     print(
         f"🔎 Discord HTTP request finished: {params.method} {params.url} "
         f"-> HTTP {status} in {elapsed:.2f}s",
@@ -3542,6 +3549,8 @@ async def on_ready():
     global bot_ready_since
     print("🔧 on_ready started.", flush=True)
     bot_ready_since = time.time()
+    _queue_status_event("bot_online", "Bot back online", "Carry Ticket Bot is connected and ready.", dedupe_key="bot_online")
+    await _deliver_pending_status_notifications()
     # If this process was started by the cooldown/watchdog restart, tell the
     # owner the bot is back (once), then reset the retry counter.
     if int(os.getenv("BOT_START_ATTEMPT", "0") or 0) > 0:
@@ -3550,6 +3559,27 @@ async def on_ready():
         import threading as _t
         _t.Thread(target=_send_alert, args=("✅ Carry Ticket Bot is back online.",), daemon=True).start()
     print(f"✅ Bot logged in as {bot.user}", flush=True)
+
+
+@bot.event
+async def on_disconnect():
+    _queue_status_event(
+        "disconnected",
+        "Bot disconnected",
+        "Carry Ticket Bot lost its Discord Gateway connection. It will report back when it reconnects.",
+        dedupe_key="bot_offline",
+    )
+
+
+@bot.event
+async def on_resumed():
+    _queue_status_event(
+        "bot_online",
+        "Bot reconnected",
+        "Carry Ticket Bot resumed its Discord Gateway session.",
+        dedupe_key="bot_online",
+    )
+    await _deliver_pending_status_notifications()
 
 
 def run_flask():
@@ -3652,7 +3682,27 @@ def run_status_checker():
                 time.sleep(60)
                 continue
             online = bool(bot.is_ready()) and not bot.is_closed()
-            record_check(online)
+            transition = record_check(online)
+            if transition == "offline":
+                _queue_status_event(
+                    "disconnected", "Bot disconnected",
+                    "Carry Ticket Bot lost its Discord connection.",
+                    dedupe_key="bot_offline",
+                )
+            elif transition == "online":
+                _queue_status_event(
+                    "bot_online", "Bot back online",
+                    "Carry Ticket Bot reconnected to Discord.",
+                    dedupe_key="bot_online",
+                )
+            if online and api_block_seconds_left() <= 0:
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        _deliver_pending_status_notifications(), bot.loop
+                    )
+                    future.result(timeout=15)
+                except Exception as delivery_error:
+                    print(f"Status log delivery scheduler error: {delivery_error}", flush=True)
         except Exception as e:
             print(f"Status checker error: {e}")
         time.sleep(60)
@@ -3902,6 +3952,9 @@ def run_idle_sleeper():
 
 
 if __name__ == "__main__":
+    if get_access_settings().get("status_log_channel_id"):
+        from utils.status_history import record_process_start
+        record_process_start(os.getenv("RENDER_GIT_COMMIT"))
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
