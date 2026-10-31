@@ -691,7 +691,7 @@ def _manual_bot_enabled():
 
 LOCKDOWN_ALLOWED_PATHS = {
     "/status", "/downtime", "/api/status", "/api/status-history",
-    "/docs", "/rules", "/guidelines", "/privacy", "/terms",
+    "/docs", "/rules", "/guidelines", "/privacy", "/terms", "/login", "/callback",
 }
 
 _LOCKDOWN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -4060,10 +4060,10 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
 
 
 def run_bot_with_cooldown():
-    global bot_sleeping
     """Run the bot. If startup/login fails, keep the process (and status
     pages) alive and retry after a backoff instead of exiting, so the host
     isn't tempted into an instant restart loop that keeps the API block alive."""
+    global bot_sleeping
     try:
         bot.run(TOKEN)
     except discord.HTTPException as exc:
@@ -4276,9 +4276,9 @@ if __name__ == "__main__":
                     break
                 time.sleep(min(1, remaining))
             if _manual_bot_enabled():
-            print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
-            run_bot_with_cooldown()
-        else:
+                print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
+                run_bot_with_cooldown()
+            else:
             bot_sleeping = True
             print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
             while True:
