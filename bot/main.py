@@ -490,7 +490,7 @@ def _send_status_discord_webhook(event):
     description = str(event.get("message") or "")[:3500]
     details = str(event.get("details") or "")[:900]
     if details:
-        description += "\\n\\n" + details
+        description += "\n\n" + details
     payload = {
         "embeds": [{
             "title": str(event.get("title") or "Bot Status Update")[:240],
