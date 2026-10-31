@@ -3871,6 +3871,16 @@ def run_status_checker():
                     future.result(timeout=15)
                 except Exception as delivery_error:
                     print(f"Status log delivery scheduler error: {delivery_error}", flush=True)
+            elif not online and os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+                # Retry queued alerts through the webhook while Discord bot login is unavailable.
+                from utils.status_history import get_pending_notifications, mark_notification_delivered
+                for pending_status_event in get_pending_notifications(10):
+                    try:
+                        if _send_status_discord_webhook(pending_status_event):
+                            mark_notification_delivered(pending_status_event.get("id"))
+                    except Exception as webhook_error:
+                        print(f"Status webhook retry paused: {type(webhook_error).__name__}", flush=True)
+                        break
         except Exception as e:
             print(f"Status checker error: {e}")
         time.sleep(60)
