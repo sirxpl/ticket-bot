@@ -142,6 +142,7 @@ from utils.access import (
     revoke_terms_unblock_token,
     get_offline_schedule,
     save_offline_schedule,
+    save_status_log_channel,
 )
 from utils.carry_applications import (
     ApplicationStateError,
@@ -487,7 +488,7 @@ def _lockdown_gate():
     if path == "/":
         if request.method == "HEAD":
             return Response("", status=200)
-        return render_template("status.html")
+        return render_template("status.html", base_url=current_base_url(), **_public_schedule_context())
     retry_after = str(left)
     if path.startswith("/api/"):
         resp = jsonify({"error": "Dashboard temporarily unavailable", "retry_in_seconds": left})
@@ -1755,6 +1756,7 @@ def home(page="overview"):
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
+        status_log_channel_id=access_settings.get("status_log_channel_id"),
         offline_schedule=get_offline_schedule() if page == "access-control" else {},
         globally_blocked_users=get_globally_blocked_users() if page == "access-control" else [],
         generated_unblock_link=generated_unblock_link,
@@ -3351,6 +3353,18 @@ def access_set_warning_log_channel():
     flash("✅ Warning log channel updated.", "success")
     return redirect(url_for("home", page="access-control"))
 
+
+@app.route("/dashboard/access/save-status-log-channel", methods=["POST"])
+@admin_required
+def access_save_status_log_channel():
+    channel_id = request.form.get("status_log_channel_id", "").strip()
+    try:
+        save_status_log_channel(channel_id or None)
+    except ValueError as error:
+        flash(str(error), "danger")
+    else:
+        flash("Bot status log channel updated.", "success")
+    return redirect(url_for("home", page="access-control", _anchor="access-status-logging"))
 
 @app.route("/dashboard/access/save-offline-schedule", methods=["POST"])
 @admin_required
