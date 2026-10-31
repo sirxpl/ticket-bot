@@ -147,6 +147,7 @@ from utils.access import (
     get_offline_schedule,
     save_offline_schedule,
     save_status_log_channel,
+    get_manual_bot_enabled,
     save_manual_bot_enabled,
 )
 from utils.carry_applications import (
@@ -683,7 +684,7 @@ _waking = False
 def _manual_bot_enabled():
     """Read the persistent admin override; default to enabled for existing installs."""
     try:
-        return get_access_settings().get("manual_bot_enabled", True) is not False
+        return get_manual_bot_enabled()
     except Exception:
         app.logger.exception("Could not read the manual bot control setting")
         return False
