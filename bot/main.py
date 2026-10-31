@@ -329,23 +329,48 @@ async def _discord_http_request_start(session, trace_config_ctx, params):
 async def _discord_http_request_end(session, trace_config_ctx, params):
     global api_block_until, api_block_reason, web_lockdown_until
     elapsed = time.monotonic() - getattr(trace_config_ctx, "start_time", time.monotonic())
-    if getattr(params.response, "status", None) == 429:
+    response = params.response
+    status = getattr(response, "status", 0)
+    if status == 429:
+        headers = response.headers
         try:
-            retry_after = float(params.response.headers.get("Retry-After", "0") or 0)
+            retry_after = float(headers.get("Retry-After", "0") or 0)
         except (TypeError, ValueError):
             retry_after = 0
+        scope = headers.get("X-RateLimit-Scope", "unknown")
+        global_limit = headers.get("X-RateLimit-Global", "unknown")
+        cf_ray = headers.get("CF-Ray", "not-present")
+        content_type = headers.get("Content-Type", "unknown")
         if retry_after > 0:
+            # Record the server-provided wait. The watchdog must not restart
+            # the process while Discord/Cloudflare is still asking us to wait.
             api_block_until = max(api_block_until, time.time() + retry_after)
-            api_block_reason = "Discord API temporarily rate-limited this host"
+            api_block_reason = "Discord REST API returned HTTP 429"
             web_lockdown_until = max(web_lockdown_until, api_block_until)
+        print(
+            "🛡️ Discord API Guard observed HTTP 429: "
+            f"Retry-After={retry_after:g}s, scope={scope}, "
+            f"global={global_limit}, CF-Ray={cf_ray}, "
+            f"Content-Type={content_type}.",
+            flush=True,
+        )
+        # The response body can distinguish a normal route/global limit from
+        # an upstream IP restriction. aiohttp caches text() after reading it.
+        try:
+            body = (await response.text())[:500].replace("\\n", " ")
+            if body:
+                print(f"🛡️ Discord 429 response body (truncated): {body}", flush=True)
+        except Exception as body_error:
+            print(f"🛡️ Could not read 429 response body: {body_error!r}", flush=True)
+        if retry_after > 0:
             print(
-                f"⏸️ Discord REST API block detected; Retry-After={retry_after:.0f}s. "
-                f"Public status countdown set.",
+                f"⏸️ API Guard cooldown recorded for {retry_after:.0f}s; "
+                "dashboard lockdown countdown updated.",
                 flush=True,
             )
     print(
         f"🔎 Discord HTTP request finished: {params.method} {params.url} "
-        f"-> HTTP {params.response.status} in {elapsed:.2f}s",
+        f"-> HTTP {status} in {elapsed:.2f}s",
         flush=True,
     )
 
@@ -3585,7 +3610,14 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
     attempt = _current_attempt()
     base = int(os.getenv("BOT_RETRY_BASE_SECONDS", "120"))
     cap = int(os.getenv("BOT_RETRY_MAX_SECONDS", "3600"))
-    delay = max(min(base * (2 ** attempt), cap), _retry_after_from(exc) if exc else 0)
+    # discord.py already queues ordinary route/global limits internally.
+    # This outer guard is for prolonged REST restrictions and failed startup:
+    # always honor Discord's Retry-After and add a small safety margin before
+    # making a fresh login attempt. Never shorten a server-requested wait.
+    retry_after = _retry_after_from(exc) if exc else 0
+    known_api_wait = max(0, api_block_until - time.time())
+    server_wait = max(retry_after, known_api_wait)
+    delay = max(min(base * (2 ** attempt), cap), server_wait + (5 if server_wait > 0 else 0))
     last_start_error = reason
     web_lockdown_until = time.time() + delay
     print(f"❌ {reason}")
@@ -3662,6 +3694,17 @@ def run_watchdog():
                 continue
             if offline_since is None:
                 offline_since = now
+            # Do not recycle the process while Discord's own 429 response
+            # says the REST API is blocked. A restart cannot clear an IP-level
+            # restriction and can create another immediate login attempt.
+            if now < api_block_until:
+                remaining = max(1, int(api_block_until - now))
+                print(
+                    f"🛡️ API Guard: watchdog holding restart for {remaining}s "
+                    "until the Discord Retry-After window expires.",
+                    flush=True,
+                )
+                continue
             if now - offline_since >= grace and not _cooldown_active:
                 minutes = max(1, round((now - offline_since) / 60))
                 if _cooldown_and_restart(f"Bot offline for {minutes} min", can_recover=True):
