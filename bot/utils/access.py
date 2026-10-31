@@ -20,6 +20,7 @@ _DEFAULTS = {
     "log_channel_id": None,
     "blacklist_log_channel_id": None,
     "warning_log_channel_id": None,
+    "status_log_channel_id": None,
     "blacklist_roles": [],
     "carry_manager_roles": [],
     "ticket_viewer_roles": [],
@@ -117,6 +118,17 @@ def save_offline_schedule(schedule: dict):
     return schedule
 
 
+def save_status_log_channel(channel_id: str | None):
+    """Configure the Discord channel used for bot lifecycle/status notices."""
+    value = str(channel_id).strip() if channel_id else ""
+    if value and not value.isdigit():
+        raise ValueError("Choose a valid Discord text channel.")
+    data = get_access_settings()
+    data["status_log_channel_id"] = value or None
+    _save(data)
+    return data["status_log_channel_id"]
+
+
 def get_access_settings():
     """Return the access-control config: allowed viewer users/roles, the
     channel ticket activity gets logged to, and roles that are blocked from
@@ -135,6 +147,7 @@ def get_access_settings():
         doc.setdefault("log_channel_id", None)
         doc.setdefault("blacklist_log_channel_id", None)
         doc.setdefault("warning_log_channel_id", None)
+        doc.setdefault("status_log_channel_id", None)
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
         doc.setdefault("ticket_viewer_roles", [])
@@ -170,6 +183,7 @@ def get_access_settings():
         data.setdefault("log_channel_id", None)
         data.setdefault("blacklist_log_channel_id", None)
         data.setdefault("warning_log_channel_id", None)
+        data.setdefault("status_log_channel_id", None)
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])
         data.setdefault("ticket_viewer_roles", [])
