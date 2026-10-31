@@ -313,6 +313,35 @@ class PointsCog(commands.Cog):
         exempt_roles = {str(role_id) for role_id in checker.get("exempt_role_ids", [])}
         member_roles = {str(role.id) for role in getattr(message.author, "roles", [])}
         if exempt_roles.intersection(member_roles):
+            # Exempt members bypass format validation, but their posts still
+            # follow the Format Checker thread-creation path. They never enter
+            # gamemode parsing or automatic point awarding.
+            thread_config = config.get("thread_automation") or {}
+            thread = await self._create_thread(
+                message, thread_config.get("thread_name")
+            )
+            if thread:
+                await self._record_and_log(
+                    message.guild, "thread_created",
+                    user_id=message.author.id,
+                    username=_member_name(message.author),
+                    thread_id=thread.id,
+                    details=(
+                        f"Created for a Format Checker-exempt member in "
+                        f"#{message.channel.name}; format validation was bypassed."
+                    ),
+                )
+            await self._record_and_log(
+                message.guild, "automatic_skipped",
+                user_id=message.author.id,
+                username=_member_name(message.author),
+                thread_id=thread.id if thread else None,
+                reason="Member has a role exempt from Format Checker enforcement.",
+                details=(
+                    "The post was exempt from format validation. "
+                    "Thread creation was attempted, but automatic points were not awarded."
+                ),
+            )
             return
 
         parsed, error = points.validate_format(message.content)
