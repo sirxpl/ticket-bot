@@ -96,6 +96,47 @@ class PointsCog(commands.Cog):
             logger.exception("Could not publish Points management announcement")
             return False
 
+    async def _post_automatic_award_summary(self, thread, ticket_number, gamemode, amount, awarded, excluded):
+        """Post the actual automatic-points result inside its Format Checker thread."""
+        awarded = list(awarded or [])
+        excluded = list(excluded or [])
+        total = len(awarded) * int(amount)
+        container = discord.ui.Container(
+            accent_color=discord.Color.green() if awarded else discord.Color.orange()
+        )
+        container.add_item(discord.ui.TextDisplay(
+            "## " + ("✨ Automatic Points Awarded" if awarded else "⚠️ No Automatic Points Awarded")
+        ))
+        container.add_item(discord.ui.Separator())
+        lines = [
+            f"**Gamemode:** {discord.utils.escape_markdown(str(gamemode))}",
+            f"**Ticket:** {ticket_number}",
+        ]
+        if awarded:
+            lines.append(f"**Points per member:** +{int(amount):,}")
+            lines.append(f"**Total awarded:** +{total:,} points")
+            lines.append("")
+            lines.append("**Recipients**")
+            lines.extend(f"• <@{user_id}> — **+{int(amount):,} points**" for user_id in awarded)
+        else:
+            lines.append("No points were added for this ticket.")
+        if excluded:
+            lines.append("")
+            lines.append("**Excluded from automatic points**")
+            lines.extend(f"• <@{user_id}>" for user_id in excluded)
+        body = "\\n".join(lines)
+        if len(body) > 3800:
+            body = body[:3750] + "\\n… Additional recipients omitted from this summary."
+        container.add_item(discord.ui.TextDisplay(body))
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay("-# Carry Ticket Bot • Automatic Points"))
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(container)
+        try:
+            await thread.send(view=view, allowed_mentions=discord.AllowedMentions.none())
+        except Exception:
+            logger.exception("Could not post automatic-points summary in thread=%s", thread.id)
+
     async def _manual_adjust(self, interaction, user, mode, amount, reason):
         if user.bot:
             await interaction.response.send_message(
@@ -522,6 +563,10 @@ class PointsCog(commands.Cog):
                 details="This ticket number has already been processed; no second award was made.",
             )
             return
+        await self._post_automatic_award_summary(
+            thread, parsed["ticket_number"], parsed["gamemode"], rule["points"],
+            result.get("awarded", []), result.get("excluded", []),
+        )
         if result.get("awarded"):
             recipients = ", ".join(f"<@{user_id}>" for user_id in result["awarded"])
             await self._deliver_log(
