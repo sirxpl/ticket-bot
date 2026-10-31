@@ -647,7 +647,7 @@
             </div>
             <button type="submit" class="btn-view">Save Status Logging</button>
         </form>
-        <p class="card-subtitle">Rate-limit and disconnect events are queued while Discord is unavailable, then delivered after the bot reconnects. Deployment notices include the Render commit when available.</p>
+        <p class="card-subtitle">When the bot cannot log in, status alerts can use the private Discord webhook configured in Render. For Render deployment-started, deployment-succeeded/failed, build-failed, and service-availability events, configure the Render workspace webhook endpoint and signing secret as described in the project README.</p>
     </div>
 </details>
 </section>
