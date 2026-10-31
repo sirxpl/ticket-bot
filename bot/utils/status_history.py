@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import copy
 from datetime import datetime, timedelta, timezone
 
 from utils.db import get_db
@@ -10,11 +11,79 @@ STATUS_FILE = os.path.join(DATA_DIR, "status_history.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-_DEFAULTS = {"daily": {}, "incidents": [], "last_state": None, "open_incident_id": None}
+_DEFAULTS = {"daily": {}, "incidents": [], "last_state": None, "open_incident_id": None, "notifications": [], "last_deploy_commit": None}
 
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _append_notification(data, event_type, title, message, details=None, dedupe_key=None):
+    notifications = data.setdefault("notifications", [])
+    if dedupe_key:
+        for existing in reversed(notifications):
+            if existing.get("dedupe_key") == dedupe_key and not existing.get("delivered_at"):
+                return existing
+    event = {
+        "id": uuid.uuid4().hex[:12],
+        "type": str(event_type)[:40],
+        "title": str(title)[:180],
+        "message": str(message)[:1500],
+        "details": str(details or "")[:1000],
+        "timestamp": _now_iso(),
+        "dedupe_key": str(dedupe_key)[:80] if dedupe_key else None,
+        "delivered_at": None,
+    }
+    notifications.append(event)
+    data["notifications"] = notifications[-100:]
+    return event
+
+
+def queue_notification(event_type, title, message, details=None, dedupe_key=None):
+    """Persist a status notice until it can be delivered to the configured Discord channel."""
+    data = get_status_data()
+    event = _append_notification(data, event_type, title, message, details, dedupe_key)
+    _save(data)
+    return event
+
+
+def get_pending_notifications(limit=25):
+    data = get_status_data()
+    pending = [dict(item) for item in data.get("notifications", []) if not item.get("delivered_at")]
+    return pending[:max(1, min(int(limit), 100))]
+
+
+def mark_notification_delivered(event_id):
+    data = get_status_data()
+    now = _now_iso()
+    for event in data.get("notifications", []):
+        if event.get("id") == str(event_id) and not event.get("delivered_at"):
+            event["delivered_at"] = now
+            _save(data)
+            return True
+    return False
+
+
+def record_process_start(commit_sha=None):
+    """Record a process start and identify a new Render commit as a deployment."""
+    data = get_status_data()
+    commit_sha = str(commit_sha or "").strip()[:80] or None
+    previous = data.get("last_deploy_commit")
+    if commit_sha and previous and commit_sha != previous:
+        _append_notification(data, "deployment", "New deployment started",
+            "Render started a new Carry Ticket Bot deployment.",
+            f"Commit: {commit_sha}", "process_start")
+    elif previous:
+        _append_notification(data, "restart", "Bot process restarted",
+            "The Carry Ticket Bot process restarted.",
+            f"Commit: {commit_sha or previous}", "process_start")
+    else:
+        _append_notification(data, "startup", "Bot process started",
+            "The Carry Ticket Bot process started.",
+            f"Commit: {commit_sha or 'not provided'}", "process_start")
+    if commit_sha:
+        data["last_deploy_commit"] = commit_sha
+    _save(data)
 
 
 def get_status_data():
@@ -22,9 +91,9 @@ def get_status_data():
     if db is not None:
         doc = db.status_history.find_one({"_id": "singleton"})
         if not doc:
-            return dict(_DEFAULTS)
+            return copy.deepcopy(_DEFAULTS)
         for k, v in _DEFAULTS.items():
-            doc.setdefault(k, v)
+            doc.setdefault(k, copy.deepcopy(v))
         return doc
 
     if not os.path.exists(STATUS_FILE):
@@ -33,7 +102,7 @@ def get_status_data():
         with open(STATUS_FILE, "r") as f:
             data = json.load(f)
         for k, v in _DEFAULTS.items():
-            data.setdefault(k, v)
+            data.setdefault(k, copy.deepcopy(v))
         return data
     except Exception:
         return dict(_DEFAULTS)
