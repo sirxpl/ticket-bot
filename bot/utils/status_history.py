@@ -72,11 +72,11 @@ def record_process_start(commit_sha=None):
     if commit_sha and previous and commit_sha != previous:
         _append_notification(data, "deployment", "New deployment started",
             "Render started a new Carry Ticket Bot deployment.",
-            f"Commit: {commit_sha}", "process_start")
+            f"Commit: {commit_sha}", f"process_start:{commit_sha}")
     elif previous:
         _append_notification(data, "restart", "Bot process restarted",
             "The Carry Ticket Bot process restarted.",
-            f"Commit: {commit_sha or previous}", "process_start")
+            f"Commit: {commit_sha or previous}", f"process_start:{commit_sha or previous}")
     else:
         _append_notification(data, "startup", "Bot process started",
             "The Carry Ticket Bot process started.",
