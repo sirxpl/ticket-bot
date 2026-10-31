@@ -1,4 +1,47 @@
 document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-points-selector]").forEach((selector) => {
+        const select = selector.querySelector("select");
+        const addButton = selector.querySelector("[data-selector-add]");
+        const selected = selector.querySelector("[data-selector-selected]");
+        const inputName = selector.dataset.inputName;
+        if (!select || !addButton || !selected || !inputName) return;
+
+        const addSelectedOption = () => {
+            const option = select.options[select.selectedIndex];
+            if (!option || !option.value) return;
+            const alreadyAdded = Array.from(selected.querySelectorAll('input[name="' + inputName + '"]'))
+                .some((input) => input.value === option.value);
+            if (alreadyAdded) {
+                select.value = "";
+                return;
+            }
+            const item = document.createElement("span");
+            item.className = "points-admin-selected-item";
+            const hidden = document.createElement("input");
+            hidden.type = "hidden";
+            hidden.name = inputName;
+            hidden.value = option.value;
+            const label = document.createElement("span");
+            label.textContent = option.textContent;
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "×";
+            remove.setAttribute("data-selector-remove", "");
+            remove.setAttribute("aria-label", "Remove " + option.textContent.trim());
+            item.append(hidden, label, remove);
+            selected.appendChild(item);
+            select.value = "";
+        };
+        addButton.addEventListener("click", addSelectedOption);
+        select.addEventListener("change", () => {
+            if (select.value) addSelectedOption();
+        });
+        selected.addEventListener("click", (event) => {
+            const remove = event.target.closest("[data-selector-remove]");
+            if (remove) remove.closest(".points-admin-selected-item")?.remove();
+        });
+    });
+
     const rows = document.getElementById("points-gamemodes");
     const addButton = document.getElementById("points-add-gamemode");
     if (rows && addButton) {
