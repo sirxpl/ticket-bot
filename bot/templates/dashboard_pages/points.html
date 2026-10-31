@@ -44,7 +44,7 @@
             <table class="points-table">
                 <thead><tr><th>Rank</th><th>Member</th><th>Discord ID</th><th>Points</th><th>Status</th>{% if can_manage_points %}<th></th>{% endif %}</tr></thead>
                 <tbody>
-                {% for row in points_leaderboard.items %}
+                {% for row in points_leaderboard["items"] %}
                     <tr>
                         <td><span class="points-rank">{{ (points_leaderboard.page - 1) * points_leaderboard.per_page + loop.index }}</span></td>
                         <td><strong>{{ row.username or 'Unknown member' }}</strong></td>
@@ -143,7 +143,7 @@
             <button class="btn-view" type="submit">Filter</button>
         </form>
         <div class="points-activity-list">
-            {% for item in points_activity.items %}
+            {% for item in points_activity["items"] %}
             <article class="points-activity-row">
                 <div class="points-activity-icon">{{ points_action_icons.get(item.action, '•') }}</div>
                 <div class="points-activity-main">
