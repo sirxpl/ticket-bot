@@ -11,7 +11,7 @@ STATUS_FILE = os.path.join(DATA_DIR, "status_history.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-_DEFAULTS = {"daily": {}, "incidents": [], "last_state": None, "open_incident_id": None, "notifications": [], "last_deploy_commit": None}
+_DEFAULTS = {"daily": {}, "incidents": [], "last_state": None, "open_incident_id": None, "notifications": [], "last_deploy_commit": None, "processed_render_events": []}
 
 
 def _now_iso():
@@ -62,6 +62,21 @@ def mark_notification_delivered(event_id):
             _save(data)
             return True
     return False
+
+def has_render_event(event_id):
+    data = get_status_data()
+    return str(event_id) in data.get("processed_render_events", [])
+
+
+def mark_render_event(event_id):
+    data = get_status_data()
+    processed = data.setdefault("processed_render_events", [])
+    event_id = str(event_id)[:120]
+    if event_id not in processed:
+        processed.append(event_id)
+        data["processed_render_events"] = processed[-500:]
+        _save(data)
+    return True
 
 
 def record_process_start(commit_sha=None):
