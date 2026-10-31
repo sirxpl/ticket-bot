@@ -680,6 +680,15 @@ _waking = False
 # Status pages plus the public info pages linked from the site header. None of
 # these call Discord's API (they render static templates / a local file), so
 # they're safe to keep serving while the dashboard is switched off.
+def _manual_bot_enabled():
+    """Read the persistent admin override; default to enabled for existing installs."""
+    try:
+        return get_access_settings().get("manual_bot_enabled", True) is not False
+    except Exception:
+        app.logger.exception("Could not read the manual bot control setting")
+        return False
+
+
 LOCKDOWN_ALLOWED_PATHS = {
     "/status", "/downtime", "/api/status", "/api/status-history",
     "/docs", "/rules", "/guidelines", "/privacy", "/terms",
@@ -955,7 +964,7 @@ def admin_required(f):
             flash("⛔ Your account is blocked from using this dashboard.", "danger")
             session.pop("user", None)
             return redirect(url_for("home"))
-        role_ids = get_member_role_ids(user_data["id"])
+        role_ids = [] if is_admin(user_data["id"]) else get_member_role_ids(user_data["id"])
         if not has_dashboard_access(user_data["id"], role_ids):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
             session.pop("user", None)
@@ -3626,6 +3635,62 @@ def access_save_status_log_channel():
         flash("Bot status log channel updated.", "success")
     return redirect(url_for("home", page="access-control", _anchor="access-status-logging"))
 
+@app.post("/dashboard/access/set-bot-state")
+@admin_required
+def access_set_bot_state():
+    """Turn only the Discord client on/off; keep Flask and status pages online."""
+    global bot_sleeping
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and try again.")
+    requested = request.form.get("enabled", "")
+    if requested not in {"on", "off"}:
+        abort(400, "Choose whether the bot should be on or off.")
+    enabled = requested == "on"
+    previous = _manual_bot_enabled()
+    try:
+        save_manual_bot_enabled(enabled)
+    except (RuntimeError, ValueError) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("home", page="access-control", _anchor="access-bot-controls"))
+    except Exception:
+        app.logger.exception("Could not save the manual bot control setting")
+        flash("The bot control setting could not be saved. Please try again.", "danger")
+        return redirect(url_for("home", page="access-control", _anchor="access-bot-controls"))
+
+    if not enabled:
+        bot_sleeping = True
+        try:
+            loop = bot.loop
+            if loop and not loop.is_closed() and not bot.is_closed():
+                asyncio.run_coroutine_threadsafe(bot.close(), loop).result(timeout=20)
+        except Exception:
+            app.logger.exception("Could not cleanly disconnect the Discord bot")
+            flash("The OFF setting was saved, but the Discord connection did not close cleanly.", "warning")
+        else:
+            flash("Carry Ticket Bot is OFF. The dashboard and status pages will stay available.", "success")
+        _queue_status_event(
+            "sleeping", "Bot manually stopped",
+            "An administrator turned off the Discord connection from Access Control.",
+            "The dashboard and public status pages remain available.",
+            "bot_manual_off",
+        )
+    elif not previous:
+        bot_sleeping = False
+        os.environ["BOT_START_ATTEMPT"] = "0"
+        os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
+
+        def restart_after_response():
+            time.sleep(1.5)
+            import sys
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+        threading.Thread(target=restart_after_response, daemon=True).start()
+        flash("Carry Ticket Bot is starting. The dashboard may briefly reconnect.", "success")
+    else:
+        flash("Carry Ticket Bot is already enabled. It will continue its normal connection/retry process.", "info")
+    return redirect(url_for("home", page="access-control", _anchor="access-bot-controls"))
+
+
 @app.route("/dashboard/access/save-offline-schedule", methods=["POST"])
 @admin_required
 def access_save_offline_schedule():
@@ -3815,6 +3880,8 @@ def run_offline_schedule_watcher():
     while True:
         time.sleep(15)
         try:
+            if not _manual_bot_enabled():
+                continue
             active = _offline_schedule_is_active()
             if active and not _offline_schedule_active and not bot_sleeping:
                 _offline_schedule_active = True
@@ -3969,6 +4036,11 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
     _send_alert(f"⚠️ Carry Ticket Bot is down: {reason}. Dashboard is off; retrying in about {max(1, round(delay / 60))} min.")
     deadline = time.time() + delay
     while time.time() < deadline:
+        if not _manual_bot_enabled():
+            bot_sleeping = True
+            with _cooldown_lock:
+                _cooldown_active = False
+            return False
         time.sleep(min(15, max(0, deadline - time.time())))
         if can_recover and bot.is_ready() and not bot.is_closed():
             web_lockdown_until = 0.0
@@ -3977,6 +4049,11 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
             print("✅ Bot reconnected on its own; cooldown cancelled, dashboard back on.")
             _send_alert("✅ Carry Ticket Bot reconnected on its own.")
             return True
+    if not _manual_bot_enabled():
+        bot_sleeping = True
+        with _cooldown_lock:
+            _cooldown_active = False
+        return False
     os.environ["BOT_START_ATTEMPT"] = str(attempt + 1)
     print("🔄 Restarting process to retry Discord login...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -4007,6 +4084,11 @@ def run_bot_with_cooldown():
             # (keeping the web/status threads running) until it restarts us.
             while True:
                 time.sleep(3600)
+    if not _manual_bot_enabled():
+        bot_sleeping = True
+        print("⏹️ Bot manually disabled; keeping dashboard and status pages online.")
+        while True:
+            time.sleep(3600)
     if bot_sleeping:
         # bot.run() returned because the idle sleeper closed the bot. Keep the
         # process (and the web/status threads) alive until /api/wake restarts it.
@@ -4028,8 +4110,8 @@ def run_watchdog():
     while True:
         time.sleep(30)
         try:
-            if bot_sleeping:
-                offline_since = None  # deliberate idle sleep, not a failure
+            if bot_sleeping or not _manual_bot_enabled():
+                offline_since = None  # deliberate stop, not a connection failure
                 continue
             now = time.time()
             if bool(bot.is_ready()) and not bot.is_closed():
@@ -4125,7 +4207,7 @@ def run_idle_sleeper():
     while True:
         time.sleep(60)
         try:
-            if bot_sleeping or _cooldown_active:
+            if bot_sleeping or not _manual_bot_enabled() or _cooldown_active:
                 continue
             if not (bot.is_ready() and not bot.is_closed()):
                 continue
@@ -4170,7 +4252,7 @@ if __name__ == "__main__":
     offline_schedule_thread = threading.Thread(target=run_offline_schedule_watcher, daemon=True)
     offline_schedule_thread.start()
 
-    if TOKEN:
+    if TOKEN and _manual_bot_enabled():
         # Give Render and the web/status threads a short head start after every
         # deploy before opening a Discord connection. This keeps the bot
         # visibly offline for a minute while the deployment settles and avoids
@@ -4189,12 +4271,22 @@ if __name__ == "__main__":
             deadline = time.monotonic() + startup_delay
             while True:
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or not _manual_bot_enabled():
                     break
                 time.sleep(min(1, remaining))
+            if _manual_bot_enabled():
             print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
-
-        run_bot_with_cooldown()
+            run_bot_with_cooldown()
+        else:
+            bot_sleeping = True
+            print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
+            while True:
+                time.sleep(3600)
+    elif TOKEN:
+        bot_sleeping = True
+        print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
+        while True:
+            time.sleep(3600)
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
 
