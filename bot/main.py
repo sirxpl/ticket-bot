@@ -398,6 +398,100 @@ bot = DiagnosticBot(
     http_trace=discord_http_trace,
 )
 
+def _queue_status_event(event_type, title, message, details=None, dedupe_key=None):
+    """Queue status messages only when an admin has configured a destination."""
+    try:
+        if not get_access_settings().get("status_log_channel_id"):
+            return None
+        from utils.status_history import queue_notification
+        return queue_notification(event_type, title, message, details, dedupe_key)
+    except Exception as exc:
+        print(f"Status notification queue failed: {type(exc).__name__}: {exc}", flush=True)
+        return None
+
+
+def _build_status_v2_view(event):
+    layout_cls = getattr(discord.ui, "LayoutView", None)
+    container_cls = getattr(discord.ui, "Container", None)
+    text_display_cls = getattr(discord.ui, "TextDisplay", None)
+    separator_cls = getattr(discord.ui, "Separator", None)
+    if not all((layout_cls, container_cls, text_display_cls)):
+        return None
+
+    colors = {
+        "rate_limited": discord.Color.red(),
+        "disconnected": discord.Color.orange(),
+        "bot_offline": discord.Color.orange(),
+        "online": discord.Color.green(),
+        "bot_online": discord.Color.green(),
+        "deployment": discord.Color.blurple(),
+        "restart": discord.Color.gold(),
+        "startup": discord.Color.blurple(),
+    }
+    event_time = event.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        timestamp = int(datetime.datetime.fromisoformat(event_time).timestamp())
+    except (TypeError, ValueError):
+        timestamp = int(time.time())
+    details = event.get("details") or ""
+    body = str(event.get("message") or "")
+    if details:
+        body += f"\n\n**Details:** {details}"
+    body += f"\n\n**Time:** <t:{timestamp}:F>"
+
+    class BotStatusV2View(layout_cls):
+        def __init__(self):
+            super().__init__(timeout=None)
+            container = container_cls(accent_color=colors.get(event.get("type"), discord.Color.blurple()))
+            container.add_item(text_display_cls(f"## {event.get('title', 'Bot Status Update')}"))
+            if separator_cls:
+                container.add_item(separator_cls())
+            container.add_item(text_display_cls(body))
+            self.add_item(container)
+
+    return BotStatusV2View()
+
+
+_status_notification_retry_at = 0.0
+
+
+async def _deliver_pending_status_notifications():
+    global api_block_until, api_block_reason, web_lockdown_until, _status_notification_retry_at
+    if not bot.is_ready() or bot.is_closed() or api_block_seconds_left() > 0:
+        return
+    if time.time() < _status_notification_retry_at:
+        return
+    try:
+        channel_id = get_access_settings().get("status_log_channel_id")
+        channel = bot.get_channel(int(channel_id)) if channel_id else None
+    except (TypeError, ValueError):
+        channel = None
+    if channel is None:
+        return
+
+    from utils.status_history import get_pending_notifications, mark_notification_delivered
+    for event in get_pending_notifications(20):
+        view = _build_status_v2_view(event)
+        try:
+            if view is None:
+                raise RuntimeError("Discord Components V2 is unavailable in this discord.py version.")
+            await channel.send(view=view)
+            mark_notification_delivered(event.get("id"))
+        except discord.HTTPException as exc:
+            retry_after = _retry_after_from(exc) if getattr(exc, "status", None) == 429 else 0
+            if retry_after > 0:
+                api_block_until = max(api_block_until, time.time() + retry_after)
+                api_block_reason = "Status log delivery received HTTP 429"
+                web_lockdown_until = max(web_lockdown_until, api_block_until)
+            _status_notification_retry_at = time.time() + max(300, retry_after)
+            print(f"Status log delivery paused: HTTP {getattr(exc, 'status', 'error')}: {exc}", flush=True)
+            return
+        except Exception as exc:
+            _status_notification_retry_at = time.time() + 300
+            print(f"Status log delivery failed: {type(exc).__name__}: {exc}", flush=True)
+            return
+
+
 # Tracks when the bot last became ready, used by the public /status page and
 # /api/status JSON endpoint below. None means it hasn't connected yet since
 # this process started.
