@@ -446,6 +446,8 @@ def _build_status_v2_view(event):
         "startup": discord.Color.blurple(),
         "sleeping": discord.Color.dark_grey(),
         "awake": discord.Color.green(),
+        "deploy_failed": discord.Color.red(),
+        "deploy_succeeded": discord.Color.green(),
     }
     event_time = event.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat()
     try:
@@ -4124,9 +4126,18 @@ def run_idle_sleeper():
 
 
 if __name__ == "__main__":
-    if get_access_settings().get("status_log_channel_id"):
+    if get_access_settings().get("status_log_channel_id") or os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
         from utils.status_history import record_process_start
         record_process_start(os.getenv("RENDER_GIT_COMMIT"))
+        if os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+            from utils.status_history import get_pending_notifications, mark_notification_delivered
+            for pending_status_event in get_pending_notifications(20):
+                try:
+                    if _send_status_discord_webhook(pending_status_event):
+                        mark_notification_delivered(pending_status_event.get("id"))
+                except Exception as webhook_error:
+                    print(f"Startup status webhook delivery failed: {type(webhook_error).__name__}", flush=True)
+                    break
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
