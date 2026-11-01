@@ -553,8 +553,9 @@ def receive_render_status_webhook():
         return jsonify({"error": "payload too large"}), 413
     if not _valid_render_webhook(raw_body):
         return jsonify({"error": "invalid webhook signature"}), 401
-    if get_status_log_config()["destination"] != "webhook":
-        return jsonify({"error": "status log webhook destination is not enabled"}), 503
+    destination = get_status_log_config()["destination"]
+    if destination == "disabled":
+        return jsonify({"received": True, "ignored": True, "reason": "status logging is disabled"}), 202
     try:
         payload = json.loads(raw_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -603,11 +604,19 @@ def receive_render_status_webhook():
         details += f" | Result: {status}"
     event = queue_notification(event_type_key, title, message, details, f"render:{event_id}")
     try:
-        _send_status_discord_webhook(event)
+        if destination == "webhook":
+            _send_status_discord_webhook(event)
+            mark_notification_delivered(event.get("id"))
+        elif destination == "channel":
+            if not bot.is_ready() or bot.is_closed():
+                return jsonify({"error": "Discord bot is offline; channel delivery is pending"}), 502
+            future = asyncio.run_coroutine_threadsafe(_deliver_pending_status_notifications(), bot.loop)
+            future.result(timeout=15)
+            if any(item.get("id") == event.get("id") for item in get_pending_notifications(100)):
+                return jsonify({"error": "Discord channel delivery is pending; Render may retry"}), 502
     except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
-        print(f"Render status webhook forwarding failed: {type(exc).__name__}", flush=True)
+        print(f"Render status delivery failed: {type(exc).__name__}", flush=True)
         return jsonify({"error": "Discord status delivery failed; Render may retry"}), 502
-    mark_notification_delivered(event.get("id"))
     mark_render_event(event_id)
     return jsonify({"received": True, "forwarded": True}), 200
 
