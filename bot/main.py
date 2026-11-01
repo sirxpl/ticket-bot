@@ -742,7 +742,10 @@ def _lockdown_gate():
     path = request.path
     if path in LOCKDOWN_ALLOWED_PATHS or path.startswith("/static/"):
         return None
-    if path in {"/dashboard/access-control", "/dashboard/access/set-bot-state"}:
+    # Keep the authenticated admin dashboard reachable during a Discord API
+    # cooldown/outage. Admin access is ID-based and does not require a live
+    # gateway connection or a Discord role lookup.
+    if path == "/dashboard" or path.startswith("/dashboard/"):
         user = session.get("user") or {}
         if is_admin(user.get("id")):
             return None

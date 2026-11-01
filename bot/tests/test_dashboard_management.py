@@ -179,6 +179,14 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
             saved["user"] = {"id": user, "username": "Example"}
             saved["carry_application_csrf"] = "test-csrf"
 
+    def test_admin_dashboard_remains_accessible_during_discord_lockdown(self):
+        future = __import__("time").time() + 300
+        self.start_patch(patch.object(self.main, "web_lockdown_until", future))
+        self.start_patch(patch.object(self.main, "api_block_until", future))
+        response = self.client.get("/dashboard/access-control")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Bot Controls", response.data)
+
     def test_access_control_has_grouped_lists_and_associated_bulk_checkboxes(self):
         response = self.client.get("/dashboard/access-control")
         self.assertEqual(response.status_code, 200)
