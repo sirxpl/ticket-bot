@@ -686,10 +686,9 @@ api_block_reason = None
 # --- Idle sleep -----------------------------------------------------------
 # Optional (IDLE_SLEEP_HOURS env var, off by default). After that many hours
 # with no bot interaction and no open tickets, the bot disconnects from Discord
-# but the web/status pages stay up. It can be woken from the status page.
+# but the web/status pages stay up until the configured schedule or an administrator resumes it.
 bot_sleeping = False
 last_panel_activity = None   # timestamp of the last interaction with the bot
-_waking = False
 
 # Status pages plus the public info pages linked from the site header. None of
 # these call Discord's API (they render static templates / a local file), so
@@ -1537,32 +1536,6 @@ def api_status():
         "retry_in_seconds": web_lockdown_seconds_left() or None,
         "sleeping": bot_sleeping,
     })
-
-
-@app.route("/api/wake", methods=["POST"])
-def api_wake():
-    """Wake the bot from idle sleep. Public on purpose (a customer who finds
-    the bot asleep can wake it from the status page). It's a no-op unless the
-    bot is actually sleeping, and only one wake can be in flight, so it can't
-    be used to trigger repeated Discord logins."""
-    global _waking
-    if not bot_sleeping:
-        return jsonify({"ok": True, "already_awake": True})
-    if _waking:
-        return jsonify({"ok": True, "waking": True})
-    _waking = True
-    import threading as _th
-    _th.Timer(1.5, _wake_process).start()  # let this response go out first
-    return jsonify({"ok": True, "waking": True})
-
-
-def _wake_process():
-    import sys
-    print("☀️ Waking bot from idle sleep - restarting process to log in again...")
-    _send_alert("☀️ Carry Ticket Bot is waking up from idle sleep.")
-    os.environ["BOT_START_ATTEMPT"] = "0"
-    os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
-    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 @app.route("/api/status-history")
