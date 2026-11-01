@@ -291,6 +291,32 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
         with self.client.session_transaction() as saved:
             self.assertEqual(saved["oauth2_state"], "test-state")
 
+    def test_oauth_callback_completes_for_admin_during_bot_api_cooldown(self):
+        future = __import__("time").time() + 300
+        self.start_patch(patch.object(self.main, "web_lockdown_until", 0))
+        self.start_patch(patch.object(self.main, "api_block_until", future))
+
+        discord_response = Mock()
+        discord_response.raise_for_status = Mock()
+        discord_response.json.return_value = {"id": ADMIN, "username": "Admin", "avatar": None}
+        oauth = Mock()
+        oauth.fetch_token.return_value = {"access_token": "test-access-token"}
+        oauth.get.return_value = discord_response
+        self.start_patch(patch.object(self.main, "make_oauth_session", return_value=oauth))
+        with self.client.session_transaction() as saved:
+            saved["oauth2_state"] = "test-state"
+
+        response = self.client.get("/callback?code=temporary-code")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/dashboard/overview", response.headers["Location"])
+        with self.client.session_transaction() as saved:
+            self.assertEqual(saved["user"]["id"], ADMIN)
+            self.assertEqual(saved["oauth2_token"]["access_token"], "test-access-token")
+
+        dashboard = self.client.get("/dashboard/access-control")
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b"Bot Controls", dashboard.data)
+
     def test_admin_can_add_multiple_roles_in_one_access_control_submit(self):
         response = self.client.post("/dashboard/access/add-role", data={"role_id": ["501", "502", "501"]})
         self.assertEqual(response.status_code, 302)
