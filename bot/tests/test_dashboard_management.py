@@ -280,6 +280,7 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
 
     def test_discord_oauth_login_can_start_while_bot_api_is_in_cooldown(self):
         future = __import__("time").time() + 300
+        self.start_patch(patch.object(self.main, "web_lockdown_until", 0))
         self.start_patch(patch.object(self.main, "api_block_until", future))
         oauth = Mock()
         oauth.authorization_url.return_value = ("https://discord.com/oauth2/authorize?state=test", "test-state")
