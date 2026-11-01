@@ -288,12 +288,36 @@ class TrialSchedule(commands.Cog):
                 discord.Forbidden,
                 ValueError,
                 TypeError,
-            ):
-                logger.warning(
-                    "Could not resolve trial schedule channel %s",
-                    target_id,
-                )
-
+            ) as exc:
+                if isinstance(exc, discord.HTTPException) and exc.status == 429:
+                    self._rate_limit_failures += 1
+                    delay = self._rate_limit_delay(exc)
+                    self._rate_limit_until = (
+                        asyncio.get_running_loop().time() + delay
+                    )
+                    logger.warning(
+                        "Trial schedule channel lookup hit Discord 429; "
+                        "pausing retries for %.0fs (failure #%d): %s",
+                        delay,
+                        self._rate_limit_failures,
+                        exc,
+                    )
+                else:
+                    if isinstance(exc, discord.Forbidden):
+                        self._rate_limit_until = (
+                            asyncio.get_running_loop().time() + 300.0
+                        )
+                        logger.warning(
+                            "Trial schedule channel access was forbidden; "
+                            "pausing lookups for 300s: %s",
+                            exc,
+                        )
+                    else:
+                        logger.warning(
+                            "Could not resolve trial schedule channel %s: %s",
+                            target_id,
+                            exc,
+                        )
                 return None
 
             embed, slot_no = build_trial_schedule_embed()

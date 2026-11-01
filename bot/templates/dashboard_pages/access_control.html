@@ -5,7 +5,37 @@
             <p>Decide who can reach each part of this control panel.</p>
         </div>
         {% if is_admin_user %}
-        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-points">Points</a><a href="#access-thread-automation">Thread Automation</a><a href="#access-format-checker">Format Checker</a><a href="#access-automatic-points">Automatic points</a><a href="#access-loggings">Loggings</a><a href="#access-operations">Operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
+        <nav class="settings-jump" aria-label="Access Control groups"><a href="#access-bot-controls">Bot Controls</a><a href="#access-dashboard">Dashboard access</a><a href="#access-carry-team">Carry team</a><a href="#access-ticket-permissions">Ticket and page permissions</a><a href="#access-commands">Command permissions</a><a href="#access-points">Points</a><a href="#access-thread-automation">Thread Automation</a><a href="#access-format-checker">Format Checker</a><a href="#access-automatic-points">Automatic points</a><a href="#access-loggings">Loggings</a><a href="#access-status-logging">Bot Status Logs</a><a href="#access-operations">Operations</a><a href="#access-restrictions">Restrictions and recovery</a></nav>
+<section class="settings-group" id="access-bot-controls">
+<h2 class="settings-group-title">Bot Controls</h2>
+<div class="card" id="access-bot-power">
+    <div class="card-body">
+        <div class="card-head-text">
+            <h3><span class="card-icon">⏻</span> Carry Ticket Bot Power</h3>
+            <p class="card-subtitle">Turn the Discord bot connection on or off without taking the dashboard or public status pages offline.</p>
+        </div>
+        <p style="margin:14px 0;">
+            <strong>Current state:</strong>
+            {% if not manual_bot_enabled %}
+                <strong style="color:var(--danger, #ed6464);">OFF · Manually disabled</strong>
+            {% elif bot_connected %}
+                <strong style="color:var(--success, #52c78a);">ON · Connected to Discord</strong>
+            {% else %}
+                <strong>ON · Waiting for Discord connection</strong>
+            {% endif %}
+        </p>
+        <form action="/dashboard/access/set-bot-state" method="POST" class="access-form">
+            <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+            {% if manual_bot_enabled %}
+                <button type="submit" name="enabled" value="off" class="btn-danger">Turn Bot OFF</button>
+            {% else %}
+                <button type="submit" name="enabled" value="on" class="btn-view">Turn Bot ON</button>
+            {% endif %}
+        </form>
+        <p class="card-subtitle">When OFF, ticket commands and Discord interactions stop working, but the dashboard remains available to configured admin IDs. Turning it ON restarts the app process so the Discord connection can be created again. Scheduled offline hours still apply.</p>
+    </div>
+</div>
+</section>
 <section class="settings-group" id="access-dashboard"><h2 class="settings-group-title">Dashboard access</h2>
 <details class="card" id="access-overview">
             <summary>
@@ -623,6 +653,33 @@
 <p class="card-subtitle"><a href="{{ url_for('home', page='ticket-logs') }}">Browse ticket activity history</a>. Choose delivery channels and ticket events below.</p>
 {% set logging_section_id = 'access-loggings' %}
 {% include 'dashboard_pages/_logging_settings.html' %}
+</section>
+<section class="settings-group" id="access-status-logging"><h2 class="settings-group-title">Bot Status Logs</h2>
+<details class="card" id="access-bot-status-logs">
+    <summary>
+        <div class="card-head-text">
+            <h3><span class="card-icon">📡</span> Discord Status Notifications</h3>
+            <p class="card-subtitle">Send Components V2 updates when the bot disconnects, hits API rate limits, redeploys, or comes back online.</p>
+        </div>
+        <span class="card-chevron">▾</span>
+    </summary>
+    <div class="card-body">
+        <form action="/dashboard/access/save-status-log-channel" method="POST" class="access-form">
+            <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+            <div>
+                <label for="statusLogChannel">Status log channel:</label>
+                <select id="statusLogChannel" name="status_log_channel_id">
+                    <option value="">Disabled</option>
+                    {% for channel in channels %}
+                    <option value="{{ channel.id }}" {% if status_log_channel_id and status_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn-view">Save Status Logging</button>
+        </form>
+        <p class="card-subtitle">When the bot cannot log in, status alerts can use the private Discord webhook configured in Render. For Render deployment-started, deployment-succeeded/failed, build-failed, and service-availability events, configure the Render workspace webhook endpoint and signing secret as described in the project README.</p>
+    </div>
+</details>
 </section>
 <section class="settings-group" id="access-operations"><h2 class="settings-group-title">Operations</h2>
 <details class="card" id="access-bot-offline-schedule">

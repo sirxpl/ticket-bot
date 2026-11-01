@@ -20,6 +20,8 @@ _DEFAULTS = {
     "log_channel_id": None,
     "blacklist_log_channel_id": None,
     "warning_log_channel_id": None,
+    "status_log_channel_id": None,
+    "manual_bot_enabled": True,
     "blacklist_roles": [],
     "carry_manager_roles": [],
     "ticket_viewer_roles": [],
@@ -117,6 +119,55 @@ def save_offline_schedule(schedule: dict):
     return schedule
 
 
+def save_status_log_channel(channel_id: str | None):
+    """Configure the Discord channel used for bot lifecycle/status notices."""
+    value = str(channel_id).strip() if channel_id else ""
+    if value and not value.isdigit():
+        raise ValueError("Choose a valid Discord text channel.")
+    data = get_access_settings()
+    data["status_log_channel_id"] = value or None
+    _save(data)
+    return data["status_log_channel_id"]
+
+
+def get_manual_bot_enabled() -> bool:
+    """Read the persistent override; fail closed if configured MongoDB is unavailable."""
+    try:
+        db = get_db()
+        if db is None and os.getenv("MONGODB_URI"):
+            return False
+        if db is not None:
+            doc = db.access_control.find_one(
+                {"_id": "singleton"}, {"manual_bot_enabled": 1}
+            )
+            return (doc or {}).get("manual_bot_enabled", True) is not False
+        return get_access_settings().get("manual_bot_enabled", True) is not False
+    except Exception:
+        if os.getenv("MONGODB_URI"):
+            return False
+        raise
+
+
+def save_manual_bot_enabled(enabled: bool):
+    """Persist whether the Discord bot should connect, without stopping Flask."""
+    if type(enabled) is not bool:
+        raise ValueError("Bot enabled state must be true or false.")
+    db = get_db()
+    if db is None and os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is unavailable. Bot control was not changed.")
+    if db is not None:
+        db.access_control.update_one(
+            {"_id": "singleton"},
+            {"$set": {"manual_bot_enabled": enabled}},
+            upsert=True,
+        )
+    else:
+        data = get_access_settings()
+        data["manual_bot_enabled"] = enabled
+        _save(data)
+    return enabled
+
+
 def get_access_settings():
     """Return the access-control config: allowed viewer users/roles, the
     channel ticket activity gets logged to, and roles that are blocked from
@@ -135,6 +186,8 @@ def get_access_settings():
         doc.setdefault("log_channel_id", None)
         doc.setdefault("blacklist_log_channel_id", None)
         doc.setdefault("warning_log_channel_id", None)
+        doc.setdefault("status_log_channel_id", None)
+        doc.setdefault("manual_bot_enabled", True)
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
         doc.setdefault("ticket_viewer_roles", [])
@@ -170,6 +223,8 @@ def get_access_settings():
         data.setdefault("log_channel_id", None)
         data.setdefault("blacklist_log_channel_id", None)
         data.setdefault("warning_log_channel_id", None)
+        data.setdefault("status_log_channel_id", None)
+        data.setdefault("manual_bot_enabled", True)
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])
         data.setdefault("ticket_viewer_roles", [])

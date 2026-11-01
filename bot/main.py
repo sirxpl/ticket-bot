@@ -5,6 +5,8 @@ import re
 import asyncio
 import datetime
 import hmac
+import base64
+import hashlib
 import secrets
 import time
 import aiohttp
@@ -12,6 +14,8 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
 from urllib.parse import urlsplit
+from urllib.request import Request as URLRequest, urlopen
+from urllib.error import URLError, HTTPError
 from dotenv import load_dotenv
 
 import discord
@@ -142,6 +146,9 @@ from utils.access import (
     revoke_terms_unblock_token,
     get_offline_schedule,
     save_offline_schedule,
+    save_status_log_channel,
+    get_manual_bot_enabled,
+    save_manual_bot_enabled,
 )
 from utils.carry_applications import (
     ApplicationStateError,
@@ -368,6 +375,13 @@ async def _discord_http_request_end(session, trace_config_ctx, params):
                 "dashboard lockdown countdown updated.",
                 flush=True,
             )
+        _queue_status_event(
+            "rate_limited",
+            "Discord API rate limited",
+            "Discord temporarily blocked REST API access. This notice will be delivered when access recovers.",
+            f"HTTP 429 · Retry-After: {retry_after:.0f}s · CF-Ray: {cf_ray}",
+            "discord_api_rate_limited",
+        )
     print(
         f"🔎 Discord HTTP request finished: {params.method} {params.url} "
         f"-> HTTP {status} in {elapsed:.2f}s",
@@ -396,6 +410,244 @@ bot = DiagnosticBot(
     tree_cls=GlobalCommandTree,
     http_trace=discord_http_trace,
 )
+
+def _queue_status_event(event_type, title, message, details=None, dedupe_key=None):
+    """Queue status messages for the bot channel and/or webhook fallback."""
+    try:
+        webhook_configured = bool(os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip())
+        if not get_access_settings().get("status_log_channel_id") and not webhook_configured:
+            return None
+        from utils.status_history import queue_notification, mark_notification_delivered
+        event = queue_notification(event_type, title, message, details, dedupe_key)
+        # A Discord webhook remains usable when the bot cannot complete login.
+        if event and webhook_configured and (not bot.is_ready() or bot.is_closed()):
+            if _send_status_discord_webhook(event):
+                mark_notification_delivered(event.get("id"))
+        return event
+    except Exception as exc:
+        print(f"Status notification queue failed: {type(exc).__name__}: {exc}", flush=True)
+        return None
+
+
+def _build_status_v2_view(event):
+    layout_cls = getattr(discord.ui, "LayoutView", None)
+    container_cls = getattr(discord.ui, "Container", None)
+    text_display_cls = getattr(discord.ui, "TextDisplay", None)
+    separator_cls = getattr(discord.ui, "Separator", None)
+    if not all((layout_cls, container_cls, text_display_cls)):
+        return None
+
+    colors = {
+        "rate_limited": discord.Color.red(),
+        "disconnected": discord.Color.orange(),
+        "bot_offline": discord.Color.orange(),
+        "online": discord.Color.green(),
+        "bot_online": discord.Color.green(),
+        "deployment": discord.Color.blurple(),
+        "restart": discord.Color.gold(),
+        "startup": discord.Color.blurple(),
+        "sleeping": discord.Color.dark_grey(),
+        "awake": discord.Color.green(),
+        "deploy_failed": discord.Color.red(),
+        "deploy_succeeded": discord.Color.green(),
+    }
+    event_time = event.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        timestamp = int(datetime.datetime.fromisoformat(event_time).timestamp())
+    except (TypeError, ValueError):
+        timestamp = int(time.time())
+    details = event.get("details") or ""
+    body = str(event.get("message") or "")
+    if details:
+        body += f"\n\n**Details:** {details}"
+    body += f"\n\n**Time:** <t:{timestamp}:F>"
+
+    class BotStatusV2View(layout_cls):
+        def __init__(self):
+            super().__init__(timeout=None)
+            container = container_cls(accent_color=colors.get(event.get("type"), discord.Color.blurple()))
+            container.add_item(text_display_cls(f"## {event.get('title', 'Bot Status Update')}"))
+            if separator_cls:
+                container.add_item(separator_cls())
+            container.add_item(text_display_cls(body))
+            self.add_item(container)
+
+    return BotStatusV2View()
+
+
+def _send_status_discord_webhook(event):
+    """Send a compact fallback embed without requiring a logged-in bot session."""
+    webhook_url = os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False
+    parsed = urlsplit(webhook_url)
+    if parsed.scheme != "https" or parsed.hostname not in {"discord.com", "canary.discord.com", "ptb.discord.com"} or not parsed.path.startswith("/api/webhooks/"):
+        raise ValueError("STATUS_DISCORD_WEBHOOK_URL must be a Discord HTTPS webhook URL.")
+    colors = {
+        "rate_limited": 0xE74C3C, "disconnected": 0xE67E22, "bot_offline": 0xE67E22,
+        "online": 0x2ECC71, "bot_online": 0x2ECC71, "deployment": 0x5865F2,
+        "restart": 0xF1C40F, "startup": 0x5865F2, "sleeping": 0x555555, "awake": 0x2ECC71,
+        "deploy_failed": 0xE74C3C, "deploy_succeeded": 0x2ECC71,
+    }
+    description = str(event.get("message") or "")[:3500]
+    details = str(event.get("details") or "")[:900]
+    if details:
+        description += "\n\n" + details
+    payload = {
+        "embeds": [{
+            "title": str(event.get("title") or "Bot Status Update")[:240],
+            "description": description[:4000],
+            "color": colors.get(event.get("type"), 0x5865F2),
+            "timestamp": event.get("timestamp") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }],
+        "allowed_mentions": {"parse": []},
+    }
+    request = URLRequest(
+        webhook_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "CarryTicketBot-Status/1.0"},
+        method="POST",
+    )
+    with urlopen(request, timeout=6) as response:
+        if not 200 <= response.status < 300:
+            raise RuntimeError(f"Discord webhook returned HTTP {response.status}.")
+    return True
+
+
+def _valid_render_webhook(raw_body):
+    """Validate Render's Standard Webhooks HMAC signature and five-minute timestamp."""
+    secret = os.getenv("RENDER_WEBHOOK_SECRET", "").strip()
+    webhook_id = request.headers.get("webhook-id", "")
+    timestamp = request.headers.get("webhook-timestamp", "")
+    signatures = request.headers.get("webhook-signature", "")
+    if not secret or not webhook_id or not timestamp or not signatures:
+        return False
+    try:
+        sent_at = int(timestamp)
+        if abs(time.time() - sent_at) > 300:
+            return False
+        encoded_secret = secret.removeprefix("whsec_")
+        key = base64.b64decode(encoded_secret + "=" * (-len(encoded_secret) % 4), validate=True)
+        signed = webhook_id.encode() + b"." + timestamp.encode() + b"." + raw_body
+        expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode("ascii")
+    except (ValueError, TypeError):
+        return False
+    for candidate in signatures.split():
+        try:
+            version, supplied = candidate.split(",", 1)
+        except ValueError:
+            continue
+        if version == "v1" and hmac.compare_digest(supplied, expected):
+            return True
+    return False
+
+
+@app.post("/webhooks/render/status")
+def receive_render_status_webhook():
+    """Receive authenticated Render lifecycle events and forward them to Discord."""
+    raw_body = request.get_data(cache=True)
+    if len(raw_body) > 32768:
+        return jsonify({"error": "payload too large"}), 413
+    if not _valid_render_webhook(raw_body):
+        return jsonify({"error": "invalid webhook signature"}), 401
+    if not os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+        return jsonify({"error": "status Discord webhook is not configured"}), 503
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return jsonify({"error": "invalid JSON"}), 400
+    event_type = str(payload.get("type") or "")
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    event_id = str(data.get("id") or request.headers.get("webhook-id") or "")[:120]
+    expected_service = os.getenv("RENDER_STATUS_SERVICE_ID", "").strip()
+    if expected_service and str(data.get("serviceId") or "") != expected_service:
+        return jsonify({"ignored": True, "reason": "different service"}), 202
+    if not event_id:
+        return jsonify({"error": "missing event ID"}), 400
+
+    from utils.status_history import has_render_event, mark_render_event, queue_notification, mark_notification_delivered
+    if has_render_event(event_id):
+        return jsonify({"received": True, "duplicate": True}), 200
+
+    service_name = str(data.get("serviceName") or "Carry Ticket Bot")[:120]
+    status = str(data.get("status") or "").lower()
+    event_map = {
+        "deploy_started": ("deployment", "Render deployment started", f"{service_name} deployment has started."),
+        "build_started": ("deployment", "Render build started", f"A new build for {service_name} has started."),
+        "server_failed": ("disconnected", "Render service unavailable", f"{service_name} became unavailable on Render."),
+        "server_available": ("bot_online", "Render service available", f"{service_name} is available on Render again."),
+        "server_restarted": ("restart", "Render restarted the service", f"Render restarted {service_name}."),
+        "zero_downtime_redeploy_started": ("deployment", "Render redeployment started", f"Render started a zero-downtime redeployment for {service_name}."),
+        "zero_downtime_redeploy_ended": ("deployment", "Render redeployment finished", f"Render finished the zero-downtime redeployment for {service_name}."),
+    }
+    if event_type == "deploy_ended":
+        if status == "succeeded":
+            event_type_key, title, message = "deploy_succeeded", "Deployment succeeded", f"Render successfully deployed {service_name}."
+        elif status == "failed":
+            event_type_key, title, message = "deploy_failed", "Deployment failed", f"Render could not complete the deployment for {service_name}."
+        else:
+            event_type_key, title, message = "deployment", "Deployment canceled", f"The deployment for {service_name} was canceled."
+    elif event_type == "build_ended" and status == "failed":
+        event_type_key, title, message = "deploy_failed", "Build failed", f"Render could not build {service_name}; the previous live version may remain active."
+    elif event_type in event_map:
+        event_type_key, title, message = event_map[event_type]
+    else:
+        mark_render_event(event_id)
+        return jsonify({"received": True, "ignored": True}), 200
+
+    details = f"Render event: {event_type} | Event ID: {event_id}"
+    if status:
+        details += f" | Result: {status}"
+    event = queue_notification(event_type_key, title, message, details, f"render:{event_id}")
+    try:
+        _send_status_discord_webhook(event)
+    except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
+        print(f"Render status webhook forwarding failed: {type(exc).__name__}", flush=True)
+        return jsonify({"error": "Discord status delivery failed; Render may retry"}), 502
+    mark_notification_delivered(event.get("id"))
+    mark_render_event(event_id)
+    return jsonify({"received": True, "forwarded": True}), 200
+
+
+_status_notification_retry_at = 0.0
+
+
+async def _deliver_pending_status_notifications():
+    global api_block_until, api_block_reason, web_lockdown_until, _status_notification_retry_at
+    if not bot.is_ready() or bot.is_closed() or api_block_seconds_left() > 0:
+        return
+    if time.time() < _status_notification_retry_at:
+        return
+    try:
+        channel_id = get_access_settings().get("status_log_channel_id")
+        channel = bot.get_channel(int(channel_id)) if channel_id else None
+    except (TypeError, ValueError):
+        channel = None
+    if channel is None:
+        return
+
+    from utils.status_history import get_pending_notifications, mark_notification_delivered
+    for event in get_pending_notifications(20):
+        view = _build_status_v2_view(event)
+        try:
+            if view is None:
+                raise RuntimeError("Discord Components V2 is unavailable in this discord.py version.")
+            await channel.send(view=view)
+            mark_notification_delivered(event.get("id"))
+        except discord.HTTPException as exc:
+            retry_after = _retry_after_from(exc) if getattr(exc, "status", None) == 429 else 0
+            if retry_after > 0:
+                api_block_until = max(api_block_until, time.time() + retry_after)
+                api_block_reason = "Status log delivery received HTTP 429"
+                web_lockdown_until = max(web_lockdown_until, api_block_until)
+            _status_notification_retry_at = time.time() + max(300, retry_after)
+            print(f"Status log delivery paused: HTTP {getattr(exc, 'status', 'error')}: {exc}", flush=True)
+            return
+        except Exception as exc:
+            _status_notification_retry_at = time.time() + 300
+            print(f"Status log delivery failed: {type(exc).__name__}: {exc}", flush=True)
+            return
+
 
 # Tracks when the bot last became ready, used by the public /status page and
 # /api/status JSON endpoint below. None means it hasn't connected yet since
@@ -429,9 +681,18 @@ _waking = False
 # Status pages plus the public info pages linked from the site header. None of
 # these call Discord's API (they render static templates / a local file), so
 # they're safe to keep serving while the dashboard is switched off.
+def _manual_bot_enabled():
+    """Read the persistent admin override; default to enabled for existing installs."""
+    try:
+        return get_manual_bot_enabled()
+    except Exception:
+        app.logger.exception("Could not read the manual bot control setting")
+        return False
+
+
 LOCKDOWN_ALLOWED_PATHS = {
     "/status", "/downtime", "/api/status", "/api/status-history",
-    "/docs", "/rules", "/guidelines", "/privacy", "/terms",
+    "/docs", "/rules", "/guidelines", "/privacy", "/terms", "/login", "/callback",
 }
 
 _LOCKDOWN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -481,13 +742,17 @@ def _lockdown_gate():
     path = request.path
     if path in LOCKDOWN_ALLOWED_PATHS or path.startswith("/static/"):
         return None
+    if path in {"/dashboard/access-control", "/dashboard/access/set-bot-state"}:
+        user = session.get("user") or {}
+        if is_admin(user.get("id")):
+            return None
     # Hosting health checks / uptime pingers hit "/" - keep answering 200 so
     # the host doesn't decide the service is dead and restart it (which would
     # just re-trigger the Discord block).
     if path == "/":
         if request.method == "HEAD":
             return Response("", status=200)
-        return render_template("status.html")
+        return render_template("status.html", base_url=current_base_url(), **_public_schedule_context())
     retry_after = str(left)
     if path.startswith("/api/"):
         resp = jsonify({"error": "Dashboard temporarily unavailable", "retry_in_seconds": left})
@@ -616,7 +881,7 @@ def access_required(f):
             flash("⛔ Your account is blocked from using this dashboard.", "danger")
             session.pop("user", None)
             return redirect(url_for("home"))
-        role_ids = get_member_role_ids(user_data["id"])
+        role_ids = [] if is_admin(user_data["id"]) else get_member_role_ids(user_data["id"])
         if not has_dashboard_access(user_data["id"], role_ids):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
             session.pop("user", None)
@@ -699,7 +964,7 @@ def admin_required(f):
             flash("⛔ Your account is blocked from using this dashboard.", "danger")
             session.pop("user", None)
             return redirect(url_for("home"))
-        role_ids = get_member_role_ids(user_data["id"])
+        role_ids = [] if is_admin(user_data["id"]) else get_member_role_ids(user_data["id"])
         if not has_dashboard_access(user_data["id"], role_ids):
             flash("⛔ You don't have permission to view this dashboard.", "danger")
             session.pop("user", None)
@@ -1279,6 +1544,7 @@ def _wake_process():
     print("☀️ Waking bot from idle sleep - restarting process to log in again...")
     _send_alert("☀️ Carry Ticket Bot is waking up from idle sleep.")
     os.environ["BOT_START_ATTEMPT"] = "0"
+    os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -1755,6 +2021,9 @@ def home(page="overview"):
         log_channel_id=access_settings.get("log_channel_id"),
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
+        status_log_channel_id=access_settings.get("status_log_channel_id"),
+        manual_bot_enabled=_manual_bot_enabled(),
+        bot_connected=bool(bot.is_ready()) and not bot.is_closed(),
         offline_schedule=get_offline_schedule() if page == "access-control" else {},
         globally_blocked_users=get_globally_blocked_users() if page == "access-control" else [],
         generated_unblock_link=generated_unblock_link,
@@ -3352,6 +3621,76 @@ def access_set_warning_log_channel():
     return redirect(url_for("home", page="access-control"))
 
 
+@app.route("/dashboard/access/save-status-log-channel", methods=["POST"])
+@admin_required
+def access_save_status_log_channel():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and try again.")
+    channel_id = request.form.get("status_log_channel_id", "").strip()
+    try:
+        save_status_log_channel(channel_id or None)
+    except ValueError as error:
+        flash(str(error), "danger")
+    else:
+        flash("Bot status log channel updated.", "success")
+    return redirect(url_for("home", page="access-control", _anchor="access-status-logging"))
+
+@app.post("/dashboard/access/set-bot-state")
+@admin_required
+def access_set_bot_state():
+    """Turn only the Discord client on/off; keep Flask and status pages online."""
+    global bot_sleeping
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Access Control and try again.")
+    requested = request.form.get("enabled", "")
+    if requested not in {"on", "off"}:
+        abort(400, "Choose whether the bot should be on or off.")
+    enabled = requested == "on"
+    previous = _manual_bot_enabled()
+    try:
+        save_manual_bot_enabled(enabled)
+    except (RuntimeError, ValueError) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("home", page="access-control", _anchor="access-bot-controls"))
+    except Exception:
+        app.logger.exception("Could not save the manual bot control setting")
+        flash("The bot control setting could not be saved. Please try again.", "danger")
+        return redirect(url_for("home", page="access-control", _anchor="access-bot-controls"))
+
+    if not enabled:
+        bot_sleeping = True
+        try:
+            loop = bot.loop
+            if loop and not loop.is_closed() and not bot.is_closed():
+                asyncio.run_coroutine_threadsafe(bot.close(), loop).result(timeout=20)
+        except Exception:
+            app.logger.exception("Could not cleanly disconnect the Discord bot")
+            flash("The OFF setting was saved, but the Discord connection did not close cleanly.", "warning")
+        else:
+            flash("Carry Ticket Bot is OFF. The dashboard and status pages will stay available.", "success")
+        _queue_status_event(
+            "sleeping", "Bot manually stopped",
+            "An administrator turned off the Discord connection from Access Control.",
+            "The dashboard and public status pages remain available.",
+            "bot_manual_off",
+        )
+    elif not previous:
+        bot_sleeping = False
+        os.environ["BOT_START_ATTEMPT"] = "0"
+        os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
+
+        def restart_after_response():
+            time.sleep(1.5)
+            import sys
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+
+        threading.Thread(target=restart_after_response, daemon=True).start()
+        flash("Carry Ticket Bot is starting. The dashboard may briefly reconnect.", "success")
+    else:
+        flash("Carry Ticket Bot is already enabled. It will continue its normal connection/retry process.", "info")
+    return redirect(url_for("home", page="access-control", _anchor="access-bot-controls"))
+
+
 @app.route("/dashboard/access/save-offline-schedule", methods=["POST"])
 @admin_required
 def access_save_offline_schedule():
@@ -3434,6 +3773,16 @@ async def on_ready():
     global bot_ready_since
     print("🔧 on_ready started.", flush=True)
     bot_ready_since = time.time()
+    if os.getenv("BOT_WAKING_FROM_SLEEP") == "1":
+        os.environ.pop("BOT_WAKING_FROM_SLEEP", None)
+        _queue_status_event(
+            "awake", "Bot is awake",
+            "Carry Ticket Bot has finished waking up and is connected to Discord.",
+            dedupe_key="bot_awake",
+        )
+    else:
+        _queue_status_event("bot_online", "Bot back online", "Carry Ticket Bot is connected and ready.", dedupe_key="bot_online")
+    await _deliver_pending_status_notifications()
     # If this process was started by the cooldown/watchdog restart, tell the
     # owner the bot is back (once), then reset the retry counter.
     if int(os.getenv("BOT_START_ATTEMPT", "0") or 0) > 0:
@@ -3442,6 +3791,29 @@ async def on_ready():
         import threading as _t
         _t.Thread(target=_send_alert, args=("✅ Carry Ticket Bot is back online.",), daemon=True).start()
     print(f"✅ Bot logged in as {bot.user}", flush=True)
+
+
+@bot.event
+async def on_disconnect():
+    if bot_sleeping or _offline_schedule_active:
+        return
+    _queue_status_event(
+        "disconnected",
+        "Bot disconnected",
+        "Carry Ticket Bot lost its Discord Gateway connection. It will report back when it reconnects.",
+        dedupe_key="bot_offline",
+    )
+
+
+@bot.event
+async def on_resumed():
+    _queue_status_event(
+        "bot_online",
+        "Bot reconnected",
+        "Carry Ticket Bot resumed its Discord Gateway session.",
+        dedupe_key="bot_online",
+    )
+    await _deliver_pending_status_notifications()
 
 
 def run_flask():
@@ -3508,6 +3880,8 @@ def run_offline_schedule_watcher():
     while True:
         time.sleep(15)
         try:
+            if not _manual_bot_enabled():
+                continue
             active = _offline_schedule_is_active()
             if active and not _offline_schedule_active and not bot_sleeping:
                 _offline_schedule_active = True
@@ -3516,6 +3890,12 @@ def run_offline_schedule_watcher():
                 try:
                     if bot.loop and not bot.loop.is_closed():
                         asyncio.run_coroutine_threadsafe(bot.close(), bot.loop).result(timeout=30)
+                    _queue_status_event(
+                        "sleeping", "Bot is sleeping",
+                        "Carry Ticket Bot entered its configured offline schedule.",
+                        "The dashboard and status page remain available.",
+                        "bot_sleeping",
+                    )
                 except Exception as exc:
                     print(f"Offline schedule disconnect failed: {exc}")
                     bot_sleeping = False
@@ -3523,6 +3903,7 @@ def run_offline_schedule_watcher():
             elif not active and _offline_schedule_active:
                 print("🕒 Offline schedule ended — restarting process to reconnect Discord bot.")
                 os.environ["BOT_START_ATTEMPT"] = "0"
+                os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
                 import sys
                 os.execv(sys.executable, [sys.executable] + sys.argv)
         except SystemExit:
@@ -3544,7 +3925,37 @@ def run_status_checker():
                 time.sleep(60)
                 continue
             online = bool(bot.is_ready()) and not bot.is_closed()
-            record_check(online)
+            transition = record_check(online)
+            if transition == "offline":
+                _queue_status_event(
+                    "disconnected", "Bot disconnected",
+                    "Carry Ticket Bot lost its Discord connection.",
+                    dedupe_key="bot_offline",
+                )
+            elif transition == "online":
+                _queue_status_event(
+                    "bot_online", "Bot back online",
+                    "Carry Ticket Bot reconnected to Discord.",
+                    dedupe_key="bot_online",
+                )
+            if online and api_block_seconds_left() <= 0:
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        _deliver_pending_status_notifications(), bot.loop
+                    )
+                    future.result(timeout=15)
+                except Exception as delivery_error:
+                    print(f"Status log delivery scheduler error: {delivery_error}", flush=True)
+            elif not online and os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+                # Retry queued alerts through the webhook while Discord bot login is unavailable.
+                from utils.status_history import get_pending_notifications, mark_notification_delivered
+                for pending_status_event in get_pending_notifications(10):
+                    try:
+                        if _send_status_discord_webhook(pending_status_event):
+                            mark_notification_delivered(pending_status_event.get("id"))
+                    except Exception as webhook_error:
+                        print(f"Status webhook retry paused: {type(webhook_error).__name__}", flush=True)
+                        break
         except Exception as e:
             print(f"Status checker error: {e}")
         time.sleep(60)
@@ -3602,7 +4013,7 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
     With can_recover=True, if the bot reconnects by itself during the wait the
     cooldown is cancelled instead of restarting. Returns True in that case."""
     import sys
-    global web_lockdown_until, last_start_error, _cooldown_active
+    global web_lockdown_until, last_start_error, _cooldown_active, bot_sleeping
     with _cooldown_lock:
         if _cooldown_active:
             return False
@@ -3625,6 +4036,11 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
     _send_alert(f"⚠️ Carry Ticket Bot is down: {reason}. Dashboard is off; retrying in about {max(1, round(delay / 60))} min.")
     deadline = time.time() + delay
     while time.time() < deadline:
+        if not _manual_bot_enabled():
+            bot_sleeping = True
+            with _cooldown_lock:
+                _cooldown_active = False
+            return False
         time.sleep(min(15, max(0, deadline - time.time())))
         if can_recover and bot.is_ready() and not bot.is_closed():
             web_lockdown_until = 0.0
@@ -3633,6 +4049,11 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
             print("✅ Bot reconnected on its own; cooldown cancelled, dashboard back on.")
             _send_alert("✅ Carry Ticket Bot reconnected on its own.")
             return True
+    if not _manual_bot_enabled():
+        bot_sleeping = True
+        with _cooldown_lock:
+            _cooldown_active = False
+        return False
     os.environ["BOT_START_ATTEMPT"] = str(attempt + 1)
     print("🔄 Restarting process to retry Discord login...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -3642,6 +4063,7 @@ def run_bot_with_cooldown():
     """Run the bot. If startup/login fails, keep the process (and status
     pages) alive and retry after a backoff instead of exiting, so the host
     isn't tempted into an instant restart loop that keeps the API block alive."""
+    global bot_sleeping
     try:
         bot.run(TOKEN)
     except discord.HTTPException as exc:
@@ -3663,6 +4085,11 @@ def run_bot_with_cooldown():
             # (keeping the web/status threads running) until it restarts us.
             while True:
                 time.sleep(3600)
+    if not _manual_bot_enabled():
+        bot_sleeping = True
+        print("⏹️ Bot manually disabled; keeping dashboard and status pages online.")
+        while True:
+            time.sleep(3600)
     if bot_sleeping:
         # bot.run() returned because the idle sleeper closed the bot. Keep the
         # process (and the web/status threads) alive until /api/wake restarts it.
@@ -3684,8 +4111,8 @@ def run_watchdog():
     while True:
         time.sleep(30)
         try:
-            if bot_sleeping:
-                offline_since = None  # deliberate idle sleep, not a failure
+            if bot_sleeping or not _manual_bot_enabled():
+                offline_since = None  # deliberate stop, not a connection failure
                 continue
             now = time.time()
             if bool(bot.is_ready()) and not bot.is_closed():
@@ -3761,6 +4188,12 @@ def _go_to_sleep(idle_seconds):
         print(f"Idle sleep failed, staying awake: {e}")
         bot_sleeping = False
         return
+    _queue_status_event(
+        "sleeping", "Bot is sleeping",
+        f"Carry Ticket Bot entered idle sleep after {hours} hours without activity and with no open tickets.",
+        "The dashboard and status page remain available.",
+        "bot_sleeping",
+    )
     _send_alert(f"💤 Carry Ticket Bot went to sleep after {hours}h without activity. Wake it from the status page when needed.")
 
 
@@ -3775,7 +4208,7 @@ def run_idle_sleeper():
     while True:
         time.sleep(60)
         try:
-            if bot_sleeping or _cooldown_active:
+            if bot_sleeping or not _manual_bot_enabled() or _cooldown_active:
                 continue
             if not (bot.is_ready() and not bot.is_closed()):
                 continue
@@ -3794,6 +4227,18 @@ def run_idle_sleeper():
 
 
 if __name__ == "__main__":
+    if get_access_settings().get("status_log_channel_id") or os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+        from utils.status_history import record_process_start
+        record_process_start(os.getenv("RENDER_GIT_COMMIT"))
+        if os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+            from utils.status_history import get_pending_notifications, mark_notification_delivered
+            for pending_status_event in get_pending_notifications(20):
+                try:
+                    if _send_status_discord_webhook(pending_status_event):
+                        mark_notification_delivered(pending_status_event.get("id"))
+                except Exception as webhook_error:
+                    print(f"Startup status webhook delivery failed: {type(webhook_error).__name__}", flush=True)
+                    break
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
@@ -3808,7 +4253,7 @@ if __name__ == "__main__":
     offline_schedule_thread = threading.Thread(target=run_offline_schedule_watcher, daemon=True)
     offline_schedule_thread.start()
 
-    if TOKEN:
+    if TOKEN and _manual_bot_enabled():
         # Give Render and the web/status threads a short head start after every
         # deploy before opening a Discord connection. This keeps the bot
         # visibly offline for a minute while the deployment settles and avoids
@@ -3827,12 +4272,22 @@ if __name__ == "__main__":
             deadline = time.monotonic() + startup_delay
             while True:
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or not _manual_bot_enabled():
                     break
                 time.sleep(min(1, remaining))
+        if _manual_bot_enabled():
             print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
-
-        run_bot_with_cooldown()
+            run_bot_with_cooldown()
+        else:
+            bot_sleeping = True
+            print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
+            while True:
+                time.sleep(3600)
+    elif TOKEN:
+        bot_sleeping = True
+        print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
+        while True:
+            time.sleep(3600)
     else:
         print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
 

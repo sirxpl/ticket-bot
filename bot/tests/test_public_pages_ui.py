@@ -4,6 +4,7 @@ Run from repository root:
     python -m unittest discover -s bot/tests -p "test_*.py"
 """
 from pathlib import Path
+import re
 import unittest
 
 from jinja2 import Environment, FileSystemLoader
@@ -67,10 +68,14 @@ class PublicPagesLayoutTests(unittest.TestCase):
         path = TEMPLATES / "dashboard_pages" / "access_control.html"
         content = path.read_text(encoding="utf-8")
         self.assertEqual(content.count("<details"), content.count("</details>"))
-        self.assertEqual(content.count("<details"), 20)
+        self.assertEqual(content.count("<details"), 21)
         self.assertIn("dashboard_pages/_logging_settings.html", content)
         self.assertIn("dashboard_pages/_blacklist_types.html", content)
-        self.assertNotIn('class="card" open', content)
+        self.assertNotRegex(content, r"<details\b[^>]*\bopen(?:\s|=|>)")
+        self.assertIn('id="access-bot-controls"', content)
+        self.assertIn('/dashboard/access/set-bot-state', content)
+        self.assertIn('name="enabled" value="off"', content)
+        self.assertIn('name="enabled" value="on"', content)
         self.assertEqual(content.count("<form"), content.count("</form>"))
         self.assertIn("offlineScheduleForm", content)
         self.assertIn("Configured Bot Admin IDs", content)
