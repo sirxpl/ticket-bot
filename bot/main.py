@@ -4008,10 +4008,11 @@ def run_offline_schedule_watcher():
 
 
 def run_status_checker():
-    """Runs forever in its own daemon thread, sampling bot connectivity
-    roughly once a minute so the /status page has real uptime history and
-    auto-detected incidents instead of only a live snapshot."""
+    """Sample bot connectivity and retry queued status notifications."""
     from utils.status_history import record_check
+    from utils.status_history import get_pending_notifications, mark_notification_delivered
+    webhook_retry_after_at = 0.0
+
     while True:
         try:
             if bot_sleeping:
@@ -4019,6 +4020,7 @@ def run_status_checker():
                 # so uptime % and incidents aren't polluted.
                 time.sleep(60)
                 continue
+
             online = bool(bot.is_ready()) and not bot.is_closed()
             transition = record_check(online)
             if transition == "offline":
@@ -4033,7 +4035,39 @@ def run_status_checker():
                     "Carry Ticket Bot reconnected to Discord.",
                     dedupe_key="bot_online",
                 )
-            if online and api_block_seconds_left() <= 0:
+
+            destination = get_status_log_config()["destination"]
+            if destination == "webhook":
+                # Retry pending webhook alerts whether the bot is online or
+                # offline. A failed immediate send must not strand the event
+                # until the next disconnect/restart.
+                if time.time() >= webhook_retry_after_at:
+                    for pending_status_event in get_pending_notifications(10):
+                        try:
+                            if _send_status_discord_webhook(pending_status_event):
+                                mark_notification_delivered(pending_status_event.get("id"))
+                        except HTTPError as webhook_error:
+                            try:
+                                retry_after = float(webhook_error.headers.get("Retry-After", "0") or 0)
+                            except (TypeError, ValueError):
+                                retry_after = 0.0
+                            webhook_retry_after_at = time.time() + max(60.0, retry_after)
+                            print(
+                                "Status webhook retry paused after HTTP "
+                                f"{getattr(webhook_error, 'code', 'error')}; "
+                                f"retrying in {max(60.0, retry_after):.0f}s.",
+                                flush=True,
+                            )
+                            break
+                        except Exception as webhook_error:
+                            webhook_retry_after_at = time.time() + 60.0
+                            print(
+                                f"Status webhook retry paused: {type(webhook_error).__name__}; "
+                                "retrying in 60s.",
+                                flush=True,
+                            )
+                            break
+            elif online and api_block_seconds_left() <= 0:
                 try:
                     future = asyncio.run_coroutine_threadsafe(
                         _deliver_pending_status_notifications(), bot.loop
@@ -4041,18 +4075,8 @@ def run_status_checker():
                     future.result(timeout=15)
                 except Exception as delivery_error:
                     print(f"Status log delivery scheduler error: {delivery_error}", flush=True)
-            elif not online and get_status_log_config()["destination"] == "webhook":
-                # Retry queued alerts through the webhook while Discord bot login is unavailable.
-                from utils.status_history import get_pending_notifications, mark_notification_delivered
-                for pending_status_event in get_pending_notifications(10):
-                    try:
-                        if _send_status_discord_webhook(pending_status_event):
-                            mark_notification_delivered(pending_status_event.get("id"))
-                    except Exception as webhook_error:
-                        print(f"Status webhook retry paused: {type(webhook_error).__name__}", flush=True)
-                        break
         except Exception as e:
-            print(f"Status checker error: {e}")
+            print(f"Status checker error: {e}", flush=True)
         time.sleep(60)
 
 
