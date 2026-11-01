@@ -337,7 +337,12 @@ def has_carry_application_verdict_access(user_id, member_role_ids=None) -> bool:
 
 
 def is_globally_blocked(user_id) -> bool:
-    return str(user_id) in set(get_globally_blocked_users()) and not is_admin(user_id)
+    # Admin status is defined by configured IDs, not Discord roles or storage.
+    # Short-circuit before touching Mongo/local access storage so admins can
+    # still reach the dashboard during a storage outage.
+    if is_admin(user_id):
+        return False
+    return str(user_id) in set(get_globally_blocked_users())
 
 
 def add_globally_blocked_user(user_id: str) -> bool:
