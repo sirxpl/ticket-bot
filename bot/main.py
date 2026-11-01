@@ -569,7 +569,7 @@ def receive_render_status_webhook():
     if not event_id:
         return jsonify({"error": "missing event ID"}), 400
 
-    from utils.status_history import has_render_event, mark_render_event, queue_notification, mark_notification_delivered
+    from utils.status_history import has_render_event, mark_render_event, queue_notification, mark_notification_delivered, get_pending_notifications
     if has_render_event(event_id):
         return jsonify({"received": True, "duplicate": True}), 200
 
