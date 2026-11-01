@@ -2219,7 +2219,11 @@ async function copyTextById(inputId, button) {
 </script>
 
 {% if user and active_page in ['access-control','carry-settings','carry-applications','ticket-logs','trial-schedules'] %}
-<div id="dashboard-unsaved-notice" class="unsaved-notice" role="status" aria-live="polite" hidden><span class="unsaved-notice-dot" aria-hidden="true"></span><div><strong>You have unsaved changes.</strong><small>Save each edited section when you’re ready.</small></div></div>
+<div id="dashboard-unsaved-notice" class="unsaved-notice" role="status" aria-live="polite" hidden>
+    <span class="unsaved-notice-dot" aria-hidden="true"></span>
+    <div class="unsaved-notice-copy"><strong>You have unsaved changes.</strong><small>Save each edited section when you’re ready.</small></div>
+    <div id="dashboard-unsaved-actions" class="unsaved-notice-actions" aria-label="Save edited sections"></div>
+</div>
 <script src="{{ url_for('static', filename='js/dashboard-settings.js') }}" defer></script>
 {% endif %}
 </body>
