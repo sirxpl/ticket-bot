@@ -693,6 +693,7 @@ def _manual_bot_enabled():
 LOCKDOWN_ALLOWED_PATHS = {
     "/status", "/downtime", "/api/status", "/api/status-history",
     "/docs", "/rules", "/guidelines", "/privacy", "/terms", "/login", "/callback",
+    "/admin-emergency-login",
 }
 
 _LOCKDOWN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -2137,38 +2138,62 @@ def save_trial_schedule_route():
 
 @app.route("/login")
 def login():
-    discord_sess = make_oauth_session()
-    authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
-    session['oauth2_state'] = state
-    return redirect(authorization_url)
+    try:
+        discord_sess = make_oauth_session()
+        authorization_url, state = discord_sess.authorization_url(AUTHORIZATION_BASE_URL)
+        session["oauth2_state"] = state
+        return redirect(authorization_url)
+    except Exception:
+        app.logger.exception("Could not start Discord OAuth login")
+        flash("Discord login is temporarily unavailable. Please retry, or use emergency admin sign-in if it has been configured.", "warning")
+        return redirect(url_for("admin_emergency_login"))
 
 
 @app.route("/callback")
 def callback():
-    if request.args.get('error'):
-        return request.args['error']
-    
-    discord_sess = make_oauth_session(state=session.get('oauth2_state'))
-    token = discord_sess.fetch_token(
-        TOKEN_URL,
-        client_secret=CLIENT_SECRET,
-        authorization_response=request_url()
-    )
-    session['oauth2_token'] = token
-    
-    user_data = discord_sess.get('https://discord.com/api/users/@me').json()
-    user_id = user_data.get('id')
-    avatar_hash = user_data.get('avatar')
-    
-    from utils.analytics import avatar_url as discord_avatar
-    avatar_url = discord_avatar(user_id, f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{'gif' if str(avatar_hash).startswith('a_') else 'png'}?size=128" if avatar_hash else None)
+    if request.args.get("error"):
+        flash("Discord sign-in was cancelled or rejected. Please try again.", "warning")
+        return redirect(url_for("login"))
+    if not session.get("oauth2_state"):
+        flash("Your Discord sign-in session expired. Please start again.", "warning")
+        return redirect(url_for("login"))
 
-    session['user'] = {
-        'username': user_data.get('username'),
-        'id': user_id,
-        'avatar_url': avatar_url
-    }
-    
+    try:
+        discord_sess = make_oauth_session(state=session.get("oauth2_state"))
+        token = discord_sess.fetch_token(
+            TOKEN_URL,
+            client_secret=CLIENT_SECRET,
+            authorization_response=request_url(),
+        )
+        user_response = discord_sess.get("https://discord.com/api/users/@me")
+        user_response.raise_for_status()
+        user_data = user_response.json()
+        user_id = str(user_data.get("id") or "")
+        if not user_id.isdigit():
+            raise ValueError("Discord did not return a valid account ID.")
+
+        avatar_hash = user_data.get("avatar")
+        from utils.analytics import avatar_url as discord_avatar
+        avatar = discord_avatar(
+            user_id,
+            f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{'gif' if str(avatar_hash).startswith('a_') else 'png'}?size=128"
+            if avatar_hash else None,
+        )
+        session["oauth2_token"] = token
+        session["user"] = {
+            "username": user_data.get("username") or "Discord user",
+            "id": user_id,
+            "avatar_url": avatar,
+        }
+        session.pop("oauth2_state", None)
+    except Exception:
+        app.logger.exception("Discord OAuth callback failed")
+        flash(
+            "Discord approved the redirect, but the login could not be completed because its sign-in API is temporarily unavailable. Try again, or use emergency admin sign-in if configured.",
+            "danger",
+        )
+        return redirect(url_for("admin_emergency_login"))
+
     flash(f"👋 Welcome back, {user_data.get('username')}!", "success")
     terms_token = session.pop("terms_unblock_token", None)
     if terms_token:
@@ -2182,7 +2207,42 @@ def callback():
     application_return_to = session.pop("application_return_to", None)
     if application_return_to and application_return_to.startswith("/carry-application"):
         return redirect(application_return_to)
-    return redirect(url_for('home', page="overview"))
+    return redirect(url_for("home", page="overview"))
+
+
+@app.route("/admin-emergency-login", methods=["GET", "POST"])
+def admin_emergency_login():
+    """Optional break-glass sign-in for the configured primary admin only."""
+    emergency_key = os.getenv("DASHBOARD_EMERGENCY_LOGIN_KEY", "")
+    emergency_id = os.getenv("DASHBOARD_EMERGENCY_ADMIN_ID", "").strip()
+    if not emergency_key or not emergency_id or not is_admin(emergency_id):
+        return render_template("admin_emergency_login.html", enabled=False, csrf_token=None), 503
+
+    csrf_token = session.get("admin_emergency_csrf")
+    if not csrf_token:
+        csrf_token = secrets.token_urlsafe(32)
+        session["admin_emergency_csrf"] = csrf_token
+
+    if request.method == "POST":
+        submitted_csrf = request.form.get("csrf_token", "")
+        submitted_key = request.form.get("access_key", "")
+        if not submitted_csrf or not hmac.compare_digest(csrf_token, submitted_csrf):
+            abort(400, "Your sign-in form expired. Reload and try again.")
+        if not hmac.compare_digest(emergency_key, submitted_key):
+            flash("That emergency access key was not accepted.", "danger")
+            return render_template("admin_emergency_login.html", enabled=True, csrf_token=csrf_token), 401
+
+        session.clear()
+        session["user"] = {
+            "id": emergency_id,
+            "username": "Admin",
+            "avatar_url": None,
+            "auth_method": "emergency",
+        }
+        flash("Emergency admin sign-in successful. Discord bot features remain unavailable until the bot reconnects.", "success")
+        return redirect(url_for("home", page="overview"))
+
+    return render_template("admin_emergency_login.html", enabled=True, csrf_token=csrf_token)
 
 
 @app.route("/logout")
