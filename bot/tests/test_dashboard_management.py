@@ -210,6 +210,11 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
             "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
             "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
         }))
+        # DashboardFixture signs in an admin for most route tests. Start this
+        # case anonymously so it verifies that a bad emergency key cannot
+        # create an authenticated session, rather than inheriting that login.
+        with self.client.session_transaction() as session:
+            session.clear()
         self.client.get("/admin-emergency-login")
         with self.client.session_transaction() as session:
             csrf = session["admin_emergency_csrf"]
