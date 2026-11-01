@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import importlib
 import json
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -163,6 +164,50 @@ class MongoDashboardSettingsTests(SettingsChecks, DashboardFixture, unittest.Tes
 
 
 class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
+    def test_oauth_callback_failure_returns_to_recovery_instead_of_500(self):
+        self.start_patch(patch.object(self.main, "make_oauth_session", return_value=Mock(
+            fetch_token=Mock(side_effect=RuntimeError("Discord API unavailable"))
+        )))
+        with self.client.session_transaction() as session:
+            session["oauth2_state"] = "test-state"
+        response = self.client.get("/callback?code=temporary-code")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin-emergency-login", response.headers["Location"])
+
+    def test_emergency_admin_login_requires_configured_key_and_sets_only_configured_admin(self):
+        self.start_patch(patch.dict(os.environ, {
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key",
+            "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
+        }))
+        page = self.client.get("/admin-emergency-login")
+        self.assertEqual(page.status_code, 200)
+        with self.client.session_transaction() as session:
+            csrf = session["admin_emergency_csrf"]
+        response = self.client.post("/admin-emergency-login", data={
+            "csrf_token": csrf,
+            "access_key": "test-emergency-key",
+        })
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session["user"]["id"], ADMIN)
+            self.assertEqual(session["user"]["auth_method"], "emergency")
+
+    def test_emergency_admin_login_rejects_wrong_key(self):
+        self.start_patch(patch.dict(os.environ, {
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key",
+            "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
+        }))
+        self.client.get("/admin-emergency-login")
+        with self.client.session_transaction() as session:
+            csrf = session["admin_emergency_csrf"]
+        response = self.client.post("/admin-emergency-login", data={
+            "csrf_token": csrf,
+            "access_key": "wrong-key",
+        })
+        self.assertEqual(response.status_code, 401)
+        with self.client.session_transaction() as session:
+            self.assertNotIn("user", session)
+
     def setUp(self):
         super().setUp()
         self.main = importlib.import_module("main")
