@@ -377,13 +377,25 @@ async def _discord_http_request_end(session, trace_config_ctx, params):
                 "dashboard lockdown countdown updated.",
                 flush=True,
             )
+        rate_limit_details = f"HTTP 429 · Retry-After: {retry_after:.0f}s · CF-Ray: {cf_ray}"
+        # Persist the incident without attempting another Discord request.
+        # The separate owner alert must use a non-Discord provider.
         _queue_status_event(
             "rate_limited",
             "Discord API rate limited",
             "Discord temporarily blocked REST API access. This notice will be delivered when access recovers.",
-            f"HTTP 429 · Retry-After: {retry_after:.0f}s · CF-Ray: {cf_ray}",
+            rate_limit_details,
             "discord_api_rate_limited",
+            force_queue=True,
+            deliver=False,
         )
+        threading.Thread(
+            target=_send_rate_limit_alert,
+            args=(f"⚠️ Carry Ticket Bot: Discord API access is rate-limited. "
+                  f"Retry-After: {retry_after:.0f}s. CF-Ray: {cf_ray}. "
+                  "The bot is paused; avoid reconnect attempts until the cooldown expires.",),
+            daemon=True,
+        ).start()
     print(
         f"🔎 Discord HTTP request finished: {params.method} {params.url} "
         f"-> HTTP {status} in {elapsed:.2f}s",
@@ -413,16 +425,17 @@ bot = DiagnosticBot(
     http_trace=discord_http_trace,
 )
 
-def _queue_status_event(event_type, title, message, details=None, dedupe_key=None):
-    """Queue status messages for the bot channel and/or webhook fallback."""
+def _queue_status_event(event_type, title, message, details=None, dedupe_key=None,
+                       force_queue=False, deliver=True):
+    """Queue status messages; callers can persist critical events without Discord delivery."""
     try:
         destination = get_status_log_config()["destination"]
-        if destination == "disabled":
+        if destination == "disabled" and not force_queue:
             return None
         from utils.status_history import queue_notification, mark_notification_delivered
         event = queue_notification(event_type, title, message, details, dedupe_key)
-        # Webhook delivery remains available when the bot cannot complete login.
-        if event and destination == "webhook":
+        # Critical callers can persist an event without making another Discord request.
+        if deliver and event and destination == "webhook":
             if _send_status_discord_webhook(event):
                 mark_notification_delivered(event.get("id"))
         return event
@@ -4086,6 +4099,38 @@ def _send_alert(text):
             requests.post(url, json={"content": text, "text": text}, timeout=10)
     except Exception as e:
         print(f"Alert failed to send: {e}")
+
+
+def _send_rate_limit_alert(text):
+    """Send rate-limit alerts only through a provider independent of Discord."""
+    url = os.getenv("ALERT_WEBHOOK_URL", "").strip()
+    if not url:
+        print("⚠️ Discord rate-limit alert not sent: ALERT_WEBHOOK_URL is not configured.", flush=True)
+        return False
+    lowered = url.lower()
+    if "discord.com/api/webhooks/" in lowered or "discordapp.com/api/webhooks/" in lowered:
+        print(
+            "⚠️ Discord rate-limit alert not sent: ALERT_WEBHOOK_URL points to Discord. "
+            "Configure an independent provider such as ntfy.sh.",
+            flush=True,
+        )
+        return False
+    try:
+        import requests
+        if "ntfy" in lowered:
+            response = requests.post(
+                url, data=text.encode("utf-8"),
+                headers={"Title": "Carry Ticket Bot · Discord API rate limit"},
+                timeout=10,
+            )
+        else:
+            response = requests.post(url, json={"content": text, "text": text}, timeout=10)
+        response.raise_for_status()
+        print("✅ Independent Discord rate-limit alert delivered.", flush=True)
+        return True
+    except Exception as exc:
+        print(f"❌ Independent Discord rate-limit alert failed: {type(exc).__name__}: {exc}", flush=True)
+        return False
 
 
 def _current_attempt():

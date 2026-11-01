@@ -65,6 +65,17 @@ class PublicPagesLayoutTests(unittest.TestCase):
         self.assertNotIn("/api/wake", status)
         self.assertNotIn('def api_wake(', main)
 
+    def test_rate_limit_alert_uses_independent_delivery_and_queues_without_discord(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn('force_queue=True', main)
+        self.assertIn('deliver=False', main)
+        self.assertIn('target=_send_rate_limit_alert', main)
+        self.assertIn('def _send_rate_limit_alert(text):', main)
+        helper = main.split('def _send_rate_limit_alert(text):', 1)[1].split('def _current_attempt():', 1)[0]
+        self.assertIn('discord.com/api/webhooks/', helper)
+        self.assertIn('response.raise_for_status()', helper)
+        self.assertIn('ALERT_WEBHOOK_URL', helper)
+
     def test_status_contains_offline_schedule(self):
         status = (TEMPLATES / "status.html").read_text(encoding="utf-8")
         self.assertIn('id="downtime"', status)
