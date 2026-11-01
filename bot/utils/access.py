@@ -21,6 +21,8 @@ _DEFAULTS = {
     "blacklist_log_channel_id": None,
     "warning_log_channel_id": None,
     "status_log_channel_id": None,
+    "status_log_destination": None,
+    "status_log_webhook_url": None,
     "manual_bot_enabled": True,
     "blacklist_roles": [],
     "carry_manager_roles": [],
@@ -119,15 +121,57 @@ def save_offline_schedule(schedule: dict):
     return schedule
 
 
-def save_status_log_channel(channel_id: str | None):
-    """Configure the Discord channel used for bot lifecycle/status notices."""
-    value = str(channel_id).strip() if channel_id else ""
-    if value and not value.isdigit():
-        raise ValueError("Choose a valid Discord text channel.")
+def get_status_log_config():
+    """Return normalized status-log destination settings, including legacy config."""
     data = get_access_settings()
-    data["status_log_channel_id"] = value or None
+    destination = str(data.get("status_log_destination") or "").strip().lower()
+    if destination not in {"disabled", "channel", "webhook"}:
+        if data.get("status_log_channel_id"):
+            destination = "channel"
+        elif data.get("status_log_webhook_url") or os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+            destination = "webhook"
+        else:
+            destination = "disabled"
+    webhook_url = str(data.get("status_log_webhook_url") or os.getenv("STATUS_DISCORD_WEBHOOK_URL", "")).strip()
+    return {
+        "destination": destination,
+        "channel_id": str(data.get("status_log_channel_id") or "").strip(),
+        "webhook_url": webhook_url,
+    }
+
+
+def save_status_log_settings(destination: str, channel_id: str | None = None, webhook_url: str | None = None):
+    """Save a validated status-log destination. Webhook URLs are never returned to templates."""
+    destination = str(destination or "").strip().lower()
+    if destination not in {"disabled", "channel", "webhook"}:
+        raise ValueError("Choose Disabled, Channel, or Webhook.")
+    channel_value = str(channel_id or "").strip()
+    webhook_value = str(webhook_url or "").strip()
+    if destination == "channel" and not channel_value.isdigit():
+        raise ValueError("Choose a valid Discord text channel.")
+    if destination == "webhook":
+        if not webhook_value:
+            webhook_value = get_status_log_config()["webhook_url"]
+        from urllib.parse import urlsplit
+        parsed = urlsplit(webhook_value)
+        if (parsed.scheme != "https" or parsed.hostname not in {"discord.com", "canary.discord.com", "ptb.discord.com"}
+                or not parsed.path.startswith("/api/webhooks/") or not parsed.path.split("/")[-1]):
+            raise ValueError("Enter a valid Discord HTTPS webhook URL.")
+    data = get_access_settings()
+    data["status_log_destination"] = destination
+    data["status_log_channel_id"] = channel_value if destination == "channel" else None
+    if destination == "webhook":
+        data["status_log_webhook_url"] = webhook_value
+    elif destination == "disabled":
+        data["status_log_webhook_url"] = None
     _save(data)
-    return data["status_log_channel_id"]
+    return {"destination": destination, "channel_id": data["status_log_channel_id"]}
+
+
+def save_status_log_channel(channel_id: str | None):
+    """Backward-compatible channel-only status log setting."""
+    value = str(channel_id).strip() if channel_id else ""
+    return save_status_log_settings("channel" if value else "disabled", value)
 
 
 def get_manual_bot_enabled() -> bool:
@@ -187,6 +231,8 @@ def get_access_settings():
         doc.setdefault("blacklist_log_channel_id", None)
         doc.setdefault("warning_log_channel_id", None)
         doc.setdefault("status_log_channel_id", None)
+        doc.setdefault("status_log_destination", None)
+        doc.setdefault("status_log_webhook_url", None)
         doc.setdefault("manual_bot_enabled", True)
         doc.setdefault("blacklist_roles", [])
         doc.setdefault("carry_manager_roles", [])
@@ -224,6 +270,8 @@ def get_access_settings():
         data.setdefault("blacklist_log_channel_id", None)
         data.setdefault("warning_log_channel_id", None)
         data.setdefault("status_log_channel_id", None)
+        data.setdefault("status_log_destination", None)
+        data.setdefault("status_log_webhook_url", None)
         data.setdefault("manual_bot_enabled", True)
         data.setdefault("blacklist_roles", [])
         data.setdefault("carry_manager_roles", [])

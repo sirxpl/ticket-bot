@@ -147,6 +147,8 @@ from utils.access import (
     get_offline_schedule,
     save_offline_schedule,
     save_status_log_channel,
+    get_status_log_config,
+    save_status_log_settings,
     get_manual_bot_enabled,
     save_manual_bot_enabled,
 )
@@ -414,13 +416,13 @@ bot = DiagnosticBot(
 def _queue_status_event(event_type, title, message, details=None, dedupe_key=None):
     """Queue status messages for the bot channel and/or webhook fallback."""
     try:
-        webhook_configured = bool(os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip())
-        if not get_access_settings().get("status_log_channel_id") and not webhook_configured:
+        destination = get_status_log_config()["destination"]
+        if destination == "disabled":
             return None
         from utils.status_history import queue_notification, mark_notification_delivered
         event = queue_notification(event_type, title, message, details, dedupe_key)
-        # A Discord webhook remains usable when the bot cannot complete login.
-        if event and webhook_configured and (not bot.is_ready() or bot.is_closed()):
+        # Webhook delivery remains available when the bot cannot complete login.
+        if event and destination == "webhook":
             if _send_status_discord_webhook(event):
                 mark_notification_delivered(event.get("id"))
         return event
@@ -477,7 +479,8 @@ def _build_status_v2_view(event):
 
 def _send_status_discord_webhook(event):
     """Send a compact fallback embed without requiring a logged-in bot session."""
-    webhook_url = os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip()
+    status_config = get_status_log_config()
+    webhook_url = status_config["webhook_url"] if status_config["destination"] == "webhook" else ""
     if not webhook_url:
         return False
     parsed = urlsplit(webhook_url)
@@ -550,8 +553,9 @@ def receive_render_status_webhook():
         return jsonify({"error": "payload too large"}), 413
     if not _valid_render_webhook(raw_body):
         return jsonify({"error": "invalid webhook signature"}), 401
-    if not os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
-        return jsonify({"error": "status Discord webhook is not configured"}), 503
+    destination = get_status_log_config()["destination"]
+    if destination == "disabled":
+        return jsonify({"received": True, "ignored": True, "reason": "status logging is disabled"}), 202
     try:
         payload = json.loads(raw_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -565,7 +569,7 @@ def receive_render_status_webhook():
     if not event_id:
         return jsonify({"error": "missing event ID"}), 400
 
-    from utils.status_history import has_render_event, mark_render_event, queue_notification, mark_notification_delivered
+    from utils.status_history import has_render_event, mark_render_event, queue_notification, mark_notification_delivered, get_pending_notifications
     if has_render_event(event_id):
         return jsonify({"received": True, "duplicate": True}), 200
 
@@ -600,11 +604,19 @@ def receive_render_status_webhook():
         details += f" | Result: {status}"
     event = queue_notification(event_type_key, title, message, details, f"render:{event_id}")
     try:
-        _send_status_discord_webhook(event)
+        if destination == "webhook":
+            _send_status_discord_webhook(event)
+            mark_notification_delivered(event.get("id"))
+        elif destination == "channel":
+            if not bot.is_ready() or bot.is_closed():
+                return jsonify({"error": "Discord bot is offline; channel delivery is pending"}), 502
+            future = asyncio.run_coroutine_threadsafe(_deliver_pending_status_notifications(), bot.loop)
+            future.result(timeout=15)
+            if any(item.get("id") == event.get("id") for item in get_pending_notifications(100)):
+                return jsonify({"error": "Discord channel delivery is pending; Render may retry"}), 502
     except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
-        print(f"Render status webhook forwarding failed: {type(exc).__name__}", flush=True)
+        print(f"Render status delivery failed: {type(exc).__name__}", flush=True)
         return jsonify({"error": "Discord status delivery failed; Render may retry"}), 502
-    mark_notification_delivered(event.get("id"))
     mark_render_event(event_id)
     return jsonify({"received": True, "forwarded": True}), 200
 
@@ -619,7 +631,8 @@ async def _deliver_pending_status_notifications():
     if time.time() < _status_notification_retry_at:
         return
     try:
-        channel_id = get_access_settings().get("status_log_channel_id")
+        status_config = get_status_log_config()
+        channel_id = status_config["channel_id"] if status_config["destination"] == "channel" else None
         channel = bot.get_channel(int(channel_id)) if channel_id else None
     except (TypeError, ValueError):
         channel = None
@@ -2026,6 +2039,8 @@ def home(page="overview"):
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         status_log_channel_id=access_settings.get("status_log_channel_id"),
+        status_log_destination=get_status_log_config()["destination"],
+        status_log_webhook_configured=bool(get_status_log_config()["webhook_url"]),
         manual_bot_enabled=_manual_bot_enabled(),
         bot_connected=bool(bot.is_ready()) and not bot.is_closed(),
         offline_schedule=get_offline_schedule() if page == "access-control" else {},
@@ -3704,13 +3719,15 @@ def access_set_warning_log_channel():
 def access_save_status_log_channel():
     if not _valid_carry_application_csrf():
         abort(400, "Your form expired. Reload Access Control and try again.")
+    destination = request.form.get("status_log_destination", "disabled").strip().lower()
     channel_id = request.form.get("status_log_channel_id", "").strip()
+    webhook_url = request.form.get("status_log_webhook_url", "").strip()
     try:
-        save_status_log_channel(channel_id or None)
+        save_status_log_settings(destination, channel_id, webhook_url)
     except ValueError as error:
         flash(str(error), "danger")
     else:
-        flash("Bot status log channel updated.", "success")
+        flash("Bot status log destination updated.", "success")
     return redirect(url_for("home", page="access-control", _anchor="access-status-logging"))
 
 @app.post("/dashboard/access/set-bot-state")
@@ -4024,7 +4041,7 @@ def run_status_checker():
                     future.result(timeout=15)
                 except Exception as delivery_error:
                     print(f"Status log delivery scheduler error: {delivery_error}", flush=True)
-            elif not online and os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+            elif not online and get_status_log_config()["destination"] == "webhook":
                 # Retry queued alerts through the webhook while Discord bot login is unavailable.
                 from utils.status_history import get_pending_notifications, mark_notification_delivered
                 for pending_status_event in get_pending_notifications(10):
@@ -4305,10 +4322,10 @@ def run_idle_sleeper():
 
 
 if __name__ == "__main__":
-    if get_access_settings().get("status_log_channel_id") or os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+    if get_status_log_config()["destination"] != "disabled":
         from utils.status_history import record_process_start
         record_process_start(os.getenv("RENDER_GIT_COMMIT"))
-        if os.getenv("STATUS_DISCORD_WEBHOOK_URL", "").strip():
+        if get_status_log_config()["destination"] == "webhook":
             from utils.status_history import get_pending_notifications, mark_notification_delivered
             for pending_status_event in get_pending_notifications(20):
                 try:

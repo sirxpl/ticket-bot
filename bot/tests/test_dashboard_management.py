@@ -164,6 +164,33 @@ class MongoDashboardSettingsTests(SettingsChecks, DashboardFixture, unittest.Tes
 
 
 class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
+    def test_status_log_destination_can_be_disabled_or_set_to_channel(self):
+        access.save_status_log_settings("disabled")
+        self.assertEqual(access.get_status_log_config()["destination"], "disabled")
+        access.save_status_log_settings("channel", "123456789012345678")
+        config = access.get_status_log_config()
+        self.assertEqual(config["destination"], "channel")
+        self.assertEqual(config["channel_id"], "123456789012345678")
+
+    def test_status_log_webhook_is_validated_and_not_exposed_to_templates(self):
+        webhook = "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz0123456789"
+        access.save_status_log_settings("webhook", webhook_url=webhook)
+        self.assertEqual(access.get_status_log_config()["webhook_url"], webhook)
+        with self.assertRaises(ValueError):
+            access.save_status_log_settings("webhook", webhook_url="https://example.com/not-a-webhook")
+        response = self.client.get("/dashboard/access-control")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(webhook.encode(), response.data)
+
+    def test_status_log_destination_route_requires_valid_destination(self):
+        response = self.client.post("/dashboard/access/save-status-log-channel", data={
+            "csrf_token": "test-csrf",
+            "status_log_destination": "channel",
+            "status_log_channel_id": "not-a-channel",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(access.get_status_log_config()["destination"], "channel")
+
     def test_oauth_callback_failure_reaches_emergency_login_during_lockdown(self):
         self.start_patch(patch.dict(os.environ, {
             "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
