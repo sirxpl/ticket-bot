@@ -269,13 +269,35 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
             saved["user"] = {"id": user, "username": "Example"}
             saved["carry_application_csrf"] = "test-csrf"
 
-    def test_admin_dashboard_remains_accessible_during_discord_lockdown(self):
+    def test_admin_dashboard_remains_accessible_during_discord_api_cooldown(self):
         future = __import__("time").time() + 300
-        self.start_patch(patch.object(self.main, "web_lockdown_until", future))
+        self.start_patch(patch.object(self.main, "web_lockdown_until", 0))
         self.start_patch(patch.object(self.main, "api_block_until", future))
+        self.assertEqual(self.main.web_lockdown_seconds_left(), 0)
         response = self.client.get("/dashboard/access-control")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Bot Controls", response.data)
+
+    def test_discord_oauth_login_can_start_while_bot_api_is_in_cooldown(self):
+        future = __import__("time").time() + 300
+        self.start_patch(patch.object(self.main, "api_block_until", future))
+        oauth = Mock()
+        oauth.authorization_url.return_value = ("https://discord.com/oauth2/authorize?state=test", "test-state")
+        self.start_patch(patch.object(self.main, "make_oauth_session", return_value=oauth))
+        response = self.client.get("/login")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "https://discord.com/oauth2/authorize?state=test")
+        with self.client.session_transaction() as saved:
+            self.assertEqual(saved["oauth2_state"], "test-state")
+
+    def test_admin_can_add_multiple_roles_in_one_access_control_submit(self):
+        response = self.client.post("/dashboard/access/add-role", data={"role_id": ["501", "502", "501"]})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(access.get_access_settings()["allowed_roles"], ["101", "102", "103", "501", "502"])
+
+        response = self.client.post("/dashboard/access/add-carry-manager-role", data={"role_id": ["601", "602"]})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(access.get_access_settings()["carry_manager_roles"], ["777", "601", "602"])
 
     def test_access_control_has_grouped_lists_and_associated_bulk_checkboxes(self):
         response = self.client.get("/dashboard/access-control")
@@ -284,6 +306,8 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
         self.assertIn(b'form="bulk-allowed_roles"', response.data)
         self.assertIn(b'data-bulk-form', response.data)
         self.assertIn(b'You have unsaved changes.', response.data)
+        self.assertIn(b'id="dashboard-unsaved-actions"', response.data)
+        self.assertIn(b'multiple size="4"', response.data)
 
     def test_admin_can_bulk_remove_and_new_route_requires_csrf(self):
         data = {"csrf_token": "test-csrf", "list_kind": "allowed_roles", "selected_ids": ["101", "103"]}
