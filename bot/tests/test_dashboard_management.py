@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import importlib
 import json
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -163,6 +164,68 @@ class MongoDashboardSettingsTests(SettingsChecks, DashboardFixture, unittest.Tes
 
 
 class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
+    def test_oauth_callback_failure_reaches_emergency_login_during_lockdown(self):
+        self.start_patch(patch.dict(os.environ, {
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
+            "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
+        }))
+        future = __import__("time").time() + 300
+        self.start_patch(patch.object(self.main, "web_lockdown_until", future))
+        self.start_patch(patch.object(self.main, "api_block_until", future))
+        self.start_patch(patch.object(self.main, "make_oauth_session", return_value=Mock(
+            fetch_token=Mock(side_effect=RuntimeError("Discord API unavailable"))
+        )))
+        with self.client.session_transaction() as session:
+            session["oauth2_state"] = "test-state"
+        response = self.client.get("/callback?code=temporary-code")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin-emergency-login", response.headers["Location"])
+        recovery = self.client.get(response.headers["Location"])
+        self.assertEqual(recovery.status_code, 200)
+
+    def test_emergency_admin_login_sets_only_configured_admin(self):
+        self.start_patch(patch.dict(os.environ, {
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
+            "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
+        }))
+        page = self.client.get("/admin-emergency-login")
+        self.assertEqual(page.status_code, 200)
+        with self.client.session_transaction() as session:
+            csrf = session["admin_emergency_csrf"]
+        response = self.client.post("/admin-emergency-login", data={
+            "csrf_token": csrf,
+            "access_key": "test-emergency-key-which-is-longer-than-thirty-two-characters",
+        })
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session["user"]["id"], ADMIN)
+            self.assertEqual(session["user"]["auth_method"], "emergency")
+
+    def test_admin_global_block_check_does_not_require_storage(self):
+        with patch.object(access, "get_globally_blocked_users", side_effect=RuntimeError("storage offline")):
+            self.assertFalse(access.is_globally_blocked(ADMIN))
+
+    def test_emergency_admin_login_rejects_wrong_key(self):
+        self.start_patch(patch.dict(os.environ, {
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
+            "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
+        }))
+        # DashboardFixture signs in an admin for most route tests. Start this
+        # case anonymously so it verifies that a bad emergency key cannot
+        # create an authenticated session, rather than inheriting that login.
+        with self.client.session_transaction() as session:
+            session.clear()
+        self.client.get("/admin-emergency-login")
+        with self.client.session_transaction() as session:
+            csrf = session["admin_emergency_csrf"]
+        response = self.client.post("/admin-emergency-login", data={
+            "csrf_token": csrf,
+            "access_key": "wrong-key",
+        })
+        self.assertEqual(response.status_code, 401)
+        with self.client.session_transaction() as session:
+            self.assertNotIn("user", session)
+
     def setUp(self):
         super().setUp()
         self.main = importlib.import_module("main")
