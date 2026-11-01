@@ -2213,12 +2213,15 @@ def callback():
     return redirect(url_for("home", page="overview"))
 
 
+_emergency_login_attempts = {}
+
+
 @app.route("/admin-emergency-login", methods=["GET", "POST"])
 def admin_emergency_login():
     """Optional break-glass sign-in for the configured primary admin only."""
     emergency_key = os.getenv("DASHBOARD_EMERGENCY_LOGIN_KEY", "")
     emergency_id = os.getenv("DASHBOARD_EMERGENCY_ADMIN_ID", "").strip()
-    if not emergency_key or not emergency_id or not is_admin(emergency_id):
+    if len(emergency_key) < 32 or not emergency_id or not is_admin(emergency_id):
         return render_template("admin_emergency_login.html", enabled=False, csrf_token=None), 503
 
     csrf_token = session.get("admin_emergency_csrf")
@@ -2231,10 +2234,19 @@ def admin_emergency_login():
         submitted_key = request.form.get("access_key", "")
         if not submitted_csrf or not hmac.compare_digest(csrf_token, submitted_csrf):
             abort(400, "Your sign-in form expired. Reload and try again.")
+        client_key = request.remote_addr or "unknown"
+        now = time.time()
+        window_start, attempts = _emergency_login_attempts.get(client_key, (now, 0))
+        if now - window_start >= 900:
+            window_start, attempts = now, 0
+        if attempts >= 5:
+            return "Too many emergency sign-in attempts. Wait 15 minutes and try again.", 429
         if not hmac.compare_digest(emergency_key, submitted_key):
+            _emergency_login_attempts[client_key] = (window_start, attempts + 1)
             flash("That emergency access key was not accepted.", "danger")
             return render_template("admin_emergency_login.html", enabled=True, csrf_token=csrf_token), 401
 
+        _emergency_login_attempts.pop(client_key, None)
         session.clear()
         session["user"] = {
             "id": emergency_id,
