@@ -233,6 +233,12 @@ class TrialSchedule(commands.Cog):
         self._rate_limit_until = 0.0
         self._rate_limit_failures = 0
 
+        # A 403 is a configuration/permission failure, not a rate limit.
+        # Remember the affected channel for this process so the background
+        # updater does not repeatedly request a channel it cannot access.
+        # The public slash command remains independent of this publisher.
+        self._forbidden_channel_id = None
+
         self.auto_updater.start()
 
     def cog_unload(self):
@@ -272,6 +278,11 @@ class TrialSchedule(commands.Cog):
             if not target_id:
                 return None
 
+            if self._forbidden_channel_id == target_id and not force:
+                return None
+            if self._forbidden_channel_id != target_id:
+                self._forbidden_channel_id = None
+
             try:
                 channel = (
                     self.bot.get_channel(
@@ -304,12 +315,15 @@ class TrialSchedule(commands.Cog):
                     )
                 else:
                     if isinstance(exc, discord.Forbidden):
-                        self._rate_limit_until = (
-                            asyncio.get_running_loop().time() + 300.0
-                        )
-                        logger.warning(
-                            "Trial schedule channel access was forbidden; "
-                            "pausing lookups for 300s: %s",
+                        self._forbidden_channel_id = target_id
+                        logger.error(
+                            "Trial schedule publishing is paused for channel "
+                            "%s because Discord denied access (403 / Missing "
+                            "Access). The /trial_schedule command remains "
+                            "available. Correct the bot's channel permissions "
+                            "or change the configured channel; restarting the "
+                            "bot also retries the configured channel: %s",
+                            target_id,
                             exc,
                         )
                     else:
@@ -319,6 +333,9 @@ class TrialSchedule(commands.Cog):
                             exc,
                         )
                 return None
+
+            # A successful channel lookup means access has been restored.
+            self._forbidden_channel_id = None
 
             embed, slot_no = build_trial_schedule_embed()
             message_kwargs = trial_schedule_message(
@@ -412,22 +429,34 @@ class TrialSchedule(commands.Cog):
 
     @tasks.loop(seconds=60)
     async def auto_updater(self):
-        cfg = get_trial_schedule_settings()
+        # Keep unexpected background-task errors from terminating this loop.
+        # The slash command builds its response separately and does not depend
+        # on the public announcement channel being reachable.
+        try:
+            cfg = get_trial_schedule_settings()
 
-        if not cfg.get("enabled"):
-            return
+            if not cfg.get("enabled"):
+                return
 
-        if not cfg.get("channel_id"):
-            return
+            if not cfg.get("channel_id"):
+                return
 
-        current_slot = _slot_number(
-            dt.datetime.now(EASTERN)
-        )
+            if str(cfg.get("channel_id")) == self._forbidden_channel_id:
+                return
 
-        # The public schedule only needs to be edited
-        # when the 3-hour trial changes.
-        if self._last_slot != current_slot:
-            await self.publish_or_update()
+            current_slot = _slot_number(
+                dt.datetime.now(EASTERN)
+            )
+
+            # The public schedule only needs to be edited
+            # when the 3-hour trial changes.
+            if self._last_slot != current_slot:
+                await self.publish_or_update()
+        except Exception:
+            logger.exception(
+                "Unexpected Trial Schedule background update error; "
+                "the updater will retry on its next interval."
+            )
 
     @auto_updater.before_loop
     async def before_auto_updater(self):
