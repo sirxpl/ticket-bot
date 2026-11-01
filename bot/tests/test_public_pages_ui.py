@@ -57,6 +57,14 @@ class PublicPagesLayoutTests(unittest.TestCase):
         self.assertIn('id="browser-tz"', markup)
         self.assertIn('id="bot-state-text"', markup)
 
+    def test_status_page_does_not_offer_public_wake_control(self):
+        status = (TEMPLATES / "status.html").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("Wake bot", status)
+        self.assertNotIn("wakeBot", status)
+        self.assertNotIn("/api/wake", status)
+        self.assertNotIn('def api_wake(', main)
+
     def test_status_contains_offline_schedule(self):
         status = (TEMPLATES / "status.html").read_text(encoding="utf-8")
         self.assertIn('id="downtime"', status)
