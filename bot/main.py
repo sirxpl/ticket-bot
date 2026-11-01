@@ -336,7 +336,7 @@ async def _discord_http_request_start(session, trace_config_ctx, params):
 
 
 async def _discord_http_request_end(session, trace_config_ctx, params):
-    global api_block_until, api_block_reason, web_lockdown_until
+    global api_block_until, api_block_reason
     elapsed = time.monotonic() - getattr(trace_config_ctx, "start_time", time.monotonic())
     response = params.response
     status = getattr(response, "status", 0)
@@ -355,7 +355,6 @@ async def _discord_http_request_end(session, trace_config_ctx, params):
             # the process while Discord/Cloudflare is still asking us to wait.
             api_block_until = max(api_block_until, time.time() + retry_after)
             api_block_reason = "Discord REST API returned HTTP 429"
-            web_lockdown_until = max(web_lockdown_until, api_block_until)
         print(
             "🛡️ Discord API Guard observed HTTP 429: "
             f"Retry-After={retry_after:g}s, scope={scope}, "
@@ -638,7 +637,7 @@ _status_notification_retry_at = 0.0
 
 
 async def _deliver_pending_status_notifications():
-    global api_block_until, api_block_reason, web_lockdown_until, _status_notification_retry_at
+    global api_block_until, api_block_reason, _status_notification_retry_at
     if not bot.is_ready() or bot.is_closed() or api_block_seconds_left() > 0:
         return
     if time.time() < _status_notification_retry_at:
@@ -665,7 +664,6 @@ async def _deliver_pending_status_notifications():
             if retry_after > 0:
                 api_block_until = max(api_block_until, time.time() + retry_after)
                 api_block_reason = "Status log delivery received HTTP 429"
-                web_lockdown_until = max(web_lockdown_until, api_block_until)
             _status_notification_retry_at = time.time() + max(300, retry_after)
             print(f"Status log delivery paused: HTTP {getattr(exc, 'status', 'error')}: {exc}", flush=True)
             return
@@ -681,13 +679,9 @@ async def _deliver_pending_status_notifications():
 bot_ready_since = None
 
 # --- Discord API block cooldown -------------------------------------------
-# If the bot's Discord login is rejected (typically a temporary 429 / Cloudflare
-# block on the host's IP), the old behaviour was: bot.run() raised, the whole
-# process exited, the host restarted it instantly, and every restart hit
-# Discord's API again - which is what kept the block alive. Now the process
-# stays up during a cooldown, the dashboard (which also calls Discord's API
-# for login/guild lookups) is switched off, and only the status pages stay
-# reachable so uptime keeps being recorded and shown.
+# If bot login is rejected, keep Flask running while the Discord client waits
+# out its cooldown. Dashboard pages that need live guild data may have empty
+# selectors, but saved settings and admin access remain available.
 web_lockdown_until = 0.0
 last_start_error = None
 # Discord can temporarily block the host from REST API access while the
@@ -757,7 +751,8 @@ def format_duration(seconds):
 
 
 def web_lockdown_seconds_left():
-    return max(0, int(max(web_lockdown_until, api_block_until) - time.time()))
+    """Return only an intentional website lockdown; Discord API cooldowns are separate."""
+    return max(0, int(web_lockdown_until - time.time()))
 
 
 @app.before_request
@@ -1006,6 +1001,17 @@ def admin_required(f):
 
 
 # --- FLASK ROUTES ---
+
+def _selected_role_ids_from_form():
+    """Read one or more role IDs from a legacy or multi-select form field."""
+    values = request.form.getlist("role_id")
+    if not values:
+        values = [request.form.get("role_id", "")]
+    return list(dict.fromkeys(
+        str(value).strip() for value in values if str(value).strip()
+    ))
+
+
 
 def _carry_application_csrf_token():
     token = session.get("carry_application_csrf")
@@ -3055,12 +3061,13 @@ def access_remove_user(user_id):
 @app.route("/dashboard/access/add-role", methods=["POST"])
 @admin_required
 def access_add_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_allowed_role(role_id)
-        flash("✅ Role added to the dashboard allow-list.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_allowed_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to dashboard allow-list.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3127,12 +3134,13 @@ def access_remove_blacklist_role(role_id):
 @app.route("/dashboard/access/add-viewer-role", methods=["POST"])
 @admin_required
 def access_add_viewer_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_ticket_viewer_role(role_id)
-        flash("✅ Role added as a Ticket Viewer Role.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_ticket_viewer_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Ticket Viewer access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3147,12 +3155,13 @@ def access_remove_viewer_role(role_id):
 @app.route("/dashboard/access/add-powerful-command-role", methods=["POST"])
 @admin_required
 def access_add_powerful_command_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_powerful_command_role(role_id)
-        flash("✅ Role added to Powerful Command Access.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_powerful_command_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Powerful Command access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3187,12 +3196,13 @@ def access_remove_powerful_command_user(user_id):
 @app.route("/dashboard/access/add-moderation-command-role", methods=["POST"])
 @admin_required
 def access_add_moderation_command_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_moderation_command_role(role_id)
-        flash("✅ Role added to Moderation Command Access.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_moderation_command_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Moderation Command access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3227,12 +3237,13 @@ def access_remove_moderation_command_user(user_id):
 @app.route("/dashboard/access/add-basic-command-role", methods=["POST"])
 @admin_required
 def access_add_basic_command_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_basic_command_role(role_id)
-        flash("✅ Role added to Basic Command Access.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_basic_command_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Basic Command access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3425,12 +3436,13 @@ def save_welcome_message_route():
 @app.route("/dashboard/access/add-carry-manager-role", methods=["POST"])
 @admin_required
 def access_add_carry_manager_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_carry_manager_role(role_id)
-        flash("✅ Role added to Carry Manager Settings access.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_carry_manager_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Carry Manager Settings access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3445,12 +3457,13 @@ def access_remove_carry_manager_role(role_id):
 @app.route("/dashboard/access/add-transcripts-role", methods=["POST"])
 @admin_required
 def access_add_transcripts_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_transcripts_role(role_id)
-        flash("✅ Role added to Transcripts access.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_transcripts_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Transcripts access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3465,12 +3478,13 @@ def access_remove_transcripts_role(role_id):
 @app.route("/dashboard/access/add-analytics-role", methods=["POST"])
 @admin_required
 def access_add_analytics_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_analytics_role(role_id)
-        flash("✅ Role added to Analytics access.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_analytics_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Analytics access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3517,12 +3531,15 @@ def _native_pin_saved_notice():
 def access_add_pin_message_role_route():
     if not _valid_carry_application_csrf():
         abort(400, "Your form expired. Reload Access Control and retry.")
+    role_ids = _selected_role_ids_from_form()
     try:
-        pin_permissions.change_roles(add=[request.form.get("role_id", "").strip()])
+        if not role_ids or not all(role_id.isdigit() for role_id in role_ids):
+            raise ValueError("Choose at least one valid server role.")
+        pin_permissions.change_roles(add=role_ids)
     except (ValueError, RuntimeError) as error:
         flash(str(error), "danger")
     except Exception:
-        app.logger.exception("Could not save native pin role")
+        app.logger.exception("Could not save native pin roles")
         flash("Could not save pin access. Please retry.", "danger")
     else:
         _native_pin_saved_notice()
@@ -3558,12 +3575,13 @@ def access_sync_pin_permissions_route():
 @app.route("/dashboard/access/add-carry-application-verdict-role", methods=["POST"])
 @admin_required
 def access_add_carry_application_verdict_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_carry_application_verdict_role(role_id)
-        flash("✅ Role can now decide Carry Team applications.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_carry_application_verdict_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Carry Team application verdict access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -3656,12 +3674,13 @@ def save_carry_application_delivery_route():
 @app.route("/dashboard/access/add-remove-cooldown-role", methods=["POST"])
 @admin_required
 def access_add_remove_cooldown_role():
-    role_id = request.form.get("role_id", "").strip()
-    if role_id.isdigit():
-        add_remove_cooldown_role(role_id)
-        flash("✅ Role added to Remove Cooldown access.", "success")
+    role_ids = _selected_role_ids_from_form()
+    if role_ids and all(role_id.isdigit() for role_id in role_ids):
+        for role_id in role_ids:
+            add_remove_cooldown_role(role_id)
+        flash(f"✅ Added {len(role_ids)} role(s) to Remove Cooldown access.", "success")
     else:
-        flash("❌ Please select a valid role.", "danger")
+        flash("❌ Please select at least one valid role.", "danger")
     return redirect(url_for("home", page="access-control"))
 
 
@@ -4142,15 +4161,14 @@ def _current_attempt():
 
 
 def _cooldown_and_restart(reason, exc=None, can_recover=False):
-    """Switch the dashboard off (status pages stay up), alert the owner, wait
-    with growing backoff, then restart the process to retry the Discord login.
+    """Keep the website online while the Discord client waits with backoff.
 
     Shared by the startup-failure path and the watchdog; only one caller can
     run it at a time (returns False if another is already handling it).
     With can_recover=True, if the bot reconnects by itself during the wait the
     cooldown is cancelled instead of restarting. Returns True in that case."""
     import sys
-    global web_lockdown_until, last_start_error, _cooldown_active, bot_sleeping
+    global last_start_error, _cooldown_active, bot_sleeping
     with _cooldown_lock:
         if _cooldown_active:
             return False
@@ -4167,10 +4185,9 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
     server_wait = max(retry_after, known_api_wait)
     delay = max(min(base * (2 ** attempt), cap), server_wait + (5 if server_wait > 0 else 0))
     last_start_error = reason
-    web_lockdown_until = time.time() + delay
     print(f"❌ {reason}")
-    print(f"⏸️ Dashboard disabled, status stays up. Retrying Discord login in {delay}s (attempt {attempt + 1}).")
-    _send_alert(f"⚠️ Carry Ticket Bot is down: {reason}. Dashboard is off; retrying in about {max(1, round(delay / 60))} min.")
+    print(f"⏸️ Website stays online. Discord bot retrying in {delay}s (attempt {attempt + 1}).")
+    _send_alert(f"⚠️ Carry Ticket Bot is down: {reason}. The dashboard remains available; retrying Discord in about {max(1, round(delay / 60))} min.")
     deadline = time.time() + delay
     while time.time() < deadline:
         if not _manual_bot_enabled():
@@ -4180,10 +4197,9 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
             return False
         time.sleep(min(15, max(0, deadline - time.time())))
         if can_recover and bot.is_ready() and not bot.is_closed():
-            web_lockdown_until = 0.0
             with _cooldown_lock:
                 _cooldown_active = False
-            print("✅ Bot reconnected on its own; cooldown cancelled, dashboard back on.")
+            print("✅ Bot reconnected on its own; Discord cooldown cancelled.")
             _send_alert("✅ Carry Ticket Bot reconnected on its own.")
             return True
     if not _manual_bot_enabled():
