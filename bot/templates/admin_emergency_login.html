@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emergency Admin Sign-in · Carry Ticket Bot</title>
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#090b12;color:#eef0f8;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+    main{width:min(100%,440px);padding:30px;border:1px solid #292e40;border-radius:18px;background:#111522;box-shadow:0 18px 60px #0006}
+    h1{margin:0 0 10px;font-size:1.45rem}
+    p{color:#aeb5c8;line-height:1.55}
+    label{display:block;margin:22px 0 8px;font-weight:650}
+    input{width:100%;padding:13px 14px;border:1px solid #394158;border-radius:10px;background:#090d18;color:#fff;font:inherit}
+    button{width:100%;margin-top:16px;padding:13px;border:0;border-radius:10px;background:#6878ed;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+    .notice{padding:12px;border-radius:10px;background:#292337;color:#e9d9ff}
+    a{color:#aebaff}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Emergency admin sign-in</h1>
+    {% if enabled %}
+      <p>Use this only when Discord sign-in is unavailable. It grants access to the configured primary admin account.</p>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}<p class="notice">{{ message }}</p>{% endfor %}
+      {% endwith %}
+      <form method="post" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="access_key">Emergency access key</label>
+        <input id="access_key" name="access_key" type="password" required autocomplete="current-password">
+        <button type="submit">Sign in as admin</button>
+      </form>
+    {% else %}
+      <p class="notice">Emergency sign-in is not configured. Set DASHBOARD_EMERGENCY_LOGIN_KEY and DASHBOARD_EMERGENCY_ADMIN_ID in the hosting environment.</p>
+    {% endif %}
+    <p><a href="/login">Return to Discord sign-in</a></p>
+  </main>
+</body>
+</html>
