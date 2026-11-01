@@ -26,14 +26,22 @@
         </article>
     </div>
 
-    {% if is_admin_user %}
+    {% if can_manage_points %}
     <section class="points-panel points-settings-link">
         <div class="points-panel-head">
             <div>
                 <h2>🛠️ Points setup</h2>
+                {% if is_admin_user %}
                 <p>Configure gamemode rewards, command roles, Format Checker, Thread Automation, and Discord logging.</p>
+                {% else %}
+                <p>Gamemode rewards, Format Checker, Thread Automation, command roles, and Discord logging are managed by a server admin.</p>
+                {% endif %}
             </div>
+            {% if is_admin_user %}
             <a class="btn-view" href="{{ url_for('home', page='access-control') }}#access-points">Open configuration</a>
+            {% else %}
+            <span class="points-manager-tag">Server admin managed</span>
+            {% endif %}
         </div>
     </section>
     {% endif %}
