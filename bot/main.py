@@ -2022,7 +2022,7 @@ def home(page="overview"):
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         status_log_channel_id=access_settings.get("status_log_channel_id"),
-        manual_bot_enabled=access_settings.get("manual_bot_enabled", True) is not False,
+        manual_bot_enabled=_manual_bot_enabled(),
         bot_connected=bool(bot.is_ready()) and not bot.is_closed(),
         offline_schedule=get_offline_schedule() if page == "access-control" else {},
         globally_blocked_users=get_globally_blocked_users() if page == "access-control" else [],
