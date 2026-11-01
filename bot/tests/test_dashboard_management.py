@@ -164,7 +164,14 @@ class MongoDashboardSettingsTests(SettingsChecks, DashboardFixture, unittest.Tes
 
 
 class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
-    def test_oauth_callback_failure_returns_to_recovery_instead_of_500(self):
+    def test_oauth_callback_failure_reaches_emergency_login_during_lockdown(self):
+        self.start_patch(patch.dict(os.environ, {
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
+            "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
+        }))
+        future = __import__("time").time() + 300
+        self.start_patch(patch.object(self.main, "web_lockdown_until", future))
+        self.start_patch(patch.object(self.main, "api_block_until", future))
         self.start_patch(patch.object(self.main, "make_oauth_session", return_value=Mock(
             fetch_token=Mock(side_effect=RuntimeError("Discord API unavailable"))
         )))
@@ -173,6 +180,8 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
         response = self.client.get("/callback?code=temporary-code")
         self.assertEqual(response.status_code, 302)
         self.assertIn("/admin-emergency-login", response.headers["Location"])
+        recovery = self.client.get(response.headers["Location"])
+        self.assertEqual(recovery.status_code, 200)
 
     def test_emergency_admin_login_requires_configured_key_and_sets_only_configured_admin(self):
         self.start_patch(patch.dict(os.environ, {
