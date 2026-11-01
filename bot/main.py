@@ -2164,8 +2164,11 @@ def callback():
             TOKEN_URL,
             client_secret=CLIENT_SECRET,
             authorization_response=request_url(),
+            timeout=10,
         )
-        user_response = discord_sess.get("https://discord.com/api/users/@me")
+        user_response = discord_sess.get(
+            "https://discord.com/api/users/@me", timeout=10
+        )
         user_response.raise_for_status()
         user_data = user_response.json()
         user_id = str(user_data.get("id") or "")
