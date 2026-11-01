@@ -659,25 +659,58 @@
     <summary>
         <div class="card-head-text">
             <h3><span class="card-icon">📡</span> Discord Status Notifications</h3>
-            <p class="card-subtitle">Send Components V2 updates when the bot disconnects, hits API rate limits, redeploys, or comes back online.</p>
+            <p class="card-subtitle">Choose where disconnect, rate-limit, deployment, restart, and recovery notifications are delivered.</p>
         </div>
         <span class="card-chevron">▾</span>
     </summary>
     <div class="card-body">
-        <form action="/dashboard/access/save-status-log-channel" method="POST" class="access-form">
+        <form action="/dashboard/access/save-status-log-channel" method="POST" class="access-form" id="statusLogDestinationForm">
             <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
             <div>
-                <label for="statusLogChannel">Status log channel:</label>
-                <select id="statusLogChannel" name="status_log_channel_id">
-                    <option value="">Disabled</option>
+                <label for="statusLogDestination">Delivery method:</label>
+                <select id="statusLogDestination" name="status_log_destination">
+                    <option value="disabled" {% if status_log_destination == 'disabled' %}selected{% endif %}>Disabled</option>
+                    <option value="channel" {% if status_log_destination == 'channel' %}selected{% endif %}>Channel</option>
+                    <option value="webhook" {% if status_log_destination == 'webhook' %}selected{% endif %}>Webhook</option>
+                </select>
+            </div>
+            <div id="statusLogChannelField" {% if status_log_destination != 'channel' %}hidden{% endif %}>
+                <label for="statusLogChannel">Discord channel:</label>
+                <select id="statusLogChannel" name="status_log_channel_id" {% if status_log_destination == 'channel' %}required{% endif %}>
+                    <option value="">Select a channel...</option>
                     {% for channel in channels %}
                     <option value="{{ channel.id }}" {% if status_log_channel_id and status_log_channel_id|string == channel.id|string %}selected{% endif %}>#{{ channel.name }}</option>
                     {% endfor %}
                 </select>
+                {% if not channels %}<p class="card-subtitle">The bot must be connected to load its server channels.</p>{% endif %}
+            </div>
+            <div id="statusLogWebhookField" {% if status_log_destination != 'webhook' %}hidden{% endif %}>
+                <label for="statusLogWebhook">Discord webhook URL:</label>
+                <input id="statusLogWebhook" type="password" name="status_log_webhook_url" placeholder="{% if status_log_webhook_configured %}Saved webhook — leave blank to keep it{% else %}https://discord.com/api/webhooks/...{% endif %}" autocomplete="new-password" spellcheck="false" {% if status_log_destination == 'webhook' and not status_log_webhook_configured %}required{% endif %}>
+                <p class="card-subtitle">The webhook URL is stored privately and never shown back in this form. Leave it blank to keep the currently saved webhook.</p>
             </div>
             <button type="submit" class="btn-view">Save Status Logging</button>
         </form>
-        <p class="card-subtitle">When the bot cannot log in, status alerts can use the private Discord webhook configured in Render. For Render deployment-started, deployment-succeeded/failed, build-failed, and service-availability events, configure the Render workspace webhook endpoint and signing secret as described in the project README.</p>
+        <script>
+        (() => {
+            const destination = document.getElementById('statusLogDestination');
+            const channelField = document.getElementById('statusLogChannelField');
+            const channel = document.getElementById('statusLogChannel');
+            const webhookField = document.getElementById('statusLogWebhookField');
+            const webhook = document.getElementById('statusLogWebhook');
+            if (!destination || !channelField || !webhookField) return;
+            function updateStatusLogFields() {
+                const mode = destination.value;
+                channelField.hidden = mode !== 'channel';
+                webhookField.hidden = mode !== 'webhook';
+                if (channel) channel.required = mode === 'channel';
+                if (webhook) webhook.required = mode === 'webhook' && !{{ 'true' if status_log_webhook_configured else 'false' }};
+            }
+            destination.addEventListener('change', updateStatusLogFields);
+            updateStatusLogFields();
+        })();
+        </script>
+        <p class="card-subtitle">Webhook delivery works even while the Discord bot is unable to log in. Render lifecycle events still require the Render workspace webhook to be configured separately.</p>
     </div>
 </details>
 </section>
