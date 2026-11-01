@@ -176,7 +176,7 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
 
     def test_emergency_admin_login_requires_configured_key_and_sets_only_configured_admin(self):
         self.start_patch(patch.dict(os.environ, {
-            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key",
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
             "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
         }))
         page = self.client.get("/admin-emergency-login")
@@ -185,16 +185,20 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
             csrf = session["admin_emergency_csrf"]
         response = self.client.post("/admin-emergency-login", data={
             "csrf_token": csrf,
-            "access_key": "test-emergency-key",
+            "access_key": "test-emergency-key-which-is-longer-than-thirty-two-characters",
         })
         self.assertEqual(response.status_code, 302)
         with self.client.session_transaction() as session:
             self.assertEqual(session["user"]["id"], ADMIN)
             self.assertEqual(session["user"]["auth_method"], "emergency")
 
+    def test_admin_global_block_check_does_not_require_storage(self):
+        with patch.object(access, "get_globally_blocked_users", side_effect=RuntimeError("storage offline")):
+            self.assertFalse(access.is_globally_blocked(ADMIN))
+
     def test_emergency_admin_login_rejects_wrong_key(self):
         self.start_patch(patch.dict(os.environ, {
-            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key",
+            "DASHBOARD_EMERGENCY_LOGIN_KEY": "test-emergency-key-which-is-longer-than-thirty-two-characters",
             "DASHBOARD_EMERGENCY_ADMIN_ID": ADMIN,
         }))
         self.client.get("/admin-emergency-login")
