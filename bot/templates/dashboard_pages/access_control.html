@@ -96,12 +96,13 @@
 <form action="/dashboard/access/add-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -153,12 +154,13 @@
             <form action="/dashboard/access/add-carry-manager-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -192,12 +194,13 @@
             <form action="/dashboard/access/add-carry-application-verdict-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -280,12 +283,13 @@
             <form action="/dashboard/access/add-viewer-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -319,12 +323,13 @@
             <form action="/dashboard/access/add-transcripts-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -358,12 +363,13 @@
             <form action="/dashboard/access/add-analytics-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -397,12 +403,13 @@
             <form action="/dashboard/access/add-remove-cooldown-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -438,12 +445,13 @@
                 <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -485,12 +493,13 @@
             <form action="/dashboard/access/add-basic-command-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -544,12 +553,13 @@
             <form action="/dashboard/access/add-powerful-command-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
@@ -603,12 +613,13 @@
             <form action="/dashboard/access/add-moderation-command-role" method="POST" class="access-form">
                 <div>
                     <label>Role:</label>
-                    <select name="role_id" required>
+                    <select name="role_id" multiple size="4" required aria-label="Select one or more roles">
                         <option value="">Select a role...</option>
                         {% for role in roles %}
                             <option value="{{ role.id }}">@{{ role.name }}</option>
                         {% endfor %}
                     </select>
+                    <small class="role-multi-help">Select multiple roles with Ctrl (Windows/Linux) or Command (Mac).</small>
                 </div>
                 <button type="submit" class="btn-view">+ Add</button>
             </form>
