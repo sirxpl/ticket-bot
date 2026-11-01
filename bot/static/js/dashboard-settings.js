@@ -2,6 +2,7 @@
     'use strict';
     const roots = [...document.querySelectorAll('#page-access,#page-carry-settings,#page-carry-applications,#page-ticket-logs,#page-trial-schedules')];
     const notice = document.getElementById('dashboard-unsaved-notice');
+    const saveActions = document.getElementById('dashboard-unsaved-actions');
     const baselines = new WeakMap();
     let forms = [];
     let ready = false;
@@ -22,6 +23,28 @@
         const sections = new Set(dirty.map(form => form.closest('details') || form));
         const text = `${sections.size} edited section${sections.size === 1 ? '' : 's'}. Save each section when you’re ready.`;
         if (notice.querySelector('small').textContent !== text) notice.querySelector('small').textContent = text;
+
+        if (saveActions) {
+            saveActions.replaceChildren();
+            dirty.forEach(form => {
+                const details = form.closest('details');
+                const title = details?.querySelector('summary h3')?.textContent ||
+                    form.closest('.settings-group')?.querySelector('.settings-group-title')?.textContent ||
+                    form.querySelector('button[type="submit"]')?.textContent || 'section settings';
+                const label = title.trim().replace(/\s+/g, ' ').replace(/[✓✅⚙️💾]/gu, '').trim();
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'unsaved-save-button';
+                button.textContent = `Save ${label}`;
+                button.addEventListener('click', () => {
+                    if (!form.reportValidity()) return;
+                    button.disabled = true;
+                    button.textContent = `Saving ${label}…`;
+                    form.requestSubmit();
+                });
+                saveActions.append(button);
+            });
+        }
     };
     const schedule = () => {
         if (scheduled || !ready) return;
