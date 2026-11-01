@@ -2030,6 +2030,8 @@ def home(page="overview"):
         blacklist_log_channel_id=access_settings.get("blacklist_log_channel_id"),
         warning_log_channel_id=access_settings.get("warning_log_channel_id"),
         status_log_channel_id=access_settings.get("status_log_channel_id"),
+        status_log_destination=get_status_log_config()["destination"],
+        status_log_webhook_configured=bool(get_status_log_config()["webhook_url"]),
         manual_bot_enabled=_manual_bot_enabled(),
         bot_connected=bool(bot.is_ready()) and not bot.is_closed(),
         offline_schedule=get_offline_schedule() if page == "access-control" else {},
@@ -3708,13 +3710,15 @@ def access_set_warning_log_channel():
 def access_save_status_log_channel():
     if not _valid_carry_application_csrf():
         abort(400, "Your form expired. Reload Access Control and try again.")
+    destination = request.form.get("status_log_destination", "disabled").strip().lower()
     channel_id = request.form.get("status_log_channel_id", "").strip()
+    webhook_url = request.form.get("status_log_webhook_url", "").strip()
     try:
-        save_status_log_channel(channel_id or None)
+        save_status_log_settings(destination, channel_id, webhook_url)
     except ValueError as error:
         flash(str(error), "danger")
     else:
-        flash("Bot status log channel updated.", "success")
+        flash("Bot status log destination updated.", "success")
     return redirect(url_for("home", page="access-control", _anchor="access-status-logging"))
 
 @app.post("/dashboard/access/set-bot-state")
