@@ -25,8 +25,8 @@
             </div>
         </div>
         <p class="card-subtitle">
-            Ticket access is determined by enabled configured roles only. A disabled role never blocks ticket creation,
-            even when a member still holds it.
+            Ticket access is determined by enabled Discord roles. Disabled roles never block ticket creation, even
+            when a member still holds one. Existing category-scoped rules remain category-scoped.
         </p>
         <p class="card-subtitle">
             <a href="{{ url_for('home', page='access-control') }}#access-blacklist-types">Configure blacklist roles in Access Control → Blacklist Roles</a>.
@@ -41,9 +41,13 @@
                 <div><strong>{{ profile.name }}</strong> <span style="color:var(--text-dim);">({{ profile.role_id }})</span></div>
                 <div style="font-size:0.9em;color:var(--text-dim);">
                     {% if profile.enabled %}
-                    <strong style="color:var(--danger, #ed6464);">Enabled · blocks ticket creation</strong>
+                    {% if profile.block_all|default(true) %}
+                    <strong style="color:var(--danger, #ed6464);">Enabled · blocks all ticket categories</strong>
                     {% else %}
-                    <strong>Disabled · members can create tickets</strong>
+                    <strong style="color:var(--danger, #ed6464);">Enabled · blocks categories listing this role</strong>
+                    {% endif %}
+                    {% else %}
+                    <strong>Disabled · ticket creation allowed</strong>
                     {% endif %}
                     {% if profile.reason %} · {{ profile.reason }}{% else %} · No reason configured{% endif %}
                 </div>
@@ -70,7 +74,11 @@
                     <div style="font-size:0.9em;color:var(--text-dim);">
                         @{{ member.role_name or member.role_id }}
                         {% if member.enabled %}
-                        · <strong style="color:var(--danger, #ed6464);">Ticket creation blocked</strong>
+                        {% if member.block_all|default(true) %}
+                        · <strong style="color:var(--danger, #ed6464);">Ticket creation blocked globally</strong>
+                        {% else %}
+                        · <strong>Category-scoped · blocked only where this role is listed</strong>
+                        {% endif %}
                         {% else %}
                         · <strong>Role disabled · ticket creation allowed</strong>
                         {% endif %}
