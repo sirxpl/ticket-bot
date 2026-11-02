@@ -57,19 +57,33 @@ class BlacklistChecks:
         self.assertEqual(blacklists.get_types(), [])
         self.assertEqual(blacklists.role_id(saved), "555")
 
-    def test_profile_validation_rejects_duplicates_and_category_scope_without_role(self):
-        row = dict(id="x", name="Example", role_id="123", reason="Reason", block_all=False)
-        for rows in ([row, row], [{**row, "role_id": ""}], [{**row, "role_id": "$bad"}], [{**row, "reason": ""}], [row] * 26):
+    def test_profile_validation_requires_unique_name_and_role_but_reason_is_optional(self):
+        row = dict(name="Example", role_id="123", reason="", enabled=True)
+        for rows in (
+            [row, row],
+            [{**row, "role_id": ""}],
+            [{**row, "role_id": "$bad"}],
+            [{**row, "name": ""}],
+            [{**row, "reason": "x" * 501}],
+            [row] * 26,
+        ):
             with self.assertRaises(ValueError):
                 blacklists.save_types(rows)
+        saved = blacklists.save_types([row])
+        self.assertEqual(saved[0]["reason"], "")
+        self.assertTrue(saved[0]["enabled"])
 
-    def test_category_scope_is_enforced_without_assigned_discord_role(self):
-        saved = dict(blacklist_type="voidcore", role_id="555", block_all=False)
-        self.assertTrue(blacklists.blocks(saved, {"blacklist_roles": [555]}))
-        self.assertFalse(blacklists.blocks(saved, {"blacklist_roles": [666]}))
-        self.assertTrue(blacklists.blocks({"blacklist_type": "regular"}, None))
-        self.assertTrue(blacklists.blocks({"blacklist_type": "voidcore"}, {"blacklist_roles": [blacklists.LEGACY_VOIDCORE_ROLE]}))
-        self.assertEqual(blacklists.role_id({"blacklist_type": "voidcore", "role_id": ""}), "")
+    def test_legacy_records_are_preserved_and_flagged_for_review(self):
+        storage.add_to_blacklist("123", role_id="555", blacklist_type="voidcore", reason="Old reason")
+        storage.add_to_blacklist("456", reason="No matching role")
+        profiles = [dict(role_id="555", name="Migrated role", enabled=True)]
+        reviewed = blacklists.legacy_review_entries(
+            storage.get_blacklist_data(include_expired=True)["blacklisted_users"],
+            configured_profiles=profiles,
+        )
+        self.assertEqual([row["review_status"] for row in reviewed], ["mapped", "needs_review"])
+        self.assertEqual(len(storage.get_blacklist_data(include_expired=True)["blacklisted_users"]), 2)
+        self.assertEqual(reviewed[0]["reason"], "Old reason")
 
     def test_role_removal_failure_keeps_blacklist_for_retry(self):
         async def check():
@@ -107,12 +121,16 @@ class BlacklistChecks:
         access._save(settings)
         self.assertEqual({row["role_id"] for row in blacklists.get_types()}, {"555", "666"})
         member = SimpleNamespace(id=123, roles=[SimpleNamespace(id=666)])
-        self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": []}))
-        self.assertEqual(blacklists.restriction_reason(member, {"blacklist_roles": ["666"]}), "Configured reason")
+        self.assertEqual(blacklists.restriction_reason(member, {"blacklist_roles": []}), "Configured reason")
+        blacklists.save_types([dict(name="Disabled role", role_id="666", reason="", enabled=False)])
+        self.assertIsNone(blacklists.restriction_reason(member, None))
+        self.assertFalse(blacklists.get_types()[0]["enabled"])
 
-    def test_unified_editor_updates_roles_and_keeps_category_scopes_out_of_global_list(self):
+    def test_editor_updates_the_enabled_global_role_list(self):
         access.add_blacklist_role("555")
-        blacklists.save_types([dict(name="Category ban", role_id="666", reason="Restricted", block_all=False)])
+        blacklists.save_types([dict(name="Global ban", role_id="666", reason="", enabled=True)])
+        self.assertEqual(access.get_blacklist_role_ids(), ["666"])
+        blacklists.save_types([dict(name="Global ban", role_id="666", reason="", enabled=False)])
         self.assertEqual(access.get_blacklist_role_ids(), [])
         self.assertEqual(blacklists.get_types()[0]["role_id"], "666")
         blacklists.save_types([])
@@ -213,11 +231,13 @@ class BlacklistEditorRoutes(dashboard_tests.DashboardFixture, unittest.TestCase)
 
     # Reuse the authenticated app fixture and existing route checks.
     def test_type_editor_is_admin_only_and_requires_csrf(self):
-        data = {"csrf_token": "test-csrf", "blacklist_id": ["voidcore"], "blacklist_name": ["Voidcore"],
-                "blacklist_role": ["123"], "blacklist_reason": ["Reason"], "blacklist_scope": ["categories"]}
+        data = {"csrf_token": "test-csrf", "blacklist_name": ["Custom restriction"],
+                "blacklist_role": ["123"], "blacklist_reason": [""], "blacklist_enabled": ["true"]}
         self.assertEqual(self.client.post("/dashboard/access/blacklist-types", data={**data, "csrf_token": "wrong"}).status_code, 400)
         self.assertEqual(self.client.post("/dashboard/access/blacklist-types", data=data).status_code, 302)
         self.assertEqual(blacklists.get_types()[0]["role_id"], "123")
+        self.assertEqual(blacklists.get_types()[0]["reason"], "")
+        self.assertTrue(blacklists.get_types()[0]["enabled"])
         self.sign_in(MANAGER)
         self.client.post("/dashboard/access/blacklist-types", data={"csrf_token": "test-csrf"})
         self.assertEqual(len(blacklists.get_types()), 1)
