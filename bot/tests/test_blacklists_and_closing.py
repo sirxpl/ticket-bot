@@ -251,86 +251,22 @@ class BlacklistEditorRoutes(dashboard_tests.DashboardFixture, unittest.TestCase)
         self.assertIn(b'id="blacklist-types-form"', result.data)
         self.assertIn(b'id="access-loggings"', result.data)
 
-    def test_dashboard_unblacklist_requires_admin_and_csrf(self):
-        self.assertEqual(self.client.post("/api/unblacklist/123").status_code, 400)
-        self.sign_in(MANAGER)
-        self.assertNotEqual(self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"}).status_code, 200)
-
-    def test_dashboard_removes_saved_role_and_keeps_record_on_role_failure(self):
-        from concurrent.futures import Future
-        role = SimpleNamespace(id=555)
-        member = SimpleNamespace(id=123, roles=[role], remove_roles=AsyncMock())
-        guild = SimpleNamespace(id=42, get_member=Mock(return_value=member), get_role=Mock(return_value=role))
-        member.guild = guild
-        fake_bot = SimpleNamespace(is_ready=Mock(return_value=True), get_guild=Mock(return_value=guild), loop=object())
-        def execute(coro, loop):
-            future = Future()
-            try:
-                future.set_result(asyncio.run(coro))
-            except Exception as error:
-                future.set_exception(error)
-            return future
-        storage.add_to_blacklist("123", role_id="555", guild_id="42")
-        with patch.object(self.main, "bot", fake_bot), patch.object(asyncio, "run_coroutine_threadsafe", side_effect=execute):
-            response = self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"})
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(response.json["success"])
-            member.remove_roles.assert_awaited_once()
-            self.assertEqual(storage.get_blacklist_data()["blacklisted_users"], [])
-            storage.add_to_blacklist("123", role_id="555", guild_id="42")
-            member.remove_roles.side_effect = RuntimeError("No permission")
-            with self.assertLogs(self.main.app.logger, level="ERROR"):
-                response = self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"})
-            self.assertEqual(response.status_code, 503)
-            self.assertEqual(len(storage.get_blacklist_data()["blacklisted_users"]), 1)
+    def test_user_targeted_unblacklist_endpoint_is_retired_and_record_is_preserved(self):
+        storage.add_to_blacklist("123", role_id="555", guild_id="42", reason="Legacy record")
+        response = self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"})
+        self.assertEqual(response.status_code, 404)
+        records = storage.get_blacklist_data(include_expired=True)["blacklisted_users"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["user_id"], "123")
+        self.assertEqual(records[0]["role_id"], "555")
 
 
-class BlacklistExpiryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_expiry_removes_saved_role_before_record_and_retries_failures(self):
+class RetiredUserBlacklistWorkflowTests(unittest.TestCase):
+    def test_user_targeted_commands_and_expiry_watcher_are_not_registered(self):
         module = importlib.import_module("cogs.tickets")
-        entry = dict(user_id="123", role_id="555", guild_id="42", expires_ts=1)
-        role = SimpleNamespace(id=555)
-        member = SimpleNamespace(id=123, roles=[role], remove_roles=AsyncMock())
-        guild = SimpleNamespace(id=42, get_member=Mock(return_value=member), get_role=Mock(return_value=role))
-        member.guild = guild
-        bot = SimpleNamespace(get_guild=Mock(return_value=guild))
-        cog = SimpleNamespace(bot=bot)
-        with patch.object(module, "get_blacklist_data", return_value={"blacklisted_users": [entry]}), patch.object(blacklists, "remove") as removed, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock):
-            await module.TicketsCog.blacklist_expiry_watcher.coro(cog)
-            member.remove_roles.assert_awaited_once()
-            removed.assert_called_once_with("123", expected_entry=entry)
-            removed.reset_mock()
-            member.remove_roles.side_effect = RuntimeError("Missing permission")
-            with self.assertLogs(module.logger, level="ERROR"):
-                await module.TicketsCog.blacklist_expiry_watcher.coro(cog)
-            removed.assert_not_called()
-
-
-class BlacklistSlashLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    async def test_add_custom_profile_keeps_restriction_when_role_assignment_fails(self):
-        module = importlib.import_module("cogs.tickets")
-        role = SimpleNamespace(id=555)
-        member = SimpleNamespace(id=123, mention="@member", roles=[], guild=SimpleNamespace(id=42), add_roles=AsyncMock(side_effect=RuntimeError("No permission")))
-        interaction = SimpleNamespace(user=SimpleNamespace(id=99), guild=SimpleNamespace(id=42, get_role=Mock(return_value=role)),
-            response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()), followup=SimpleNamespace(send=AsyncMock()))
-        cog = SimpleNamespace(bot=object(), _dangerous_command_check=AsyncMock(return_value=True))
-        profile = dict(id="voidcore-plus", name="Voidcore Plus", reason="Default reason", role_id="555", block_all=False)
-        with patch.object(blacklists, "get_types", return_value=[profile]), patch.object(module, "add_to_blacklist") as saved, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock), self.assertLogs(module.logger, level="ERROR"):
-            await module.TicketsCog.add_ticket_blacklist_command.callback(cog, interaction, member, "555")
-            self.assertEqual(saved.call_args.kwargs["role_id"], "555")
-            self.assertEqual(saved.call_args.kwargs["reason"], "Default reason")
-            self.assertIn("could not be assigned", str(interaction.followup.send.await_args.kwargs["view"].to_components()))
-
-    async def test_remove_uses_snapshot_without_legacy_type_argument(self):
-        module = importlib.import_module("cogs.tickets")
-        member = SimpleNamespace(id=123, mention="@member")
-        interaction = SimpleNamespace(user=SimpleNamespace(id=99), guild=SimpleNamespace(id=42),
-            response=SimpleNamespace(defer=AsyncMock()), followup=SimpleNamespace(send=AsyncMock()))
-        cog = SimpleNamespace(bot=object(), _dangerous_command_check=AsyncMock(return_value=True))
-        entry = dict(user_id="123", role_id="555", blacklist_type="voidcore", guild_id="42")
-        with patch.object(module, "get_blacklist_data", return_value={"blacklisted_users": [entry]}), patch.object(blacklists, "remove_member", new_callable=AsyncMock) as removed, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock):
-            await module.TicketsCog.remove_ticket_blacklist_command.callback(cog, interaction, member, "Appeal")
-            self.assertEqual(removed.await_args.args[1]["role_id"], "555")
+        self.assertFalse(hasattr(module.TicketsCog, "add_ticket_blacklist_command"))
+        self.assertFalse(hasattr(module.TicketsCog, "remove_ticket_blacklist_command"))
+        self.assertFalse(hasattr(module.TicketsCog, "blacklist_expiry_watcher"))
 
 
 class TicketClosingRaceTests(unittest.IsolatedAsyncioTestCase):
