@@ -3044,15 +3044,18 @@ def access_save_blacklist_types():
     if not _valid_carry_application_csrf():
         abort(400, "Your form expired. Reload Access Control and try again.")
     try:
-        names = ("blacklist_name", "blacklist_role", "blacklist_reason", "blacklist_enabled")
+        names = ("blacklist_name", "blacklist_role", "blacklist_reason", "blacklist_enabled", "blacklist_scope")
         values = [request.form.getlist(name) for name in names]
         if len({len(items) for items in values}) != 1:
             raise ValueError("Incomplete blacklist fields. Reload and retry.")
         rows = []
-        for name, role, reason, enabled in zip(*values):
+        for name, role, reason, enabled, scope in zip(*values):
             if enabled not in {"true", "false"}:
                 raise ValueError("Choose whether this blacklist role is enabled.")
-            rows.append(dict(name=name, role_id=role, reason=reason, enabled=enabled == "true"))
+            if scope not in {"all", "categories"}:
+                raise ValueError("Choose a valid blacklist scope.")
+            rows.append(dict(name=name, role_id=role, reason=reason,
+                             enabled=enabled == "true", block_all=scope == "all"))
         previous_roles = blacklists.get_types()
         saved_roles = blacklists.save_types(rows)
     except ValueError as error:
