@@ -134,3 +134,65 @@ body.public-page.downtime-page .dt-countdown:empty { display:none; }
   body.public-page.downtime-page .dt-status-pill { margin-left:0; }
   body.public-page.downtime-page .dt-status-card { padding:19px; }
 }
+
+
+/* Downtime layout hotfix — prevent grid items and cards from overflowing. */
+body.public-page.downtime-page .layout {
+  grid-template-columns: 282px minmax(0, 1fr);
+  min-width: 0;
+}
+body.public-page.downtime-page .layout main {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 1290px;
+}
+body.public-page.downtime-page .dt-section,
+body.public-page.downtime-page .dt-card,
+body.public-page.downtime-page .dt-status-card,
+body.public-page.downtime-page .dt-meta-grid,
+body.public-page.downtime-page .dt-week-grid {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+body.public-page.downtime-page .dt-status-row {
+  min-width: 0;
+}
+body.public-page.downtime-page .dt-status-row > div:not(.dt-status-pill) {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+body.public-page.downtime-page .dt-status-pill {
+  flex: 0 1 auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+body.public-page.downtime-page .dt-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1120px) {
+  body.public-page.downtime-page .layout {
+    grid-template-columns: 246px minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  body.public-page.downtime-page .layout {
+    display: block;
+  }
+  body.public-page.downtime-page .layout main {
+    width: 100%;
+    max-width: none;
+  }
+}
+@media (max-width: 620px) {
+  body.public-page.downtime-page .dt-status-row {
+    align-items: flex-start;
+  }
+  body.public-page.downtime-page .dt-status-pill {
+    flex-basis: auto;
+  }
+}
