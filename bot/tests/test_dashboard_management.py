@@ -270,7 +270,10 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
             saved["carry_application_csrf"] = "test-csrf"
 
     def test_bot_enable_starts_discord_worker_without_restarting_flask(self):
-        self.seed_access({"manual_bot_enabled": False, "allowed_users": ["101"]})
+        saved = access.get_access_settings()
+        saved["manual_bot_enabled"] = False
+        saved["allowed_users"] = ["101"]
+        access._save(saved)
         with patch.object(self.main, "_start_bot_background", return_value=True) as start_bot, patch.object(self.main.os, "execv") as execv:
             response = self.client.post("/dashboard/access/set-bot-state", data={
                 "csrf_token": "test-csrf",
