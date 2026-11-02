@@ -75,27 +75,38 @@ class TicketBlacklistGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(overwrite.manage_messages)
         self.assertIsNone(overwrite.view_channel)
 
-    async def test_role_blacklist_blocks_before_badge_gate_or_form(self):
+    async def test_enabled_configured_role_blocks_before_badge_gate_or_form(self):
         self.member.roles = [SimpleNamespace(id=555)]
-        with patch.object(access, "get_access_settings", return_value={"blacklist_roles": ["555"]}), patch.object(self.tickets, "get_ticket_badge_config") as badges:
+        profile = {"id": "555", "role_id": "555", "name": "Ticket Restricted", "reason": "Staff restriction", "enabled": True}
+        with patch.object(access, "get_access_settings", return_value={"blacklist_types": [profile]}), patch.object(self.tickets, "get_ticket_badge_config") as badges:
             await self.tickets.TicketView.ticket_select(self.view, self.interaction, SimpleNamespace(values=["Support"]))
             self.interaction.response.send_modal.assert_not_awaited()
             self.interaction.response.send_message.assert_awaited_once()
+            self.assertIn("Staff restriction", str(self.interaction.response.send_message.await_args.kwargs["view"].to_components()))
             badges.assert_not_called()
 
-    async def test_new_blacklist_after_form_opens_is_rechecked_at_submit(self):
+    async def test_role_added_after_form_opens_is_rechecked_at_submit(self):
         modal = await self.open_form()
-        with patch.object(blacklists, "get_data", return_value={"blacklisted_users": [{"user_id": "123", "block_all": True, "reason": "New restriction"}]}):
+        self.member.roles = [SimpleNamespace(id=555)]
+        profile = {"id": "555", "role_id": "555", "name": "New restriction", "reason": "", "enabled": True}
+        with patch.object(access, "get_access_settings", return_value={"blacklist_types": [profile]}):
             await modal.on_submit(self.interaction)
         self.guild.create_text_channel.assert_not_awaited()
         self.assertIn("New restriction", str(self.interaction.followup.send.await_args.kwargs["view"].to_components()))
 
-    async def test_category_blacklist_blocks_only_affected_form(self):
+    async def test_disabled_configured_role_allows_ticket_creation(self):
         self.member.roles = [SimpleNamespace(id=555)]
-        self.category["blacklist_roles"] = ["555"]
-        await self.tickets.TicketView.ticket_select(self.view, self.interaction, SimpleNamespace(values=["Support"]))
-        self.interaction.response.send_modal.assert_not_awaited()
-        self.interaction.response.send_message.assert_awaited_once()
+        profile = {"id": "555", "role_id": "555", "name": "Temporarily Disabled", "reason": "Do not block", "enabled": False}
+        with patch.object(access, "get_access_settings", return_value={"blacklist_types": [profile]}):
+            await self.tickets.TicketView.ticket_select(self.view, self.interaction, SimpleNamespace(values=["Support"]))
+        self.interaction.response.send_modal.assert_awaited_once()
+        self.interaction.response.send_message.assert_not_awaited()
+
+    async def test_legacy_user_record_alone_does_not_block_ticket_creation(self):
+        with patch.object(blacklists, "get_data", return_value={"blacklisted_users": [{"user_id": "123", "block_all": True, "reason": "Old record"}]}):
+            await self.tickets.TicketView.ticket_select(self.view, self.interaction, SimpleNamespace(values=["Support"]))
+        self.interaction.response.send_modal.assert_awaited_once()
+        self.interaction.response.send_message.assert_not_awaited()
 
     async def test_late_blacklist_prevents_form_from_verification_continue(self):
         modal = object()
