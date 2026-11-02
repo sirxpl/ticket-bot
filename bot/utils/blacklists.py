@@ -76,7 +76,7 @@ def save_types(rows):
         block_all = row.get("block_all", True) is True
         result.append(dict(id=role, name=name, role_id=role, reason=reason, enabled=enabled, block_all=block_all))
         seen.add(role)
-    enabled_roles = [row["role_id"] for row in result if row["enabled"]]
+    enabled_roles = [row["role_id"] for row in result if row["enabled"] and row["block_all"]]
     db = _database(access)
     if db is not None:
         db.access_control.update_one(
@@ -189,7 +189,9 @@ def restriction_reason(member, category=None):
     """Check configured Discord roles; legacy user-ID rows never enforce access."""
     roles = {str(role.id) for role in getattr(member, "roles", [])}
     category_roles = {str(role) for role in (category or {}).get("blacklist_roles", [])}
-    for profile in get_types(getattr(member, "guild", None)):
+    profiles = get_types(getattr(member, "guild", None))
+    profiles_by_role = {profile["role_id"]: profile for profile in profiles}
+    for profile in profiles:
         role = profile["role_id"]
         if not profile.get("enabled", True) or role not in roles:
             continue
@@ -199,7 +201,10 @@ def restriction_reason(member, category=None):
                 f"You currently hold the **{profile['name']}** blacklist role. "
                 "Ticket creation is disabled for this ticket type."
             )
-    if roles.intersection(category_roles):
+    # Keep old category-level role rules working for roles not yet represented
+    # in the central role editor. A centrally configured disabled role wins.
+    unconfigured_category_roles = category_roles - set(profiles_by_role)
+    if roles.intersection(unconfigured_category_roles):
         return "One of your roles is blocked from creating this ticket type."
     return None
 
