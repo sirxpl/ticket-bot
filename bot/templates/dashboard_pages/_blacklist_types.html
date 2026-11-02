@@ -1,27 +1,75 @@
 {% macro blacklist_row(entry=None) %}
 <fieldset class="blacklist-type-row">
-    <legend>{{ entry.name if entry else 'New blacklist' }}</legend>
+    <legend>{{ entry.name if entry else 'New blacklist role' }}</legend>
     <div class="ticket-log-grid">
-        <div><label>Name<input name="blacklist_name" value="{{ entry.name if entry else '' }}" maxlength="80" placeholder="e.g. Carry restriction" required></label></div>
-        <div><label>Assigned blacklist role<select name="blacklist_role" required><option value="">Select a role...</option>
-            {% if entry and entry.role_id and entry.role_id|string not in roles|map(attribute='id')|map('string')|list %}<option value="{{ entry.role_id }}" selected>Saved role · {{ entry.role_id }}</option>{% endif %}
-            {% for role in roles %}<option value="{{ role.id }}" {% if entry and entry.role_id|string == role.id|string %}selected{% endif %}>{{ role.name }}</option>{% endfor %}
-        </select></label></div>
-        <div><label>Restriction<select name="blacklist_scope"><option value="all" {% if entry and entry.block_all %}selected{% endif %}>All ticket types</option><option value="categories" {% if entry and not entry.block_all %}selected{% endif %}>Categories listing this role</option></select></label></div>
+        <div>
+            <label>Blacklist name
+                <input name="blacklist_name" value="{{ entry.name if entry else '' }}" maxlength="80"
+                       placeholder="e.g. Ticket restricted" required>
+            </label>
+        </div>
+        <div>
+            <label>Discord role
+                <select name="blacklist_role" required>
+                    <option value="">Select a role...</option>
+                    {% if entry and entry.role_id and entry.role_id|string not in roles|map(attribute='id')|map('string')|list %}
+                    <option value="{{ entry.role_id }}" selected>Saved role · {{ entry.role_id }}</option>
+                    {% endif %}
+                    {% for role in roles %}
+                    <option value="{{ role.id }}" {% if entry and entry.role_id|string == role.id|string %}selected{% endif %}>
+                        @{{ role.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <div>
+            <label>Role status
+                <select name="blacklist_enabled">
+                    <option value="true" {% if not entry or entry.enabled %}selected{% endif %}>Enabled · blocks ticket creation</option>
+                    <option value="false" {% if entry and not entry.enabled %}selected{% endif %}>Disabled · allows ticket creation</option>
+                </select>
+            </label>
+        </div>
     </div>
-    <label>Default reason<textarea name="blacklist_reason" maxlength="500" required placeholder="Reason shown when this blacklist is applied">{{ entry.reason if entry else '' }}</textarea></label>
-    <button type="button" class="btn-danger" data-remove-blacklist-type>Remove field</button>
+    <input type="hidden" name="blacklist_scope" value="{{ 'categories' if entry and not entry.block_all|default(true) else 'all' }}">
+    {% if entry and not entry.block_all|default(true) %}
+    <p class="card-subtitle">This existing role is category-scoped. Its current category restrictions are being preserved.</p>
+    {% else %}
+    <p class="card-subtitle">This role applies to all ticket categories.</p>
+    {% endif %}
+    <label>Reason <span class="card-subtitle">(optional)</span>
+        <textarea name="blacklist_reason" maxlength="500"
+                  placeholder="Optional message shown when ticket creation is blocked">{{ entry.reason if entry else '' }}</textarea>
+    </label>
+    <button type="button" class="btn-danger" data-remove-blacklist-type>Remove role</button>
 </fieldset>
 {% endmacro %}
 <details class="card" id="access-blacklist-types">
-    <summary><div class="card-head-text"><h3>Blacklist Roles</h3><p class="card-subtitle">Add the roles available to blacklist commands and ticket checks.</p></div><span class="card-chevron">▾</span></summary>
+    <summary>
+        <div class="card-head-text">
+            <h3>Blacklist Roles</h3>
+            <p class="card-subtitle">Configure the Discord roles that control ticket creation.</p>
+        </div>
+        <span class="card-chevron">▾</span>
+    </summary>
     <div class="card-body">
-        <p class="card-subtitle">Add a name, Discord role, and default reason for each restriction. Select that role in <code>/addticketblacklist</code>. No Regular or Voidcore presets are added. For category restrictions, also add the same role to each affected category's blacklist roles in Carry Manager Settings. The bot needs Manage Roles and must be above the role.</p>
-        <p class="card-subtitle">Removing a field removes that choice for future commands. Existing member restrictions keep their original role and scope until removed or expired.</p>
+        <p class="card-subtitle">
+            Add a name and Discord role for each blacklist. Assign or remove these roles directly in Discord,
+            including while the bot is offline. New roles apply globally; existing category-scoped rules are
+            preserved. Enabled roles block ticket creation in their configured scope, while disabled roles never
+            block it. Reasons are optional.
+        </p>
+        <p class="card-subtitle">
+            This is role-based across all ticket categories. Removing a role configuration does not delete
+            legacy blacklist records; those remain available for review on the Blacklists page.
+        </p>
         <form method="post" action="{{ url_for('access_save_blacklist_types') }}" id="blacklist-types-form">
             <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
-            <div id="blacklist-type-fields">{% for entry in blacklist_types %}{{ blacklist_row(entry) }}{% endfor %}</div>
-            <button type="button" class="btn-view" id="add-blacklist-type">Add blacklist field</button>
+            <div id="blacklist-type-fields">
+                {% for entry in blacklist_types %}{{ blacklist_row(entry) }}{% endfor %}
+            </div>
+            <button type="button" class="btn-view" id="add-blacklist-type">Add blacklist role</button>
             <button type="submit" class="btn-view">Save blacklist roles</button>
             <p role="status" id="blacklist-fields-error" class="config-inline-error" hidden></p>
         </form>

@@ -16,53 +16,79 @@ LEGACY_VOIDCORE_ROLE = "1535963860203470858"
 
 
 def get_types(guild=None):
-    """Only configured roles; no built-in Regular/Voidcore command choices."""
+    """Return configured ticket-blocking roles, including disabled profiles.
+
+    The flat blacklist_roles list is retained as a compatibility source for
+    installations that predate the richer role profiles.
+    """
     settings = access.get_access_settings()
     result, seen = [], set()
     for entry in settings.get("blacklist_types", []):
-        role = str(entry.get("role_id") or "")
+        if not isinstance(entry, dict):
+            continue
+        role = str(entry.get("role_id") or "").strip()
         if entry.get("id") in {"regular", "voidcore"} or not role.isdigit() or role in seen:
             continue
-        result.append({**copy.deepcopy(entry), "id": role, "role_id": role})
+        name = str(entry.get("name") or "").strip()
+        reason = str(entry.get("reason") or "").strip()
+        resolved = guild.get_role(int(role)) if guild else None
+        result.append({
+            **copy.deepcopy(entry),
+            "id": role,
+            "role_id": role,
+            "name": name or (resolved.name if resolved else "Blacklist role " + role),
+            "reason": reason,
+            "enabled": entry.get("enabled", True) is True,
+            "block_all": entry.get("block_all", True) is True,
+        })
         seen.add(role)
     for value in settings.get("blacklist_roles", []):
-        role = str(value)
+        role = str(value).strip()
         if not role.isdigit() or role in seen:
             continue
         resolved = guild.get_role(int(role)) if guild else None
-        result.append(dict(id=role, role_id=role, name=resolved.name if resolved else "Blacklist role " + role,
-                           reason="Ticket access restricted by this role.", block_all=True))
+        result.append(dict(
+            id=role, role_id=role,
+            name=resolved.name if resolved else "Blacklist role " + role,
+            reason="", enabled=True, block_all=True,
+        ))
         seen.add(role)
     return result
 
 
 def save_types(rows):
+    """Save named blacklist roles; new entries default global, legacy scopes persist."""
     from utils.dashboard_settings import _database, _read_json, _write_json, _file_lock
     if len(rows) > 25:
         raise ValueError("Use at most 25 blacklist roles.")
     result, seen = [], set()
     for row in rows:
-        key = str(row.get("role_id", "")).strip()
-        name = str(row.get("name", "")).strip()
         role = str(row.get("role_id", "")).strip()
+        name = str(row.get("name", "")).strip()
         reason = str(row.get("reason", "")).strip()
-        if key in seen:
+        if role in seen:
             raise ValueError("Use each blacklist role only once.")
-        if not name or len(name) > 80 or not reason or len(reason) > 500:
-            raise ValueError("Supply a name (up to 80 characters) and a reason (up to 500).")
+        if not name or len(name) > 80 or len(reason) > 500:
+            raise ValueError("Supply a name (up to 80 characters) and an optional reason (up to 500).")
         if not re.fullmatch(r"[0-9]{1,20}", role):
             raise ValueError("Choose a valid blacklist role.")
-        block_all = row.get("block_all") is True
-        result.append(dict(id=key, name=name, role_id=role, reason=reason, block_all=block_all))
-        seen.add(key)
+        enabled = row.get("enabled", True) is True
+        block_all = row.get("block_all", True) is True
+        result.append(dict(id=role, name=name, role_id=role, reason=reason, enabled=enabled, block_all=block_all))
+        seen.add(role)
+    enabled_roles = [row["role_id"] for row in result if row["enabled"] and row["block_all"]]
     db = _database(access)
     if db is not None:
-        db.access_control.update_one({"_id": "singleton"}, {"$set": {"blacklist_types": result, "blacklist_roles": [row["role_id"] for row in result if row["block_all"]]}}, upsert=True)
+        db.access_control.update_one(
+            {"_id": "singleton"},
+            {"$set": {"blacklist_types": result, "blacklist_roles": enabled_roles}},
+            upsert=True,
+        )
     else:
         with _file_lock:
             data = _read_json(access.ACCESS_FILE, {})
             data["blacklist_types"] = result
-            data["blacklist_roles"] = [row["role_id"] for row in result if row["block_all"]]
+            data["blacklist_roles"] = enabled_roles
             _write_json(access.ACCESS_FILE, data)
     return result
 
@@ -159,16 +185,40 @@ async def remove_member(member, entry, reason):
     return remove(member.id, expected_entry=entry)
 
 
-def restriction_reason(member, category):
-    entry = next((row for row in get_data()["blacklisted_users"]
-                  if str(row.get("user_id")) == str(member.id)), None)
-    if entry and blocks(entry, category):
-        return entry.get("reason") or "This ticket type is restricted."
+def restriction_reason(member, category=None):
+    """Check configured Discord roles; legacy user-ID rows never enforce access."""
     roles = {str(role.id) for role in getattr(member, "roles", [])}
     category_roles = {str(role) for role in (category or {}).get("blacklist_roles", [])}
-    for profile in get_types(getattr(member, "guild", None)):
-        if profile["role_id"] in roles and (profile["block_all"] or profile["role_id"] in category_roles):
-            return profile.get("reason") or "This blacklist role restricts ticket access."
-    if roles.intersection(category_roles):
+    profiles = get_types(getattr(member, "guild", None))
+    profiles_by_role = {profile["role_id"]: profile for profile in profiles}
+    for profile in profiles:
+        role = profile["role_id"]
+        if not profile.get("enabled", True) or role not in roles:
+            continue
+        if profile.get("block_all", True) or role in category_roles:
+            reason = profile.get("reason")
+            return reason or (
+                f"You currently hold the **{profile['name']}** blacklist role. "
+                "Ticket creation is disabled for this ticket type."
+            )
+    # Keep old category-level role rules working for roles not yet represented
+    # in the central role editor. A centrally configured disabled role wins.
+    unconfigured_category_roles = category_roles - set(profiles_by_role)
+    if roles.intersection(unconfigured_category_roles):
         return "One of your roles is blocked from creating this ticket type."
     return None
+
+
+def legacy_review_entries(rows=None, configured_profiles=None, guild=None):
+    """Describe preserved per-user records without using them to block tickets."""
+    rows = get_data(include_expired=True)["blacklisted_users"] if rows is None else rows
+    profiles = configured_profiles if configured_profiles is not None else get_types(guild)
+    configured_ids = {str(profile.get("role_id")) for profile in profiles}
+    result = []
+    for raw in rows:
+        entry = dict(raw) if isinstance(raw, dict) else {"user_id": str(raw)}
+        assigned = role_id(entry)
+        entry["role_id"] = assigned or None
+        entry["review_status"] = "mapped" if assigned and assigned in configured_ids else "needs_review"
+        result.append(entry)
+    return result

@@ -15,12 +15,9 @@ from utils import blacklists, audit, pin_permissions
 from utils.storage import (
     add_active_ticket,
     add_cooldown,
-    add_to_blacklist,
-    remove_from_blacklist,
     append_ticket_log,
     get_active_ticket,
     get_active_ticket_for_user,
-    get_blacklist_data,
     get_category_counter,
     get_redirect_message,
     get_settings,
@@ -1226,12 +1223,10 @@ class TicketsCog(commands.Cog):
 
     async def cog_load(self):
         self.autoclose_watcher.start()
-        self.blacklist_expiry_watcher.start()
         self.pin_permission_watcher.start()
 
     def cog_unload(self):
         self.autoclose_watcher.cancel()
-        self.blacklist_expiry_watcher.cancel()
         self.pin_permission_watcher.cancel()
 
     async def sync_native_pin_permissions(self):
@@ -1259,41 +1254,9 @@ class TicketsCog(commands.Cog):
     async def before_pin_permission_sync(self):
         await self.bot.wait_until_ready()
 
-    @tasks.loop(minutes=1)
-    async def blacklist_expiry_watcher(self):
-        try:
-            rows = get_blacklist_data(include_expired=True)["blacklisted_users"]
-            for entry in rows:
-                if not entry.get("expires_ts") or float(entry["expires_ts"]) > time.time():
-                    continue
-                try:
-                    guild_id = entry.get("guild_id")
-                    guilds = ([self.bot.get_guild(int(guild_id))] if guild_id else self.bot.guilds)
-                    if not guilds or any(guild is None for guild in guilds):
-                        continue
-                    # Legacy records have no guild; clean their saved role in every connected guild.
-                    for guild in guilds:
-                        try:
-                            member = guild.get_member(int(entry["user_id"])) or await guild.fetch_member(int(entry["user_id"]))
-                        except discord.NotFound:
-                            continue
-                        assigned = blacklists.role_id(entry)
-                        role = guild.get_role(int(assigned)) if assigned else None
-                        if role and any(item.id == role.id for item in member.roles):
-                            await audit.change_role(member, role, add=False, reason="Timed ticket blacklist expired")
-                    blacklists.remove(entry["user_id"], expected_entry=entry)
-                    append_ticket_log({"ticket_id": "global", "action": "blacklist_expired",
-                        "target": {"id": str(entry["user_id"])}, "reason": "Timed blacklist expired",
-                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-                    await send_blacklist_log(self.bot, "blacklist_expired", user=entry["user_id"], reason="Timed blacklist expired")
-                except Exception:
-                    logger.exception("Could not clean expired blacklist for user=%s", entry.get("user_id"))
-        except Exception:
-            logger.exception("Could not read blacklist expiry data")
-
-    @blacklist_expiry_watcher.before_loop
-    async def before_blacklist_expiry(self):
-        await self.bot.wait_until_ready()
+    # Legacy per-user blacklist expiry cleanup is intentionally disabled.
+    # These records are retained for review; Discord role assignments are now
+    # the source of truth and staff manage them directly in the server.
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
@@ -1592,38 +1555,6 @@ class TicketsCog(commands.Cog):
             )
             return False
         return True
-
-    async def _dangerous_command_check(self, interaction: discord.Interaction) -> bool:
-        """Guard for standalone dangerous commands that aren't tied to a
-        ticket channel (/addticketblacklist, /removeticketblacklist).
-        Allowed for real Discord Administrators, dashboard-configured
-        admins, and anyone in the Powerful Command Access list. Unlike
-        _powerful_command_check, this does NOT fall back to "anyone" when
-        that list is empty - blacklisting is high-impact enough that it
-        should stay admin-only until an admin explicitly grants access."""
-        from utils.access import (
-            get_powerful_command_role_ids,
-            get_powerful_command_user_ids,
-            is_admin,
-        )
-
-        if interaction.user.guild_permissions.administrator:
-            return True
-        if is_admin(interaction.user.id):
-            return True
-
-        member_role_ids = {str(r.id) for r in getattr(interaction.user, "roles", [])}
-        if str(interaction.user.id) in set(get_powerful_command_user_ids()):
-            return True
-        if member_role_ids.intersection(get_powerful_command_role_ids()):
-            return True
-
-        await interaction.response.send_message(
-            "❌ Only administrators, or roles/users granted Powerful Command "
-            "Access in the dashboard's Access Control page, can use this command.",
-            ephemeral=True,
-        )
-        return False
 
     # Slash Command: /close [reason] — closes immediately, no opener confirmation
     @app_commands.command(
@@ -1972,96 +1903,9 @@ class TicketsCog(commands.Cog):
             f"Ticket activity will be posted in {channel.mention}.\n"
             "Manage event selection under Access Control → Loggings."), ephemeral=True)
 
-    @app_commands.command(name="addticketblacklist", description="Assign a configured blacklist role to a member")
-    @app_commands.describe(user="Member to blacklist", blacklist_role="Choose a role added in Access Control → Blacklist Roles",
-                           reason="Override the configured default reason", duration_hours="Hours until expiry; omit for permanent")
-    @app_commands.default_permissions(administrator=True)
-    async def add_ticket_blacklist_command(self, interaction: discord.Interaction, user: discord.Member,
-                                           blacklist_role: str, reason: str = None, duration_hours: float = None):
-        if not await self._dangerous_command_check(interaction):
-            return
-        profile = next((item for item in blacklists.get_types(interaction.guild) if item["role_id"] == blacklist_role), None)
-        if not profile:
-            await interaction.response.send_message("❌ Choose a role added in Access Control → Blacklist Roles.", ephemeral=True)
-            return
-        reason = (reason or profile["reason"]).strip()
-        if not reason or len(reason) > 1000:
-            await interaction.response.send_message("❌ Supply a reason of up to 1000 characters.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        try:
-            add_to_blacklist(str(user.id), reason=reason, added_by=str(interaction.user), hours=duration_hours,
-                             blacklist_type=profile["role_id"], role_id=profile["role_id"],
-                             blacklist_name=profile["name"], block_all=profile["block_all"], guild_id=str(interaction.guild.id))
-        except (ValueError, RuntimeError) as error:
-            await interaction.followup.send(str(error), ephemeral=True)
-            return
-        except Exception:
-            logger.exception("Could not persist blacklist")
-            await interaction.followup.send("❌ Could not save the blacklist. Please retry.", ephemeral=True)
-            return
-        role_note = ""
-        if profile["role_id"]:
-            role = interaction.guild.get_role(int(profile["role_id"]))
-            try:
-                if role is None:
-                    raise ValueError("Configured role no longer exists.")
-                await audit.change_role(user, role, add=True, reason=f"Ticket blacklist by {interaction.user}")
-            except Exception:
-                logger.exception("Blacklist saved but role assignment failed for user=%s", user.id)
-                role_note = "\n⚠️ The restriction is saved, but its role could not be assigned. Check Manage Roles and role position."
-        duration_text = f"{duration_hours} hour(s)" if duration_hours else "Permanent"
-        scope = "All ticket types" if profile["block_all"] else "Categories that list this blacklist role"
-        append_ticket_log({"ticket_id": "global", "action": "blacklist_added",
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "target": {"id": str(user.id), "name": str(user)},
-            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
-            "reason": reason, "duration_hours": duration_hours, "blacklist_type": profile["role_id"],
-            "role_id": profile["role_id"], "scope": scope, "role_warning": role_note})
-        await send_blacklist_log(self.bot, "blacklist_added", user=f"{user} ({user.id})", reason=reason,
-                                 duration=duration_text, type=profile["name"], scope=scope,
-                                 role=profile["role_id"] or "None", role_warning=role_note or None, executor=str(interaction.user))
-        await interaction.followup.send(view=ticket_notice("🚫 User Blacklisted",
-            f"{user.mention} • **{profile['name']}**\n**Scope:** {scope}\n**Reason:** {reason}\n"
-            f"**Duration:** {duration_text}{role_note}", okay=False), ephemeral=True)
-
-    @add_ticket_blacklist_command.autocomplete("blacklist_role")
-    async def blacklist_type_choices(self, interaction: discord.Interaction, current: str):
-        return [app_commands.Choice(name=item["name"][:100], value=item["role_id"])
-                for item in blacklists.get_types(interaction.guild) if current.lower() in (item["name"] + item["role_id"]).lower()][:25]
-
-    @app_commands.command(name="removeticketblacklist", description="Remove a user's saved blacklist and its assigned role")
-    @app_commands.describe(user="Member to unblacklist", reason="Why this blacklist is being removed")
-    @app_commands.default_permissions(administrator=True)
-    async def remove_ticket_blacklist_command(self, interaction: discord.Interaction, user: discord.Member,
-                                              reason: str):
-        if not await self._dangerous_command_check(interaction):
-            return
-        await interaction.response.defer(ephemeral=True)
-        try:
-            entry = next((item for item in get_blacklist_data(include_expired=True)["blacklisted_users"]
-                          if str(item.get("user_id")) == str(user.id)), None)
-            if not entry:
-                await interaction.followup.send("⚠️ This member has no saved blacklist.", ephemeral=True)
-                return
-            if entry.get("guild_id") and str(interaction.guild.id) != str(entry["guild_id"]):
-                await interaction.followup.send("❌ Run this command in the server where this blacklist was applied.", ephemeral=True)
-                return
-            await blacklists.remove_member(user, entry, f"Blacklist removed by {interaction.user}: {reason}")
-        except Exception:
-            logger.exception("Could not remove blacklist for user=%s", user.id)
-            await interaction.followup.send("❌ Could not remove the blacklist or its role. The record is kept for retry; check Manage Roles and role position.", ephemeral=True)
-            return
-        append_ticket_log({"ticket_id": "global", "action": "blacklist_removed",
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "target": {"id": str(user.id), "name": str(user)},
-            "executor": {"id": str(interaction.user.id), "name": str(interaction.user)},
-            "reason": reason, "blacklist_type": entry.get("blacklist_type")})
-        await send_blacklist_log(self.bot, "blacklist_removed", user=f"{user} ({user.id})", reason=reason,
-                                 type=entry.get("blacklist_name", entry.get("blacklist_type", "Legacy restriction")), executor=str(interaction.user))
-        await interaction.followup.send(view=ticket_notice("✅ Blacklist Removed",
-            f"{user.mention}'s saved restriction and assigned role have been removed.\n**Reason:** {reason}\n"
-            "Any other configured role restrictions still apply."), ephemeral=True)
+    # Per-user blacklist slash commands were retired. Staff assign and remove
+    # configured blacklist roles directly in Discord, so role changes remain
+    # manageable while this bot is offline.
 
     # Slash Command: /rename
     @app_commands.command(name="rename", description="Rename this ticket channel")

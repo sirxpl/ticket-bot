@@ -40,7 +40,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from utils.storage import (
     get_tickets_data, 
     get_blacklist_data, 
-    remove_from_blacklist, 
     TRANSCRIPTS_DIR,
     get_settings,
     set_tickets_enabled,
@@ -1685,7 +1684,7 @@ def home(page="overview"):
     # Only populate channel and role lists on pages that actually render them.
     channels = guild.text_channels if guild and page in ("carry-settings", "trial-schedules", "access-control", "ticket-logs", "points") else []
     categories = guild.categories if guild and page == "carry-settings" else []
-    roles = guild.roles if guild and page in ("carry-settings", "warning-builder", "access-control", "points") else []
+    roles = guild.roles if guild and page in ("carry-settings", "warning-builder", "access-control", "points", "blacklists") else []
 
     # Never read unrelated collections while opening a single dashboard page.
     tickets_info = get_tickets_data() if page == "overview" else {}
@@ -1887,22 +1886,27 @@ def home(page="overview"):
         basic_command_roles.append({"id": rid, "name": role.name if role else None})
     basic_command_users = access_settings.get("basic_command_users", [])
 
-    # members who are blocked from creating tickets via a Ticket Blacklist Role
-    # (in addition to the individually-blacklisted user IDs above)
+    # Role membership is the sole live ticket-blacklist source. Disabled profiles
+    # remain visible here so staff can see which members currently hold them.
+    blacklist_profiles = blacklists.get_types(guild) if page == "blacklists" else []
     role_blacklisted_members = []
     if guild and page == "blacklists":
-        blacklist_role_id_set = {str(rid) for rid in access_settings.get("blacklist_roles", [])}
-        if blacklist_role_id_set:
-            for member in guild.members:
-                member_role_ids = {str(r.id) for r in member.roles}
-                matched = member_role_ids.intersection(blacklist_role_id_set)
-                if matched:
-                    matched_role = guild.get_role(int(next(iter(matched))))
-                    role_blacklisted_members.append({
-                        "id": str(member.id),
-                        "name": str(member),
-                        "role_name": matched_role.name if matched_role else None,
-                    })
+        profiles_by_role = {str(item["role_id"]): item for item in blacklist_profiles}
+        for member in guild.members:
+            member_role_ids = {str(role.id) for role in member.roles}
+            for role_id in sorted(member_role_ids.intersection(profiles_by_role)):
+                profile = profiles_by_role[role_id]
+                role = guild.get_role(int(role_id))
+                role_blacklisted_members.append({
+                    "id": str(member.id),
+                    "name": str(member),
+                    "role_id": role_id,
+                    "role_name": role.name if role else profile["name"],
+                    "blacklist_name": profile["name"],
+                    "enabled": profile.get("enabled", True),
+                    "block_all": profile.get("block_all", True),
+                    "reason": profile.get("reason", ""),
+                })
 
     active_tickets = []
     for t in tickets_info.get("active_tickets", []):
@@ -1930,19 +1934,13 @@ def home(page="overview"):
         if transcripts_page > transcripts_total_pages:
             return redirect(url_for("home", page="transcripts", transcripts_page=transcripts_total_pages))
 
-    blacklisted_users = []
-    for entry in blacklist_info.get("blacklisted_users", []):
-        if isinstance(entry, dict):
-            entry = dict(entry)
-            entry["username"] = resolve_username(guild, entry.get("user_id"), cached_only=True) or entry.get("username")
-        else:
-            entry = {
-                "user_id": str(entry),
-                "username": resolve_username(guild, entry, cached_only=True),
-                "reason": None,
-                "expires_ts": None,
-            }
-        blacklisted_users.append(entry)
+    legacy_blacklist_records = blacklists.legacy_review_entries(
+        blacklist_info.get("blacklisted_users", []),
+        configured_profiles=blacklist_profiles,
+        guild=guild,
+    ) if page == "blacklists" else []
+    for entry in legacy_blacklist_records:
+        entry["username"] = resolve_username(guild, entry.get("user_id"), cached_only=True) or entry.get("username")
 
     return render_template(
         "dashboard.html",
@@ -1964,8 +1962,9 @@ def home(page="overview"):
         transcripts_total_pages=transcripts_total_pages,
         transcripts_total=transcripts_total,
         cooldowns=cooldowns,
-        blacklisted_users=blacklisted_users,
+        blacklist_profiles=blacklist_profiles,
         role_blacklisted_members=role_blacklisted_members,
+        legacy_blacklist_records=legacy_blacklist_records,
         allowed_users=allowed_users,
         allowed_roles=allowed_roles,
         blacklist_roles=blacklist_roles,
@@ -2604,48 +2603,9 @@ def view_ticket(ticket_id):
     return render_template("ticket_detail.html", ticket=ticket, logs=logs, transcript_url=transcript_url, created_at=created_at)
 
 
-@app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@admin_required
-def api_unblacklist(user_id):
-    if not _valid_carry_application_csrf():
-        return jsonify(success=False, error="Form expired. Reload and try again."), 400
-    if not user_id.isdigit():
-        abort(400)
-    async def remove_saved_blacklist():
-        entry = next((row for row in get_blacklist_data(include_expired=True)["blacklisted_users"]
-                      if str(row.get("user_id")) == user_id), None)
-        if entry is None:
-            return False
-        guild_id = entry.get("guild_id")
-        guilds = [bot.get_guild(int(guild_id))] if guild_id else bot.guilds
-        if not guilds or any(guild is None for guild in guilds):
-            raise RuntimeError("The blacklist server is unavailable.")
-        for guild in guilds:
-            try:
-                member = guild.get_member(int(user_id)) or await guild.fetch_member(int(user_id))
-            except discord.NotFound:
-                continue
-            assigned = blacklists.role_id(entry)
-            role = guild.get_role(int(assigned)) if assigned else None
-            if role and any(item.id == role.id for item in member.roles):
-                await audit.change_role(member, role, add=False, reason="Blacklist removed from dashboard")
-        return blacklists.remove(user_id, expected_entry=entry)
-    if not bot.is_ready():
-        return jsonify(success=False, error="The bot must be online to remove the assigned role."), 503
-    try:
-        removed = asyncio.run_coroutine_threadsafe(remove_saved_blacklist(), bot.loop).result(timeout=20)
-    except Exception:
-        app.logger.exception("Could not remove blacklist from dashboard")
-        return jsonify(success=False, error="Could not confirm removal. Check the bot's Manage Roles permission and role position, then retry."), 503
-    if removed:
-        from cogs.tickets import send_blacklist_log
-        from utils.storage import append_ticket_log
-        append_ticket_log({"ticket_id": "global", "action": "blacklist_removed", "target": {"id": user_id},
-            "executor": {"id": str(session["user"]["id"])}, "reason": "Removed from dashboard",
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-        asyncio.run_coroutine_threadsafe(send_blacklist_log(bot, "blacklist_removed", user=user_id,
-            reason="Removed from dashboard", executor=str(session["user"]["id"])), bot.loop)
-    return jsonify(success=removed)
+# The previous per-user blacklist removal endpoint is retired. Legacy records
+# remain read-only on the Blacklists page while staff manage Discord roles
+# directly in the server.
 
 
 
@@ -3085,15 +3045,18 @@ def access_save_blacklist_types():
     if not _valid_carry_application_csrf():
         abort(400, "Your form expired. Reload Access Control and try again.")
     try:
-        names = ("blacklist_name", "blacklist_role", "blacklist_reason", "blacklist_scope")
+        names = ("blacklist_name", "blacklist_role", "blacklist_reason", "blacklist_enabled", "blacklist_scope")
         values = [request.form.getlist(name) for name in names]
         if len({len(items) for items in values}) != 1:
             raise ValueError("Incomplete blacklist fields. Reload and retry.")
         rows = []
-        for name, role, reason, scope in zip(*values):
+        for name, role, reason, enabled, scope in zip(*values):
+            if enabled not in {"true", "false"}:
+                raise ValueError("Choose whether this blacklist role is enabled.")
             if scope not in {"all", "categories"}:
                 raise ValueError("Choose a valid blacklist scope.")
-            rows.append(dict(id=role, name=name, role_id=role, reason=reason, block_all=scope == "all"))
+            rows.append(dict(name=name, role_id=role, reason=reason,
+                             enabled=enabled == "true", block_all=scope == "all"))
         previous_roles = blacklists.get_types()
         saved_roles = blacklists.save_types(rows)
     except ValueError as error:
@@ -3103,7 +3066,7 @@ def access_save_blacklist_types():
         flash("Blacklist settings could not be saved. Please retry.", "danger")
     else:
         audit.role_config_events(bot, previous_roles, saved_roles, session["user"]["id"])
-        flash("Blacklist roles saved. Existing blacklists keep their assigned roles and restrictions.", "success")
+        flash("Blacklist roles saved. Enabled roles block ticket creation; disabled roles allow it. Legacy records were preserved.", "success")
     return redirect(url_for("home", page="access-control", _anchor="access-blacklist-types"))
 
 

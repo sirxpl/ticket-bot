@@ -57,19 +57,33 @@ class BlacklistChecks:
         self.assertEqual(blacklists.get_types(), [])
         self.assertEqual(blacklists.role_id(saved), "555")
 
-    def test_profile_validation_rejects_duplicates_and_category_scope_without_role(self):
-        row = dict(id="x", name="Example", role_id="123", reason="Reason", block_all=False)
-        for rows in ([row, row], [{**row, "role_id": ""}], [{**row, "role_id": "$bad"}], [{**row, "reason": ""}], [row] * 26):
+    def test_profile_validation_requires_unique_name_and_role_but_reason_is_optional(self):
+        row = dict(name="Example", role_id="123", reason="", enabled=True)
+        for rows in (
+            [row, row],
+            [{**row, "role_id": ""}],
+            [{**row, "role_id": "$bad"}],
+            [{**row, "name": ""}],
+            [{**row, "reason": "x" * 501}],
+            [row] * 26,
+        ):
             with self.assertRaises(ValueError):
                 blacklists.save_types(rows)
+        saved = blacklists.save_types([row])
+        self.assertEqual(saved[0]["reason"], "")
+        self.assertTrue(saved[0]["enabled"])
 
-    def test_category_scope_is_enforced_without_assigned_discord_role(self):
-        saved = dict(blacklist_type="voidcore", role_id="555", block_all=False)
-        self.assertTrue(blacklists.blocks(saved, {"blacklist_roles": [555]}))
-        self.assertFalse(blacklists.blocks(saved, {"blacklist_roles": [666]}))
-        self.assertTrue(blacklists.blocks({"blacklist_type": "regular"}, None))
-        self.assertTrue(blacklists.blocks({"blacklist_type": "voidcore"}, {"blacklist_roles": [blacklists.LEGACY_VOIDCORE_ROLE]}))
-        self.assertEqual(blacklists.role_id({"blacklist_type": "voidcore", "role_id": ""}), "")
+    def test_legacy_records_are_preserved_and_flagged_for_review(self):
+        storage.add_to_blacklist("123", role_id="555", blacklist_type="voidcore", reason="Old reason")
+        storage.add_to_blacklist("456", reason="No matching role")
+        profiles = [dict(role_id="555", name="Migrated role", enabled=True)]
+        reviewed = blacklists.legacy_review_entries(
+            storage.get_blacklist_data(include_expired=True)["blacklisted_users"],
+            configured_profiles=profiles,
+        )
+        self.assertEqual([row["review_status"] for row in reviewed], ["mapped", "needs_review"])
+        self.assertEqual(len(storage.get_blacklist_data(include_expired=True)["blacklisted_users"]), 2)
+        self.assertEqual(reviewed[0]["reason"], "Old reason")
 
     def test_role_removal_failure_keeps_blacklist_for_retry(self):
         async def check():
@@ -109,10 +123,16 @@ class BlacklistChecks:
         member = SimpleNamespace(id=123, roles=[SimpleNamespace(id=666)])
         self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": []}))
         self.assertEqual(blacklists.restriction_reason(member, {"blacklist_roles": ["666"]}), "Configured reason")
+        blacklists.save_types([dict(name="Disabled role", role_id="666", reason="", enabled=False, block_all=False)])
+        self.assertIsNone(blacklists.restriction_reason(member, None))
+        self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": ["666"]}))
+        self.assertFalse(blacklists.get_types()[0]["enabled"])
 
-    def test_unified_editor_updates_roles_and_keeps_category_scopes_out_of_global_list(self):
+    def test_editor_updates_the_enabled_global_role_list(self):
         access.add_blacklist_role("555")
-        blacklists.save_types([dict(name="Category ban", role_id="666", reason="Restricted", block_all=False)])
+        blacklists.save_types([dict(name="Global ban", role_id="666", reason="", enabled=True)])
+        self.assertEqual(access.get_blacklist_role_ids(), ["666"])
+        blacklists.save_types([dict(name="Global ban", role_id="666", reason="", enabled=False)])
         self.assertEqual(access.get_blacklist_role_ids(), [])
         self.assertEqual(blacklists.get_types()[0]["role_id"], "666")
         blacklists.save_types([])
@@ -213,14 +233,34 @@ class BlacklistEditorRoutes(dashboard_tests.DashboardFixture, unittest.TestCase)
 
     # Reuse the authenticated app fixture and existing route checks.
     def test_type_editor_is_admin_only_and_requires_csrf(self):
-        data = {"csrf_token": "test-csrf", "blacklist_id": ["voidcore"], "blacklist_name": ["Voidcore"],
-                "blacklist_role": ["123"], "blacklist_reason": ["Reason"], "blacklist_scope": ["categories"]}
+        data = {"csrf_token": "test-csrf", "blacklist_name": ["Custom restriction"],
+                "blacklist_role": ["123"], "blacklist_reason": [""], "blacklist_enabled": ["true"],
+                "blacklist_scope": ["all"]}
         self.assertEqual(self.client.post("/dashboard/access/blacklist-types", data={**data, "csrf_token": "wrong"}).status_code, 400)
         self.assertEqual(self.client.post("/dashboard/access/blacklist-types", data=data).status_code, 302)
         self.assertEqual(blacklists.get_types()[0]["role_id"], "123")
+        self.assertEqual(blacklists.get_types()[0]["reason"], "")
+        self.assertTrue(blacklists.get_types()[0]["enabled"])
         self.sign_in(MANAGER)
         self.client.post("/dashboard/access/blacklist-types", data={"csrf_token": "test-csrf"})
         self.assertEqual(len(blacklists.get_types()), 1)
+
+    def test_existing_category_scope_survives_blacklist_editor_save(self):
+        data = {
+            "csrf_token": "test-csrf",
+            "blacklist_name": ["Existing category rule"],
+            "blacklist_role": ["456"],
+            "blacklist_reason": [""],
+            "blacklist_enabled": ["true"],
+            "blacklist_scope": ["categories"],
+        }
+        response = self.client.post("/dashboard/access/blacklist-types", data=data)
+        self.assertEqual(response.status_code, 302)
+        profile = blacklists.get_types()[0]
+        self.assertFalse(profile["block_all"])
+        member = SimpleNamespace(id=123, roles=[SimpleNamespace(id=456)])
+        self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": []}))
+        self.assertIsNotNone(blacklists.restriction_reason(member, {"blacklist_roles": ["456"]}))
 
     def test_access_control_has_one_logging_editor_and_preserves_channel_settings(self):
         self.db.access_control.update_one({"_id": "singleton"}, {"$set": {"blacklist_log_channel_id": "999"}})
@@ -231,86 +271,22 @@ class BlacklistEditorRoutes(dashboard_tests.DashboardFixture, unittest.TestCase)
         self.assertIn(b'id="blacklist-types-form"', result.data)
         self.assertIn(b'id="access-loggings"', result.data)
 
-    def test_dashboard_unblacklist_requires_admin_and_csrf(self):
-        self.assertEqual(self.client.post("/api/unblacklist/123").status_code, 400)
-        self.sign_in(MANAGER)
-        self.assertNotEqual(self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"}).status_code, 200)
-
-    def test_dashboard_removes_saved_role_and_keeps_record_on_role_failure(self):
-        from concurrent.futures import Future
-        role = SimpleNamespace(id=555)
-        member = SimpleNamespace(id=123, roles=[role], remove_roles=AsyncMock())
-        guild = SimpleNamespace(id=42, get_member=Mock(return_value=member), get_role=Mock(return_value=role))
-        member.guild = guild
-        fake_bot = SimpleNamespace(is_ready=Mock(return_value=True), get_guild=Mock(return_value=guild), loop=object())
-        def execute(coro, loop):
-            future = Future()
-            try:
-                future.set_result(asyncio.run(coro))
-            except Exception as error:
-                future.set_exception(error)
-            return future
-        storage.add_to_blacklist("123", role_id="555", guild_id="42")
-        with patch.object(self.main, "bot", fake_bot), patch.object(asyncio, "run_coroutine_threadsafe", side_effect=execute):
-            response = self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"})
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(response.json["success"])
-            member.remove_roles.assert_awaited_once()
-            self.assertEqual(storage.get_blacklist_data()["blacklisted_users"], [])
-            storage.add_to_blacklist("123", role_id="555", guild_id="42")
-            member.remove_roles.side_effect = RuntimeError("No permission")
-            with self.assertLogs(self.main.app.logger, level="ERROR"):
-                response = self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"})
-            self.assertEqual(response.status_code, 503)
-            self.assertEqual(len(storage.get_blacklist_data()["blacklisted_users"]), 1)
+    def test_user_targeted_unblacklist_endpoint_is_retired_and_record_is_preserved(self):
+        storage.add_to_blacklist("123", role_id="555", guild_id="42", reason="Legacy record")
+        response = self.client.post("/api/unblacklist/123", data={"csrf_token": "test-csrf"})
+        self.assertEqual(response.status_code, 404)
+        records = storage.get_blacklist_data(include_expired=True)["blacklisted_users"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["user_id"], "123")
+        self.assertEqual(records[0]["role_id"], "555")
 
 
-class BlacklistExpiryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_expiry_removes_saved_role_before_record_and_retries_failures(self):
+class RetiredUserBlacklistWorkflowTests(unittest.TestCase):
+    def test_user_targeted_commands_and_expiry_watcher_are_not_registered(self):
         module = importlib.import_module("cogs.tickets")
-        entry = dict(user_id="123", role_id="555", guild_id="42", expires_ts=1)
-        role = SimpleNamespace(id=555)
-        member = SimpleNamespace(id=123, roles=[role], remove_roles=AsyncMock())
-        guild = SimpleNamespace(id=42, get_member=Mock(return_value=member), get_role=Mock(return_value=role))
-        member.guild = guild
-        bot = SimpleNamespace(get_guild=Mock(return_value=guild))
-        cog = SimpleNamespace(bot=bot)
-        with patch.object(module, "get_blacklist_data", return_value={"blacklisted_users": [entry]}), patch.object(blacklists, "remove") as removed, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock):
-            await module.TicketsCog.blacklist_expiry_watcher.coro(cog)
-            member.remove_roles.assert_awaited_once()
-            removed.assert_called_once_with("123", expected_entry=entry)
-            removed.reset_mock()
-            member.remove_roles.side_effect = RuntimeError("Missing permission")
-            with self.assertLogs(module.logger, level="ERROR"):
-                await module.TicketsCog.blacklist_expiry_watcher.coro(cog)
-            removed.assert_not_called()
-
-
-class BlacklistSlashLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    async def test_add_custom_profile_keeps_restriction_when_role_assignment_fails(self):
-        module = importlib.import_module("cogs.tickets")
-        role = SimpleNamespace(id=555)
-        member = SimpleNamespace(id=123, mention="@member", roles=[], guild=SimpleNamespace(id=42), add_roles=AsyncMock(side_effect=RuntimeError("No permission")))
-        interaction = SimpleNamespace(user=SimpleNamespace(id=99), guild=SimpleNamespace(id=42, get_role=Mock(return_value=role)),
-            response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()), followup=SimpleNamespace(send=AsyncMock()))
-        cog = SimpleNamespace(bot=object(), _dangerous_command_check=AsyncMock(return_value=True))
-        profile = dict(id="voidcore-plus", name="Voidcore Plus", reason="Default reason", role_id="555", block_all=False)
-        with patch.object(blacklists, "get_types", return_value=[profile]), patch.object(module, "add_to_blacklist") as saved, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock), self.assertLogs(module.logger, level="ERROR"):
-            await module.TicketsCog.add_ticket_blacklist_command.callback(cog, interaction, member, "555")
-            self.assertEqual(saved.call_args.kwargs["role_id"], "555")
-            self.assertEqual(saved.call_args.kwargs["reason"], "Default reason")
-            self.assertIn("could not be assigned", str(interaction.followup.send.await_args.kwargs["view"].to_components()))
-
-    async def test_remove_uses_snapshot_without_legacy_type_argument(self):
-        module = importlib.import_module("cogs.tickets")
-        member = SimpleNamespace(id=123, mention="@member")
-        interaction = SimpleNamespace(user=SimpleNamespace(id=99), guild=SimpleNamespace(id=42),
-            response=SimpleNamespace(defer=AsyncMock()), followup=SimpleNamespace(send=AsyncMock()))
-        cog = SimpleNamespace(bot=object(), _dangerous_command_check=AsyncMock(return_value=True))
-        entry = dict(user_id="123", role_id="555", blacklist_type="voidcore", guild_id="42")
-        with patch.object(module, "get_blacklist_data", return_value={"blacklisted_users": [entry]}), patch.object(blacklists, "remove_member", new_callable=AsyncMock) as removed, patch.object(module, "append_ticket_log"), patch.object(module, "send_blacklist_log", new_callable=AsyncMock):
-            await module.TicketsCog.remove_ticket_blacklist_command.callback(cog, interaction, member, "Appeal")
-            self.assertEqual(removed.await_args.args[1]["role_id"], "555")
+        self.assertFalse(hasattr(module.TicketsCog, "add_ticket_blacklist_command"))
+        self.assertFalse(hasattr(module.TicketsCog, "remove_ticket_blacklist_command"))
+        self.assertFalse(hasattr(module.TicketsCog, "blacklist_expiry_watcher"))
 
 
 class TicketClosingRaceTests(unittest.IsolatedAsyncioTestCase):
