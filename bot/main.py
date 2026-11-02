@@ -3720,13 +3720,22 @@ def access_set_bot_state():
 
     if not enabled:
         bot_sleeping = True
-        try:
-            loop = bot.loop
-            if loop and not loop.is_closed() and not bot.is_closed():
-                asyncio.run_coroutine_threadsafe(bot.close(), loop).result(timeout=20)
-        except Exception:
-            app.logger.exception("Could not cleanly disconnect the Discord bot")
-            flash("The OFF setting was saved, but the Discord connection did not close cleanly.", "warning")
+        runner = _bot_runner_thread
+        disconnect_error = None
+        if runner and runner.is_alive():
+            try:
+                loop = bot.loop
+                if loop and not loop.is_closed() and not bot.is_closed():
+                    asyncio.run_coroutine_threadsafe(bot.close(), loop).result(timeout=20)
+            except Exception as error:
+                disconnect_error = error
+                app.logger.exception("Could not cleanly disconnect the Discord bot")
+            if runner is not threading.current_thread():
+                runner.join(timeout=10)
+        if runner and runner.is_alive():
+            flash("The OFF setting was saved, but the Discord worker is still shutting down. The dashboard remains online; retry if the bot does not stop.", "warning")
+        elif disconnect_error:
+            flash("The bot is OFF and Flask remains online, but Discord did not confirm a clean disconnect. Check the logs.", "warning")
         else:
             flash("Carry Ticket Bot is OFF. The dashboard and status pages will stay available.", "success")
         _queue_status_event(
