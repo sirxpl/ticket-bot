@@ -121,7 +121,8 @@ class BlacklistChecks:
         access._save(settings)
         self.assertEqual({row["role_id"] for row in blacklists.get_types()}, {"555", "666"})
         member = SimpleNamespace(id=123, roles=[SimpleNamespace(id=666)])
-        self.assertEqual(blacklists.restriction_reason(member, {"blacklist_roles": []}), "Configured reason")
+        self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": []}))
+        self.assertEqual(blacklists.restriction_reason(member, {"blacklist_roles": ["666"]}), "Configured reason")
         blacklists.save_types([dict(name="Disabled role", role_id="666", reason="", enabled=False)])
         self.assertIsNone(blacklists.restriction_reason(member, None))
         self.assertFalse(blacklists.get_types()[0]["enabled"])
@@ -232,7 +233,8 @@ class BlacklistEditorRoutes(dashboard_tests.DashboardFixture, unittest.TestCase)
     # Reuse the authenticated app fixture and existing route checks.
     def test_type_editor_is_admin_only_and_requires_csrf(self):
         data = {"csrf_token": "test-csrf", "blacklist_name": ["Custom restriction"],
-                "blacklist_role": ["123"], "blacklist_reason": [""], "blacklist_enabled": ["true"]}
+                "blacklist_role": ["123"], "blacklist_reason": [""], "blacklist_enabled": ["true"],
+                "blacklist_scope": ["all"]}
         self.assertEqual(self.client.post("/dashboard/access/blacklist-types", data={**data, "csrf_token": "wrong"}).status_code, 400)
         self.assertEqual(self.client.post("/dashboard/access/blacklist-types", data=data).status_code, 302)
         self.assertEqual(blacklists.get_types()[0]["role_id"], "123")
@@ -241,6 +243,23 @@ class BlacklistEditorRoutes(dashboard_tests.DashboardFixture, unittest.TestCase)
         self.sign_in(MANAGER)
         self.client.post("/dashboard/access/blacklist-types", data={"csrf_token": "test-csrf"})
         self.assertEqual(len(blacklists.get_types()), 1)
+
+    def test_existing_category_scope_survives_blacklist_editor_save(self):
+        data = {
+            "csrf_token": "test-csrf",
+            "blacklist_name": ["Existing category rule"],
+            "blacklist_role": ["456"],
+            "blacklist_reason": [""],
+            "blacklist_enabled": ["true"],
+            "blacklist_scope": ["categories"],
+        }
+        response = self.client.post("/dashboard/access/blacklist-types", data=data)
+        self.assertEqual(response.status_code, 302)
+        profile = blacklists.get_types()[0]
+        self.assertFalse(profile["block_all"])
+        member = SimpleNamespace(id=123, roles=[SimpleNamespace(id=456)])
+        self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": []}))
+        self.assertIsNotNone(blacklists.restriction_reason(member, {"blacklist_roles": ["456"]}))
 
     def test_access_control_has_one_logging_editor_and_preserves_channel_settings(self):
         self.db.access_control.update_one({"_id": "singleton"}, {"$set": {"blacklist_log_channel_id": "999"}})
