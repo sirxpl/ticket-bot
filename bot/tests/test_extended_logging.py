@@ -159,7 +159,7 @@ class AccessAuditRoutes(dashboard_tests.DashboardFixture, unittest.TestCase):
 
     def test_blacklist_editor_records_added_edited_and_deleted_roles_only_after_save(self):
         data = {"csrf_token": "test-csrf", "blacklist_name": ["Carry restriction"], "blacklist_role": ["555"],
-            "blacklist_reason": ["Reason"], "blacklist_scope": ["all"]}
+            "blacklist_reason": ["Reason"], "blacklist_enabled": ["true"], "blacklist_scope": ["all"]}
         self.client.post("/dashboard/access/blacklist-types", data=data)
         self.assertEqual(self.emitted.call_args.args[1], "blacklist_role_added")
         self.emitted.reset_mock()
