@@ -416,12 +416,10 @@ discord_http_trace.on_request_end.append(_discord_http_request_end)
 discord_http_trace.on_request_exception.append(_discord_http_request_exception)
 
 
-bot = DiagnosticBot(
-    command_prefix="!",
-    intents=intents,
-    tree_cls=GlobalCommandTree,
-    http_trace=discord_http_trace,
-)
+# The Discord client is created after its event callbacks are defined. It can
+# then be replaced cleanly after a deliberate disconnect without restarting
+# the Flask process that owns Render's listening port.
+bot = None
 
 def _queue_status_event(event_type, title, message, details=None, dedupe_key=None,
                        force_queue=False, deliver=True):
@@ -3722,13 +3720,22 @@ def access_set_bot_state():
 
     if not enabled:
         bot_sleeping = True
-        try:
-            loop = bot.loop
-            if loop and not loop.is_closed() and not bot.is_closed():
-                asyncio.run_coroutine_threadsafe(bot.close(), loop).result(timeout=20)
-        except Exception:
-            app.logger.exception("Could not cleanly disconnect the Discord bot")
-            flash("The OFF setting was saved, but the Discord connection did not close cleanly.", "warning")
+        runner = _bot_runner_thread
+        disconnect_error = None
+        if runner and runner.is_alive():
+            try:
+                loop = bot.loop
+                if loop and not loop.is_closed() and not bot.is_closed():
+                    asyncio.run_coroutine_threadsafe(bot.close(), loop).result(timeout=20)
+            except Exception as error:
+                disconnect_error = error
+                app.logger.exception("Could not cleanly disconnect the Discord bot")
+            if runner is not threading.current_thread():
+                runner.join(timeout=10)
+        if runner and runner.is_alive():
+            flash("The OFF setting was saved, but the Discord worker is still shutting down. The dashboard remains online; retry if the bot does not stop.", "warning")
+        elif disconnect_error:
+            flash("The bot is OFF and Flask remains online, but Discord did not confirm a clean disconnect. Check the logs.", "warning")
         else:
             flash("Carry Ticket Bot is OFF. The dashboard and status pages will stay available.", "success")
         _queue_status_event(
@@ -3742,13 +3749,16 @@ def access_set_bot_state():
         os.environ["BOT_START_ATTEMPT"] = "0"
         os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
 
-        def restart_after_response():
-            time.sleep(1.5)
-            import sys
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-
-        threading.Thread(target=restart_after_response, daemon=True).start()
-        flash("Carry Ticket Bot is starting. The dashboard may briefly reconnect.", "success")
+        try:
+            started = _start_bot_background()
+        except Exception:
+            app.logger.exception("Could not start the Discord bot without restarting Flask")
+            flash("The bot setting was saved, but Discord could not be started. The dashboard remains online; check the logs and retry.", "danger")
+        else:
+            if started:
+                flash("Carry Ticket Bot is starting. The dashboard will stay online.", "success")
+            else:
+                flash("Carry Ticket Bot is already starting. The dashboard will stay online.", "info")
     else:
         flash("Carry Ticket Bot is already enabled. It will continue its normal connection/retry process.", "info")
     return redirect(url_for("home", page="access-control", _anchor="access-bot-controls"))
@@ -3791,7 +3801,6 @@ def access_save_offline_schedule():
 
 
 # --- BOT EVENT HANDLERS & RUNNER ---
-@bot.event
 async def setup_hook():
     """Load Discord cogs relative to this file, regardless of Render's cwd."""
     print("🔧 setup_hook started.", flush=True)
@@ -3831,7 +3840,6 @@ async def setup_hook():
     except Exception as exc:
         print(f"❌ Slash-command sync failed: {type(exc).__name__}: {exc}", flush=True)
 
-@bot.event
 async def on_ready():
     global bot_ready_since
     print("🔧 on_ready started.", flush=True)
@@ -3856,7 +3864,6 @@ async def on_ready():
     print(f"✅ Bot logged in as {bot.user}", flush=True)
 
 
-@bot.event
 async def on_disconnect():
     if bot_sleeping or _offline_schedule_active:
         return
@@ -3868,7 +3875,6 @@ async def on_disconnect():
     )
 
 
-@bot.event
 async def on_resumed():
     _queue_status_event(
         "bot_online",
@@ -3881,7 +3887,9 @@ async def on_resumed():
 
 def run_flask():
     port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    # The web server is started exactly once per Render process. Disabling
+    # Werkzeug's reloader makes that ownership explicit.
+    app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
 
 
 _offline_schedule_active = False
@@ -3964,11 +3972,17 @@ def run_offline_schedule_watcher():
                     bot_sleeping = False
                     _offline_schedule_active = False
             elif not active and _offline_schedule_active:
-                print("🕒 Offline schedule ended — restarting process to reconnect Discord bot.")
+                print("🕒 Offline schedule ended — reconnecting Discord without restarting Flask.")
+                _offline_schedule_active = False
+                bot_sleeping = False
                 os.environ["BOT_START_ATTEMPT"] = "0"
                 os.environ["BOT_WAKING_FROM_SLEEP"] = "1"
-                import sys
-                os.execv(sys.executable, [sys.executable] + sys.argv)
+                try:
+                    started = _start_bot_background()
+                    if not started:
+                        print("🕒 Discord bot runner is already active; no duplicate connection started.")
+                except Exception as restart_error:
+                    print(f"Offline schedule could not restart Discord: {restart_error}", flush=True)
         except SystemExit:
             raise
         except Exception as exc:
@@ -4130,7 +4144,6 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
     run it at a time (returns False if another is already handling it).
     With can_recover=True, if the bot reconnects by itself during the wait the
     cooldown is cancelled instead of restarting. Returns True in that case."""
-    import sys
     global last_start_error, _cooldown_active, bot_sleeping
     with _cooldown_lock:
         if _cooldown_active:
@@ -4171,48 +4184,86 @@ def _cooldown_and_restart(reason, exc=None, can_recover=False):
             _cooldown_active = False
         return False
     os.environ["BOT_START_ATTEMPT"] = str(attempt + 1)
-    print("🔄 Restarting process to retry Discord login...")
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    with _cooldown_lock:
+        _cooldown_active = False
+    if can_recover:
+        # The watchdog has waited out the retry window and now asks the
+        # current runner to reconnect using a fresh Discord client instance.
+        _watchdog_restart_requested.set()
+        try:
+            loop = bot.loop
+            if loop and not loop.is_closed() and not bot.is_closed():
+                asyncio.run_coroutine_threadsafe(bot.close(), loop).result(timeout=20)
+        except Exception:
+            print("⚠️ Watchdog could not close the stalled Discord client cleanly.", flush=True)
+    print("🔄 Discord retry window finished; restarting the Discord client in-process.", flush=True)
+    return True
 
 
-def run_bot_with_cooldown():
-    """Run the bot. If startup/login fails, keep the process (and status
-    pages) alive and retry after a backoff instead of exiting, so the host
-    isn't tempted into an instant restart loop that keeps the API block alive."""
-    global bot_sleeping
-    try:
-        bot.run(TOKEN)
-    except discord.HTTPException as exc:
-        if getattr(exc, "status", None) == 429:
-            retry_after = _retry_after_from(exc)
-            reason = (
-                f"Discord login rate-limited (HTTP 429; "
-                f"Retry-After={retry_after}s)"
-            )
-            handled = _cooldown_and_restart(reason, exc=exc)
-        else:
+def run_bot_with_cooldown(startup_delay=0):
+    """Run Discord in a restartable worker thread; never restart the Flask process."""
+    global bot, bot_sleeping
+
+    if startup_delay:
+        deadline = time.monotonic() + max(0, int(startup_delay))
+        while time.monotonic() < deadline:
+            if not _manual_bot_enabled() or bot_sleeping:
+                return
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+
+    while TOKEN and _manual_bot_enabled() and not bot_sleeping:
+        current_bot = bot
+        handled = None
+        try:
+            current_bot.run(TOKEN)
+        except discord.HTTPException as exc:
+            if getattr(exc, "status", None) == 429:
+                retry_after = _retry_after_from(exc)
+                reason = (
+                    f"Discord login rate-limited (HTTP 429; "
+                    f"Retry-After={retry_after}s)"
+                )
+                handled = _cooldown_and_restart(reason, exc=exc)
+            else:
+                handled = _cooldown_and_restart(
+                    f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc
+                )
+        except Exception as exc:
             handled = _cooldown_and_restart(
                 f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc
             )
-    except Exception as exc:
-        handled = _cooldown_and_restart(f"Bot stopped: {type(exc).__name__}: {exc}", exc=exc)
+
+        # A normal return means either an intentional OFF/sleep action or a
+        # closed connection that the watchdog asked us to recycle.
+        if not _manual_bot_enabled() or bot_sleeping:
+            return
+        if _watchdog_restart_requested.is_set():
+            _watchdog_restart_requested.clear()
+            handled = True
+        elif handled is None:
+            handled = _cooldown_and_restart("Discord client stopped unexpectedly")
+
+        if not _manual_bot_enabled() or bot_sleeping:
+            return
         if handled is False:
-            # The watchdog is already running the cooldown; just stay alive
-            # (keeping the web/status threads running) until it restarts us.
-            while True:
-                time.sleep(3600)
+            # Another thread already owns the cooldown. Wait for it to finish,
+            # then rebuild only the Discord client; Flask remains untouched.
+            while _cooldown_active and _manual_bot_enabled() and not bot_sleeping:
+                time.sleep(1)
+            if not _manual_bot_enabled() or bot_sleeping:
+                return
+            _watchdog_restart_requested.clear()
+
+        with _bot_runtime_lock:
+            if bot is current_bot:
+                bot = _create_bot_client()
+        print("🔄 Starting a fresh Discord client; Flask remains online.", flush=True)
+
     if not _manual_bot_enabled():
         bot_sleeping = True
-        print("⏹️ Bot manually disabled; keeping dashboard and status pages online.")
-        while True:
-            time.sleep(3600)
-    if bot_sleeping:
-        # bot.run() returned because the idle sleeper closed the bot. Keep the
-        # process (and the web/status threads) alive until /api/wake restarts it.
-        print("💤 Bot is asleep; web and status stay up. Waiting for a wake request.")
-        while True:
-            time.sleep(3600)
-    # otherwise bot.run() returned normally (e.g. Ctrl+C locally): a deliberate stop.
+        print("⏹️ Bot manually disabled; keeping dashboard and status pages online.", flush=True)
+    elif bot_sleeping:
+        print("💤 Bot is asleep; web and status stay up.", flush=True)
 
 
 def run_watchdog():
@@ -4251,7 +4302,7 @@ def run_watchdog():
             if now - offline_since >= grace and not _cooldown_active:
                 minutes = max(1, round((now - offline_since) / 60))
                 if _cooldown_and_restart(f"Bot offline for {minutes} min", can_recover=True):
-                    offline_since = None  # recovered without a restart
+                    offline_since = None  # recovered or scheduled for in-process reconnect
         except SystemExit:
             raise
         except Exception as e:
@@ -4265,7 +4316,58 @@ async def _note_activity(interaction):
     last_panel_activity = time.time()
 
 
-bot.add_listener(_note_activity, "on_interaction")
+def _create_bot_client():
+    """Build a fresh discord.py client while keeping the web process alive."""
+    client = DiagnosticBot(
+        command_prefix="!",
+        intents=intents,
+        tree_cls=GlobalCommandTree,
+        http_trace=discord_http_trace,
+    )
+    for handler in (setup_hook, on_ready, on_disconnect, on_resumed):
+        client.event(handler)
+    client.add_listener(_note_activity, "on_interaction")
+    return client
+
+
+bot = _create_bot_client()
+_bot_runtime_lock = threading.RLock()
+_bot_runner_thread = None
+_watchdog_restart_requested = threading.Event()
+
+
+def _start_bot_background(startup_delay=0):
+    """Start a fresh Discord client in its own thread without touching Flask."""
+    global bot, bot_sleeping, _bot_runner_thread
+    if not TOKEN:
+        raise RuntimeError("DISCORD_BOT_TOKEN is not configured.")
+
+    previous_thread = _bot_runner_thread
+    if previous_thread and previous_thread.is_alive():
+        try:
+            if not bot.is_closed():
+                return False
+        except Exception:
+            return False
+        if previous_thread is not threading.current_thread():
+            previous_thread.join(timeout=10)
+        if previous_thread.is_alive():
+            raise RuntimeError("The previous Discord client is still shutting down. Please retry.")
+
+    with _bot_runtime_lock:
+        if _bot_runner_thread and _bot_runner_thread.is_alive():
+            return False
+        bot = _create_bot_client()
+        bot_sleeping = False
+        _watchdog_restart_requested.clear()
+        _bot_runner_thread = threading.Thread(
+            target=run_bot_with_cooldown,
+            kwargs={"startup_delay": startup_delay},
+            name="discord-bot-runner",
+            daemon=True,
+        )
+        _bot_runner_thread.start()
+    return True
 
 
 def _idle_sleep_hours():
@@ -4385,26 +4487,17 @@ if __name__ == "__main__":
                 f"for {startup_delay}s before connecting.",
                 flush=True,
             )
-            deadline = time.monotonic() + startup_delay
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0 or not _manual_bot_enabled():
-                    break
-                time.sleep(min(1, remaining))
-        if _manual_bot_enabled():
-            print("▶️ Deployment startup delay finished; starting Discord bot.", flush=True)
-            run_bot_with_cooldown()
-        else:
-            bot_sleeping = True
-            print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
-            while True:
-                time.sleep(3600)
+        print("▶️ Scheduling Discord startup; Flask will stay in this process.", flush=True)
+        _start_bot_background(startup_delay=startup_delay)
     elif TOKEN:
         bot_sleeping = True
         print("⏹️ Bot is manually disabled; dashboard and status pages remain online.", flush=True)
-        while True:
-            time.sleep(3600)
     else:
-        print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.")
+        print("❌ Error: DISCORD_BOT_TOKEN environment variable is missing.", flush=True)
+
+    # Keep the web/status process alive independently of the Discord worker.
+    # Bot OFF/ON, idle sleep, and API cooldown retries never relaunch Flask.
+    while True:
+        time.sleep(3600)
 
 
