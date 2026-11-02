@@ -1904,6 +1904,7 @@ def home(page="overview"):
                     "role_name": role.name if role else profile["name"],
                     "blacklist_name": profile["name"],
                     "enabled": profile.get("enabled", True),
+                    "block_all": profile.get("block_all", True),
                     "reason": profile.get("reason", ""),
                 })
 
