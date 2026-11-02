@@ -18,7 +18,6 @@ from utils.storage import (
     append_ticket_log,
     get_active_ticket,
     get_active_ticket_for_user,
-    get_blacklist_data,
     get_category_counter,
     get_redirect_message,
     get_settings,
