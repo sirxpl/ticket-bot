@@ -32,6 +32,12 @@
             </label>
         </div>
     </div>
+    <input type="hidden" name="blacklist_scope" value="{{ 'categories' if entry and not entry.block_all|default(true) else 'all' }}">
+    {% if entry and not entry.block_all|default(true) %}
+    <p class="card-subtitle">This existing role is category-scoped. Its current category restrictions are being preserved.</p>
+    {% else %}
+    <p class="card-subtitle">This role applies to all ticket categories.</p>
+    {% endif %}
     <label>Reason <span class="card-subtitle">(optional)</span>
         <textarea name="blacklist_reason" maxlength="500"
                   placeholder="Optional message shown when ticket creation is blocked">{{ entry.reason if entry else '' }}</textarea>
@@ -50,8 +56,9 @@
     <div class="card-body">
         <p class="card-subtitle">
             Add a name and Discord role for each blacklist. Assign or remove these roles directly in Discord,
-            including while the bot is offline. Members with an enabled blacklist role cannot create tickets.
-            Disabled roles do not block ticket creation. Reasons are optional.
+            including while the bot is offline. New roles apply globally; existing category-scoped rules are
+            preserved. Enabled roles block ticket creation in their configured scope, while disabled roles never
+            block it. Reasons are optional.
         </p>
         <p class="card-subtitle">
             This is role-based across all ticket categories. Removing a role configuration does not delete
