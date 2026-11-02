@@ -1,48 +1,118 @@
 <section class="page active" id="page-blacklist">
-        <div class="page-head">
-            <h1>Blacklists</h1>
-            <p>Block users from opening tickets or being carried.</p>
-        </div>
-        <div class="card">
-            <h3><span class="card-icon">🚫</span> Blacklisted Users</h3>
-            <input type="search" class="table-search" data-filter-target="blacklist-users"
-                   placeholder="Search by user ID or username..." aria-label="Search blacklisted users">
-            <div id="blacklist-users">
-            {% for b_user in blacklisted_users %}
-                {% set entry = b_user if b_user is mapping else {'user_id': b_user, 'reason': None, 'expires_ts': None} %}
-                <div class="list-item searchable-row" data-search="{{ entry.user_id }} {{ entry.username or '' }}">
-                    <div>
-                        <div><strong>{{ entry.username or 'Unknown user' }}</strong> <span style="color:var(--text-dim);">({{ entry.user_id }})</span></div>
-                        <div style="color: var(--text-dim); font-size: 0.9em;">
-                            <strong>Type:</strong> {{ entry.blacklist_name or (entry.blacklist_type or "regular")|title }} •
-                            <strong>Reason:</strong> {{ entry.reason or "No reason provided." }}
-                            {% if entry.expires_ts %}
-                                • <span class="local-time" data-ts="{{ entry.expires_ts }}">expires {{ entry.expires_ts }}</span>
-                            {% else %}
-                                • Permanent
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% if is_admin_user %}<button onclick="unblacklistUser('{{ entry.user_id }}')" class="btn-danger">Unblacklist</button>{% endif %}
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No individually blacklisted users.</p>
-            {% endfor %}
-            <p class="search-empty" style="display:none; color:var(--text-dim);">No blacklisted users match that search.</p>
+    <div class="page-head">
+        <h1>Blacklists</h1>
+        <p>Manage ticket restrictions through Discord roles. Role assignments remain effective while the bot is offline.</p>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">🚫</span> Blacklist overview</h3>
+        <div class="ticket-log-grid">
+            <div class="list-item">
+                <div><strong>Configured roles</strong></div>
+                <div>{{ blacklist_profiles|length }}</div>
             </div>
-
-            <p class="card-subtitle">Expired entries remain listed until the bot removes their assigned role. Failed role removals retry every minute; you can also use Unblacklist.</p>
-            <h4 style="margin-top: 20px;">Blacklisted via Role</h4>
-            <p class="card-subtitle">
-                Members blocked from creating tickets because they hold a Ticket Blacklist Role. Manage the roles themselves in Access Control.
-            </p>
-            {% for member in role_blacklisted_members %}
-                <div class="list-item">
-                    <span><strong>{{ member.name }}</strong> ({{ member.id }}) — @{{ member.role_name or 'Unknown role' }}</span>
-                </div>
-            {% else %}
-                <p style="color: var(--text-dim);">No members currently blacklisted via a role.</p>
-            {% endfor %}
+            <div class="list-item">
+                <div><strong>Enabled roles</strong></div>
+                <div>{{ blacklist_profiles|selectattr('enabled')|list|length }}</div>
+            </div>
+            <div class="list-item">
+                <div><strong>Members holding configured roles</strong></div>
+                <div>{{ role_blacklisted_members|length }}</div>
+            </div>
+            <div class="list-item">
+                <div><strong>Legacy records needing review</strong></div>
+                <div>{{ legacy_blacklist_records|selectattr('review_status', 'equalto', 'needs_review')|list|length }}</div>
+            </div>
         </div>
-        </section>
+        <p class="card-subtitle">
+            Ticket access is determined by enabled configured roles only. A disabled role never blocks ticket creation,
+            even when a member still holds it.
+        </p>
+        <p class="card-subtitle">
+            <a href="{{ url_for('home', page='access-control') }}#access-blacklist-types">Configure blacklist roles in Access Control → Blacklist Roles</a>.
+        </p>
+    </div>
 
+    <div class="card">
+        <h3><span class="card-icon">⚙️</span> Configured blacklist roles</h3>
+        {% for profile in blacklist_profiles %}
+        <div class="list-item searchable-row" data-search="{{ profile.name }} {{ profile.role_id }} {{ profile.reason }}">
+            <div>
+                <div><strong>{{ profile.name }}</strong> <span style="color:var(--text-dim);">({{ profile.role_id }})</span></div>
+                <div style="font-size:0.9em;color:var(--text-dim);">
+                    {% if profile.enabled %}
+                    <strong style="color:var(--danger, #ed6464);">Enabled · blocks ticket creation</strong>
+                    {% else %}
+                    <strong>Disabled · members can create tickets</strong>
+                    {% endif %}
+                    {% if profile.reason %} · {{ profile.reason }}{% else %} · No reason configured{% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <p style="color:var(--text-dim);">No blacklist roles configured yet.</p>
+        {% endfor %}
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">👥</span> Members holding blacklist roles</h3>
+        <p class="card-subtitle">
+            This list reflects role assignments from Discord. Add or remove a member's role directly in Discord;
+            this page does not maintain a separate user-ID blacklist.
+        </p>
+        <input type="search" class="table-search" data-filter-target="blacklist-role-members"
+               placeholder="Search by member, role, or ID..." aria-label="Search members holding blacklist roles">
+        <div id="blacklist-role-members">
+            {% for member in role_blacklisted_members %}
+            <div class="list-item searchable-row" data-search="{{ member.name }} {{ member.id }} {{ member.role_name }} {{ member.role_id }}">
+                <div>
+                    <div><strong>{{ member.name }}</strong> <span style="color:var(--text-dim);">({{ member.id }})</span></div>
+                    <div style="font-size:0.9em;color:var(--text-dim);">
+                        @{{ member.role_name or member.role_id }}
+                        {% if member.enabled %}
+                        · <strong style="color:var(--danger, #ed6464);">Ticket creation blocked</strong>
+                        {% else %}
+                        · <strong>Role disabled · ticket creation allowed</strong>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <p style="color:var(--text-dim);">No cached server members currently hold a configured blacklist role.</p>
+            {% endfor %}
+            <p class="search-empty" style="display:none;color:var(--text-dim);">No members match that search.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3><span class="card-icon">🗂️</span> Legacy blacklist records</h3>
+        <p class="card-subtitle">
+            These records are preserved from the previous per-user system and are not used to decide whether someone
+            can create tickets. Entries with a matching configured Discord role are marked as mapped. Other entries
+            are flagged for review. Nothing is automatically deleted or converted here.
+        </p>
+        {% for entry in legacy_blacklist_records %}
+        <div class="list-item">
+            <div>
+                <div>
+                    <strong>{{ entry.username or 'Unknown user' }}</strong>
+                    <span style="color:var(--text-dim);">({{ entry.user_id or 'Unknown ID' }})</span>
+                </div>
+                <div style="font-size:0.9em;color:var(--text-dim);">
+                    {% if entry.review_status == 'mapped' %}
+                    <strong style="color:var(--success, #52c78a);">Mapped to configured role</strong>
+                    {% else %}
+                    <strong style="color:var(--warning, #d6a64b);">Needs review · no matching configured role</strong>
+                    {% endif %}
+                    {% if entry.role_id %} · Role ID: {{ entry.role_id }}{% endif %}
+                    {% if entry.blacklist_name or entry.blacklist_type %} · Previous type: {{ entry.blacklist_name or entry.blacklist_type }}{% endif %}
+                    {% if entry.expires_ts %} · Previous expiry: <span class="local-time" data-ts="{{ entry.expires_ts }}">{{ entry.expires_ts }}</span>{% endif %}
+                    {% if entry.reason %} · {{ entry.reason }}{% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <p style="color:var(--text-dim);">No legacy blacklist records were found.</p>
+        {% endfor %}
+    </div>
+</section>
