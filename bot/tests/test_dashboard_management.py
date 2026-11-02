@@ -269,6 +269,29 @@ class DashboardManagementRouteTests(DashboardFixture, unittest.TestCase):
             saved["user"] = {"id": user, "username": "Example"}
             saved["carry_application_csrf"] = "test-csrf"
 
+    def test_bot_enable_starts_discord_worker_without_restarting_flask(self):
+        self.seed_access({"manual_bot_enabled": False, "allowed_users": ["101"]})
+        with patch.object(self.main, "_start_bot_background", return_value=True) as start_bot, patch.object(self.main.os, "execv") as execv:
+            response = self.client.post("/dashboard/access/set-bot-state", data={
+                "csrf_token": "test-csrf",
+                "enabled": "on",
+            })
+        self.assertEqual(response.status_code, 302)
+        start_bot.assert_called_once_with()
+        execv.assert_not_called()
+        self.assertTrue(access.get_manual_bot_enabled())
+        self.assertEqual(access.get_access_settings()["allowed_users"], ["101"])
+
+    def test_flask_listener_disables_werkzeug_reloader(self):
+        with patch.dict(os.environ, {"PORT": "10000"}), patch.object(self.main.app, "run") as app_run:
+            self.main.run_flask()
+        app_run.assert_called_once_with(
+            host="0.0.0.0",
+            port=10000,
+            use_reloader=False,
+            threaded=True,
+        )
+
     def test_admin_dashboard_remains_accessible_during_discord_api_cooldown(self):
         future = __import__("time").time() + 300
         self.start_patch(patch.object(self.main, "web_lockdown_until", 0))
