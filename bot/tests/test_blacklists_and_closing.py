@@ -123,8 +123,9 @@ class BlacklistChecks:
         member = SimpleNamespace(id=123, roles=[SimpleNamespace(id=666)])
         self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": []}))
         self.assertEqual(blacklists.restriction_reason(member, {"blacklist_roles": ["666"]}), "Configured reason")
-        blacklists.save_types([dict(name="Disabled role", role_id="666", reason="", enabled=False)])
+        blacklists.save_types([dict(name="Disabled role", role_id="666", reason="", enabled=False, block_all=False)])
         self.assertIsNone(blacklists.restriction_reason(member, None))
+        self.assertIsNone(blacklists.restriction_reason(member, {"blacklist_roles": ["666"]}))
         self.assertFalse(blacklists.get_types()[0]["enabled"])
 
     def test_editor_updates_the_enabled_global_role_list(self):
