@@ -57,7 +57,7 @@ def get_types(guild=None):
 
 
 def save_types(rows):
-    """Save named blacklist roles; reasons are optional and each role is global."""
+    """Save named blacklist roles; new entries default global, legacy scopes persist."""
     from utils.dashboard_settings import _database, _read_json, _write_json, _file_lock
     if len(rows) > 25:
         raise ValueError("Use at most 25 blacklist roles.")
