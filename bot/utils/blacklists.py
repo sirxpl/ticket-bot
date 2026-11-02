@@ -39,6 +39,7 @@ def get_types(guild=None):
             "name": name or (resolved.name if resolved else "Blacklist role " + role),
             "reason": reason,
             "enabled": entry.get("enabled", True) is True,
+            "block_all": entry.get("block_all", True) is True,
         })
         seen.add(role)
     for value in settings.get("blacklist_roles", []):
@@ -49,7 +50,7 @@ def get_types(guild=None):
         result.append(dict(
             id=role, role_id=role,
             name=resolved.name if resolved else "Blacklist role " + role,
-            reason="", enabled=True,
+            reason="", enabled=True, block_all=True,
         ))
         seen.add(role)
     return result
@@ -72,7 +73,8 @@ def save_types(rows):
         if not re.fullmatch(r"[0-9]{1,20}", role):
             raise ValueError("Choose a valid blacklist role.")
         enabled = row.get("enabled", True) is True
-        result.append(dict(id=role, name=name, role_id=role, reason=reason, enabled=enabled))
+        block_all = row.get("block_all", True) is True
+        result.append(dict(id=role, name=name, role_id=role, reason=reason, enabled=enabled, block_all=block_all))
         seen.add(role)
     enabled_roles = [row["role_id"] for row in result if row["enabled"]]
     db = _database(access)
@@ -184,20 +186,21 @@ async def remove_member(member, entry, reason):
 
 
 def restriction_reason(member, category=None):
-    """Return a restriction only when the member holds an enabled configured role.
-
-    Legacy per-user records are retained for migration review but are not an
-    enforcement source; Discord role membership is authoritative.
-    """
+    """Check configured Discord roles; legacy user-ID rows never enforce access."""
     roles = {str(role.id) for role in getattr(member, "roles", [])}
+    category_roles = {str(role) for role in (category or {}).get("blacklist_roles", [])}
     for profile in get_types(getattr(member, "guild", None)):
-        if not profile.get("enabled", True) or profile["role_id"] not in roles:
+        role = profile["role_id"]
+        if not profile.get("enabled", True) or role not in roles:
             continue
-        reason = profile.get("reason")
-        return reason or (
-            f"You currently hold the **{profile['name']}** blacklist role. "
-            "Ticket creation is disabled while this role is enabled."
-        )
+        if profile.get("block_all", True) or role in category_roles:
+            reason = profile.get("reason")
+            return reason or (
+                f"You currently hold the **{profile['name']}** blacklist role. "
+                "Ticket creation is disabled for this ticket type."
+            )
+    if roles.intersection(category_roles):
+        return "One of your roles is blocked from creating this ticket type."
     return None
 
 
