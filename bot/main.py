@@ -40,7 +40,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from utils.storage import (
     get_tickets_data, 
     get_blacklist_data, 
-    remove_from_blacklist, 
     TRANSCRIPTS_DIR,
     get_settings,
     set_tickets_enabled,
@@ -2603,48 +2602,9 @@ def view_ticket(ticket_id):
     return render_template("ticket_detail.html", ticket=ticket, logs=logs, transcript_url=transcript_url, created_at=created_at)
 
 
-@app.route("/api/unblacklist/<user_id>", methods=["POST"])
-@admin_required
-def api_unblacklist(user_id):
-    if not _valid_carry_application_csrf():
-        return jsonify(success=False, error="Form expired. Reload and try again."), 400
-    if not user_id.isdigit():
-        abort(400)
-    async def remove_saved_blacklist():
-        entry = next((row for row in get_blacklist_data(include_expired=True)["blacklisted_users"]
-                      if str(row.get("user_id")) == user_id), None)
-        if entry is None:
-            return False
-        guild_id = entry.get("guild_id")
-        guilds = [bot.get_guild(int(guild_id))] if guild_id else bot.guilds
-        if not guilds or any(guild is None for guild in guilds):
-            raise RuntimeError("The blacklist server is unavailable.")
-        for guild in guilds:
-            try:
-                member = guild.get_member(int(user_id)) or await guild.fetch_member(int(user_id))
-            except discord.NotFound:
-                continue
-            assigned = blacklists.role_id(entry)
-            role = guild.get_role(int(assigned)) if assigned else None
-            if role and any(item.id == role.id for item in member.roles):
-                await audit.change_role(member, role, add=False, reason="Blacklist removed from dashboard")
-        return blacklists.remove(user_id, expected_entry=entry)
-    if not bot.is_ready():
-        return jsonify(success=False, error="The bot must be online to remove the assigned role."), 503
-    try:
-        removed = asyncio.run_coroutine_threadsafe(remove_saved_blacklist(), bot.loop).result(timeout=20)
-    except Exception:
-        app.logger.exception("Could not remove blacklist from dashboard")
-        return jsonify(success=False, error="Could not confirm removal. Check the bot's Manage Roles permission and role position, then retry."), 503
-    if removed:
-        from cogs.tickets import send_blacklist_log
-        from utils.storage import append_ticket_log
-        append_ticket_log({"ticket_id": "global", "action": "blacklist_removed", "target": {"id": user_id},
-            "executor": {"id": str(session["user"]["id"])}, "reason": "Removed from dashboard",
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
-        asyncio.run_coroutine_threadsafe(send_blacklist_log(bot, "blacklist_removed", user=user_id,
-            reason="Removed from dashboard", executor=str(session["user"]["id"])), bot.loop)
-    return jsonify(success=removed)
+# The previous per-user blacklist removal endpoint is retired. Legacy records
+# remain read-only on the Blacklists page while staff manage Discord roles
+# directly in the server.
 
 
 
