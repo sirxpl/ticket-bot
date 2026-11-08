@@ -101,13 +101,13 @@
     <section class="settings-group points-admin-group" id="access-automatic-points">
         <h2 class="settings-group-title">Automatic Rewards</h2>
         <details class="card" id="access-points-automatic-rewards" open>
-            <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Automatic Rewards</h3><p class="card-subtitle">Manage case gamemode rewards and non-case phrase rewards together.</p></div><span class="card-chevron">▾</span></summary>
+            <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Automatic Rewards</h3><p class="card-subtitle">Manage non-case rewards together, including exact gamemode rules and phrase matches.</p></div><span class="card-chevron">▾</span></summary>
             <div class="card-body">
-                <p class="card-subtitle">Both reward types are managed here. Gamemode rewards trigger on valid numbered case submissions and use the highest player-count tier met by unique people pinged in section 1. Phrase rewards trigger when a configured phrase appears in an ordinary message in a Format Checker channel. Each pinged player receives the selected gamemode amount; phrase rewards go to the message author. Numbered case submissions never trigger phrase rewards.</p>
+                <p class="card-subtitle">Configure both reward types in this one Non-case Rewards section. Exact gamemode rules take priority on valid numbered submissions and use the highest player-count tier met by unique people pinged in section 1. If section 3 does not match an exact gamemode, a configured phrase can match anywhere in that text; the phrase reward goes to the unique Carry Team members pinged in section 1. Phrase rewards can also match ordinary messages in a Format Checker channel and go to that message's author.</p>
 
                 <div class="points-admin-gamemodes" id="points-gamemodes">
                     <div class="points-admin-reward-builder-heading">
-                        <h4>Non-case / Gamemode rewards</h4>
+                        <h4>Gamemode rules</h4>
                         <p class="card-subtitle">Match section 3, then select the highest qualifying “players or more” tier.</p>
                     </div>
                     {% for mode in points_config.gamemodes %}
@@ -135,8 +135,8 @@
 
                 <div class="points-admin-gamemodes" id="points-phrase-rewards">
                     <div class="points-admin-reward-builder-heading">
-                        <h4>Non-case / Phrase rewards</h4>
-                        <p class="card-subtitle">Match text in ordinary messages; capitalization and formatting do not matter. Only the first matching phrase rule is applied per message.</p>
+                        <h4>Phrase matching</h4>
+                        <p class="card-subtitle">Match a phrase anywhere in section 3 when no exact gamemode rule matches, or in an ordinary message in a Format Checker channel. Matching is case-insensitive; only the first configured phrase rule is applied.</p>
                     </div>
                     {% for reward in points_config.phrase_rewards %}
                     <div class="points-admin-gamemode-row">
