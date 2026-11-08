@@ -169,11 +169,11 @@ class PointsCog(commands.Cog):
         await self._deliver_log(
             interaction.guild, action, user_id=user.id, username=_member_name(user),
             amount=amount if mode != "subtract" else -amount,
-            points_after=int(result.get("points", 0)), reason=reason,
+            points_after=float(result.get("points", 0)), reason=reason,
             actor_id=interaction.user.id, actor_name=_member_name(interaction.user),
         )
         public_body = (
-            f"{user.mention} now has {int(result.get('points', 0)):,} points.\n"
+            f"{user.mention} now has {float(result.get('points', 0)):g} points.\n"
             f"Action: {mode.title()} {amount:,}\n"
             f"Reason: {discord.utils.escape_mentions(reason)}\n"
             f"Changed by: {discord.utils.escape_markdown(_member_name(interaction.user))}"
@@ -183,7 +183,7 @@ class PointsCog(commands.Cog):
             view=_v2_notice(
                 "Points Updated",
                 f"Your change was processed. {user.mention} now has "
-                f"{int(result.get('points', 0)):,} points.",
+                f"{float(result.get('points', 0)):g} points.",
             ),
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -220,8 +220,8 @@ class PointsCog(commands.Cog):
                 user_id = str(row.get("user_id") or "").strip()
                 if not user_id.isdigit():
                     continue
-                points_value = int(row.get("points", 0))
-                lines.append(f"**#{index}** <@{user_id}> — **{points_value:,}** points")
+                points_value = float(row.get("points", 0))
+                lines.append(f"**#{index}** <@{user_id}> — **{points_value:g}** points")
             body = "\n".join(lines) if lines else "No leaderboard members are available yet."
             container.add_item(discord.ui.TextDisplay(body))
         else:
