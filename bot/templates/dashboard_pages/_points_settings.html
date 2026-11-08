@@ -101,14 +101,14 @@
     <section class="settings-group points-admin-group" id="access-automatic-points">
         <h2 class="settings-group-title">Automatic points</h2>
         <details class="card" id="access-points-gamemodes">
-            <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Gamemode Rewards</h3><p class="card-subtitle">Set the point amount and reason that match section 3.</p></div><span class="card-chevron">▾</span></summary>
+            <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Gamemode Rewards</h3><p class="card-subtitle">Set the point amount and reason that match section 3. Negative values deduct points; decimals are supported.</p></div><span class="card-chevron">▾</span></summary>
             <div class="card-body">
                 <p class="card-subtitle">The section 3 gamemode must exactly match a row below, ignoring letter case. Unknown gamemodes do not award points. Each row contains match text, points, and an optional reason.</p>
                 <div class="points-admin-gamemodes" id="points-gamemodes">
                     {% for mode in points_config.gamemodes %}
                     <div class="points-admin-gamemode-row">
                         <input name="gamemode_text" value="{{ mode.text }}" maxlength="80" placeholder="Gamemode" aria-label="Gamemode text">
-                        <input name="gamemode_points" value="{{ mode.points }}" type="number" min="0" max="1000000000" step="1" placeholder="Points" aria-label="Points amount">
+                        <input name="gamemode_points" value="{{ mode.points }}" type="number" min="-1000000000" max="1000000000" step="any" placeholder="Points (+/- or decimal)" aria-label="Points amount">
                         <input name="gamemode_reason" value="{{ mode.reason }}" maxlength="500" placeholder="Optional reason" aria-label="Points reason">
                         <button type="button" class="points-admin-remove" aria-label="Remove gamemode">Remove</button>
                     </div>
