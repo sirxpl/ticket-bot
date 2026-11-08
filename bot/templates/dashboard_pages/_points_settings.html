@@ -103,14 +103,26 @@
         <details class="card" id="access-points-gamemodes">
             <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Gamemode Rewards</h3><p class="card-subtitle">Set the point amount and reason that match section 3. Negative values deduct points; decimals are supported.</p></div><span class="card-chevron">▾</span></summary>
             <div class="card-body">
-                <p class="card-subtitle">The section 3 gamemode must exactly match a row below, ignoring letter case. Unknown gamemodes do not award points. Each row contains match text, points, and an optional reason.</p>
+                <p class="card-subtitle">Section 3 selects the gamemode. For each gamemode, add player-count tiers: the highest “players or more” threshold met by the number of unique people pinged in section 1 applies. Every pinged player receives that tier's points. Negative values deduct points; decimals are supported.</p>
                 <div class="points-admin-gamemodes" id="points-gamemodes">
                     {% for mode in points_config.gamemodes %}
-                    <div class="points-admin-gamemode-row">
-                        <input name="gamemode_text" value="{{ mode.text }}" maxlength="80" placeholder="Gamemode" aria-label="Gamemode text">
-                        <input name="gamemode_points" value="{{ mode.points }}" type="number" min="-1000000000" max="1000000000" step="any" placeholder="Points (+/- or decimal)" aria-label="Points amount">
-                        <input name="gamemode_reason" value="{{ mode.reason }}" maxlength="500" placeholder="Optional reason" aria-label="Points reason">
-                        <button type="button" class="points-admin-remove" aria-label="Remove gamemode">Remove</button>
+                    <div class="points-admin-gamemode-group" data-gamemode-group>
+                        <div class="points-admin-gamemode-heading">
+                            <input data-gamemode-name value="{{ mode.text }}" maxlength="80" placeholder="Gamemode" aria-label="Gamemode name">
+                            <button type="button" class="points-admin-remove" data-remove-gamemode aria-label="Remove {{ mode.text }}">Remove gamemode</button>
+                        </div>
+                        <div class="points-admin-reward-tiers" data-gamemode-tiers>
+                            {% for tier in mode.rewards %}
+                            <div class="points-admin-gamemode-row" data-gamemode-tier>
+                                <input type="hidden" name="gamemode_text" value="{{ mode.text }}">
+                                <input name="gamemode_min_players" value="{{ tier.min_players }}" type="number" min="1" max="1000" step="1" placeholder="Players or more" aria-label="Minimum players">
+                                <input name="gamemode_points" value="{{ tier.points }}" type="number" min="-1000000000" max="1000000000" step="any" placeholder="Points (+/- or decimal)" aria-label="Points amount">
+                                <input name="gamemode_reason" value="{{ tier.reason }}" maxlength="500" placeholder="Optional reason" aria-label="Points reason">
+                                <button type="button" class="points-admin-remove" data-remove-tier aria-label="Remove reward tier">Remove tier</button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <button type="button" class="points-admin-add" data-add-tier>＋ Add player-count tier</button>
                     </div>
                     {% endfor %}
                 </div>
