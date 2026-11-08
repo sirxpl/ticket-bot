@@ -2791,15 +2791,29 @@ def points_save_settings_route():
                     raise ValueError("Choose valid server roles for Points access and exemptions.")
 
         gamemode_texts = request.form.getlist("gamemode_text")
+        gamemode_min_players = request.form.getlist("gamemode_min_players")
         gamemode_points = request.form.getlist("gamemode_points")
         gamemode_reasons = request.form.getlist("gamemode_reason")
-        gamemodes = []
+        gamemodes_by_name = {}
         for index, text_value in enumerate(gamemode_texts):
+            name = str(text_value or "").strip()
             amount = gamemode_points[index] if index < len(gamemode_points) else ""
+            minimum = gamemode_min_players[index] if index < len(gamemode_min_players) else "1"
             reason = gamemode_reasons[index] if index < len(gamemode_reasons) else ""
-            if not str(text_value or "").strip() and not str(amount or "").strip() and not str(reason or "").strip():
+            if not name and not str(amount or "").strip() and not str(reason or "").strip():
                 continue
-            gamemodes.append({"text": text_value, "points": amount or 0, "reason": reason})
+            if not name:
+                raise ValueError("Every player-count reward tier needs a gamemode name.")
+            key = name.casefold()
+            entry = gamemodes_by_name.setdefault(key, {"text": name, "rewards": []})
+            if entry["text"] != name and entry["text"].casefold() == key:
+                name = entry["text"]
+            entry["rewards"].append({
+                "min_players": minimum or 1,
+                "points": amount or 0,
+                "reason": reason,
+            })
+        gamemodes = list(gamemodes_by_name.values())
 
         phrase_texts = request.form.getlist("phrase_reward_text")
         phrase_points = request.form.getlist("phrase_reward_points")
