@@ -31,19 +31,19 @@ ANCHOR = dt.datetime(2026, 9, 2, 23, 0, tzinfo=EASTERN)
 SLOT = dt.timedelta(hours=3)
 
 TRIALS = [
-    ("<:LimitationModifier:1545248731480195122>", "Limitation"),
-    ("<:FlyingEnemiesModifier:1545248724614381688>", "Flying"),
-    ("<:JailedModifier:1545248730293207040>", "Jailed Towers"),
-    ("<:ExplodingEnemiesModifier:1545248723389648937>", "Exploding"),
-    ("<:InflationModifier:1545248729202823260>", "Inflation"),
-    ("<:CommittedModifier:1545248722324168744>", "Committed"),
-    ("<:HiddenEnemiesModifier:1545248728405909574>", "Hidden"),
-    ("<:BrokeModifier:1545248721099292674>", "Broke"),
-    ("<:HealthyEnemiesModifier:1545248727663517708>", "Healthy"),
-    ("<:SpeedyEnemiesModifier:1545248734038859796>", "Speedy"),
-    ("<:GlassModifier:1545248726849818734>", "Glass"),
-    ("<:QuarantineModifier:1545248732474515507>", "Quarantine"),
-    ("<:FogModifier:1545248725788790894>", "Fog"),
+    ("<:TDS_Limitation:1565028377889345606>", "Limitation"),
+    ("<:TDS_Flying:1565028545741193326>", "Flying"),
+    ("<:TDS_Jailed:1565028231344685196>", "Jailed Towers"),
+    ("<:TDS_Exploding:1565028336340566147>", "Exploding"),
+    ("<:TDS_Inflation:1565028639781818500>", "Inflation"),
+    ("<:TDS_Committed:1565028419408896090>", "Committed"),
+    ("<:TDS_Hidden:1565028158162337792>", "Hidden"),
+    ("<:TDS_Broke:1565028572891062334>", "Broke"),
+    ("<:TDS_Healthy:1565028450245288016>", "Healthy"),
+    ("<:TDS_Speedy:1565028489315487915>", "Speedy"),
+    ("<:TDS_Glass:1565028193155555549>", "Glass"),
+    ("<:TDS_Quarantine:1565028603664797817>", "Quarantine"),
+    ("<:TDS_Fog:1565028513575342281>", "Fog"),
 ]
 
 
