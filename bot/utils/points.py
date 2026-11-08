@@ -528,8 +528,10 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
             user = _new_user(guild_key, uid, username)
             data["users"].append(user)
         user["username"] = str(username or user.get("username") or uid)[:100]
-        current = int(user.get("points", 0))
+        current = float(user.get("points", 0))
         user["points"] = amount if mode == "set" else max(0, current + (amount if mode == "add" else -amount))
+        if isinstance(user["points"], float) and user["points"].is_integer():
+            user["points"] = int(user["points"])
         if mode in {"set", "add"}:
             user["hidden"] = False
         user["updated_at"] = now
@@ -575,7 +577,7 @@ def remove_points_user(guild_id, user_id, username=None, reason=None, actor_id=N
                     _write_activity(db, {
                         "guild_id": guild_key, "user_id": uid, "username": str(username or uid)[:100],
                         "action": "leaderboard_removed", "amount": 0,
-                        "points_after": int((updated or {}).get("points", 0)),
+                        "points_after": float((updated or {}).get("points", 0)),
                         "reason": clean_reason, "actor_id": str(actor_id) if actor_id else None,
                         "actor_name": str(actor_name or actor_id or "Discord")[:100],
                         "ticket_number": None, "thread_id": None, "details": "", "created_at": now,
@@ -593,7 +595,7 @@ def remove_points_user(guild_id, user_id, username=None, reason=None, actor_id=N
         user.update({"username": str(username or uid)[:100], "hidden": True, "updated_at": now})
         _record_local_event(data, {
             "guild_id": guild_key, "user_id": uid, "username": user["username"],
-            "action": "leaderboard_removed", "amount": 0, "points_after": int(user.get("points", 0)),
+            "action": "leaderboard_removed", "amount": 0, "points_after": float(user.get("points", 0)),
             "reason": clean_reason, "actor_id": str(actor_id) if actor_id else None,
             "actor_name": str(actor_name or actor_id or "Discord")[:100],
             "ticket_number": None, "thread_id": None, "details": "", "created_at": now,
