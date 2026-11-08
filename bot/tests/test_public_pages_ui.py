@@ -104,6 +104,9 @@ class PublicPagesLayoutTests(unittest.TestCase):
         self.assertIn('name="application-panel"', utilities)
         self.assertIn("/carry-application", utilities)
         self.assertNotIn('"label": "Dashboard"', utilities)
+        self.assertIn('**Outage started:** <t:{start_ts}:F>', utilities)
+        self.assertIn('**Recovery:** Ongoing — no recovery time has been recorded.', utilities)
+        self.assertIn('**Recovered:** <t:{int(recovered.timestamp())}:F>', utilities)
 
     def test_legacy_carry_agreement_page_is_removed(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
