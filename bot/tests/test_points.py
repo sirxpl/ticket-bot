@@ -96,6 +96,23 @@ class PointsStorageTests(unittest.TestCase):
         self.assertEqual(points.find_gamemode_rule(config, "mOlTeN")["points"], 75)
         self.assertIsNone(points.find_gamemode_rule(config, "Molten Boss"))
 
+    def test_phrase_rewards_normalize_and_match_plain_text_case_insensitively(self):
+        config = points.normalize_points_config({
+            "phrase_rewards": [{"text": "Night 4 Hard", "points": "125", "reason": "Challenge"}],
+        })
+        self.assertEqual(config["phrase_rewards"][0]["points"], 125)
+        self.assertEqual(points.find_phrase_reward(config, "I completed NIGHT 4 HARD today")["text"], "Night 4 Hard")
+        self.assertIsNone(points.find_phrase_reward(config, "Night 4"))
+
+    def test_phrase_rewards_reject_duplicate_phrases_ignoring_case(self):
+        with self.assertRaises(ValueError):
+            points.normalize_points_config({
+                "phrase_rewards": [
+                    {"text": "Night 4 Hard", "points": 10},
+                    {"text": "night 4 hard", "points": 20},
+                ],
+            })
+
     def test_valid_format_uses_section_one_and_three_for_points(self):
         parsed, error = points.validate_format(
             "1. <@101> <@!102>\n"
