@@ -104,6 +104,24 @@ class PointsStorageTests(unittest.TestCase):
         self.assertEqual(points.find_phrase_reward(config, "I completed NIGHT 4 HARD today")["text"], "Night 4 Hard")
         self.assertIsNone(points.find_phrase_reward(config, "Night 4"))
 
+    def test_phrase_rewards_accept_negative_integers_and_decimal_values(self):
+        config = points.normalize_points_config({
+            "phrase_rewards": [
+                {"text": "Night 4 Hard", "points": "-25"},
+                {"text": "Night 5 Hard", "points": "12.75"},
+            ],
+        })
+        self.assertEqual(config["phrase_rewards"][0]["points"], -25)
+        self.assertEqual(config["phrase_rewards"][1]["points"], 12.75)
+
+    def test_automatic_phrase_adjustments_preserve_decimals_and_floor_balance_at_zero(self):
+        points.adjust_points("guild", "101", "CarryOne", "add", 10, "Initial balance")
+        deducted = points.award_auto_points("guild", "3011", "Night 4 Hard", ["101"], -3.5, "Phrase deduction")
+        self.assertEqual(deducted["awarded"], ["101"])
+        self.assertEqual(points.get_points_leaderboard("guild")["items"][0]["points"], 6.5)
+        points.award_auto_points("guild", "3012", "Night 5 Hard", ["101"], -10, "Phrase deduction")
+        self.assertEqual(points.get_points_leaderboard("guild")["items"][0]["points"], 0)
+
     def test_phrase_rewards_reject_duplicate_phrases_ignoring_case(self):
         with self.assertRaises(ValueError):
             points.normalize_points_config({
