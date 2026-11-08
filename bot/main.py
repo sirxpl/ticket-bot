@@ -2801,6 +2801,17 @@ def points_save_settings_route():
                 continue
             gamemodes.append({"text": text_value, "points": amount or 0, "reason": reason})
 
+        phrase_texts = request.form.getlist("phrase_reward_text")
+        phrase_points = request.form.getlist("phrase_reward_points")
+        phrase_reasons = request.form.getlist("phrase_reward_reason")
+        phrase_rewards = []
+        for index, text_value in enumerate(phrase_texts):
+            amount = phrase_points[index] if index < len(phrase_points) else ""
+            reason = phrase_reasons[index] if index < len(phrase_reasons) else ""
+            if not str(text_value or "").strip() and not str(amount or "").strip() and not str(reason or "").strip():
+                continue
+            phrase_rewards.append({"text": text_value, "points": amount or 0, "reason": reason})
+
         config = {
             "command_role_ids": command_roles,
             "thread_automation": {
@@ -2814,6 +2825,7 @@ def points_save_settings_route():
                 "exempt_role_ids": exempt_roles,
             },
             "gamemodes": gamemodes,
+            "phrase_rewards": phrase_rewards,
             "logging": {
                 "enabled": request.form.get("points_logging_enabled") == "yes",
                 "channel_id": log_channel_id or None,
