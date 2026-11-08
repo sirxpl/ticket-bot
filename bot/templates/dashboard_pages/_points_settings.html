@@ -99,12 +99,17 @@
     </section>
 
     <section class="settings-group points-admin-group" id="access-automatic-points">
-        <h2 class="settings-group-title">Automatic points</h2>
-        <details class="card" id="access-points-gamemodes">
-            <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Gamemode Rewards</h3><p class="card-subtitle">Set the point amount and reason that match section 3. Negative values deduct points; decimals are supported.</p></div><span class="card-chevron">▾</span></summary>
+        <h2 class="settings-group-title">Automatic Rewards</h2>
+        <details class="card" id="access-points-automatic-rewards" open>
+            <summary><div class="card-head-text"><h3><span class="card-icon">✨</span> Automatic Rewards</h3><p class="card-subtitle">Manage case gamemode rewards and non-case phrase rewards together.</p></div><span class="card-chevron">▾</span></summary>
             <div class="card-body">
-                <p class="card-subtitle">Section 3 selects the gamemode. For each gamemode, add player-count tiers: the highest “players or more” threshold met by the number of unique people pinged in section 1 applies. Every pinged player receives that tier's points. Negative values deduct points; decimals are supported.</p>
+                <p class="card-subtitle">Both reward types are managed here. Gamemode rewards trigger on valid numbered case submissions and use the highest player-count tier met by unique people pinged in section 1. Phrase rewards trigger when a configured phrase appears in an ordinary message in a Format Checker channel. Each pinged player receives the selected gamemode amount; phrase rewards go to the message author. Numbered case submissions never trigger phrase rewards.</p>
+
                 <div class="points-admin-gamemodes" id="points-gamemodes">
+                    <div class="points-admin-reward-builder-heading">
+                        <h4>Case / Gamemode rewards</h4>
+                        <p class="card-subtitle">Match section 3, then select the highest qualifying “players or more” tier.</p>
+                    </div>
                     {% for mode in points_config.gamemodes %}
                     <div class="points-admin-gamemode-group" data-gamemode-group>
                         <div class="points-admin-gamemode-heading">
@@ -126,14 +131,13 @@
                     </div>
                     {% endfor %}
                 </div>
-                <button class="points-admin-add" type="button" id="points-add-gamemode">＋ Add gamemode</button>
-            </div>
-        </details>
-        <details class="card" id="access-points-phrase-rewards">
-            <summary><div class="card-head-text"><h3><span class="card-icon">🔎</span> Non-Case Phrase Rewards</h3><p class="card-subtitle">Award the message author when a configured phrase appears in a non-case message in the Format Checker channels.</p></div><span class="card-chevron">▾</span></summary>
-            <div class="card-body">
-                <p class="card-subtitle">Matching ignores capitalization and formatting. The phrase can appear anywhere in the message. Numbered Format Checker submissions use Gamemode Rewards instead. Only the first matching phrase rule is applied per message. Negative values deduct points; balances cannot drop below zero. Decimals are supported.</p>
+                <button class="points-admin-add" type="button" id="points-add-gamemode">＋ Add gamemode reward</button>
+
                 <div class="points-admin-gamemodes" id="points-phrase-rewards">
+                    <div class="points-admin-reward-builder-heading">
+                        <h4>Non-case / Phrase rewards</h4>
+                        <p class="card-subtitle">Match text in ordinary messages; capitalization and formatting do not matter. Only the first matching phrase rule is applied per message.</p>
+                    </div>
                     {% for reward in points_config.phrase_rewards %}
                     <div class="points-admin-gamemode-row">
                         <input name="phrase_reward_text" value="{{ reward.text }}" maxlength="80" placeholder="Phrase to detect" aria-label="Phrase to detect">
@@ -144,6 +148,8 @@
                     {% endfor %}
                 </div>
                 <button class="points-admin-add" type="button" id="points-add-phrase-reward">＋ Add phrase reward</button>
+
+                <p class="card-subtitle">Negative values deduct points, decimals are supported, and a member’s balance cannot fall below zero. Existing gamemode and phrase rules are preserved when you save this combined settings panel.</p>
             </div>
         </details>
     </section>
