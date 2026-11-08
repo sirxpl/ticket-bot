@@ -580,15 +580,24 @@ class PointsCog(commands.Cog):
         rule = points.find_gamemode_reward(
             config, parsed["gamemode"], len(parsed["recipients"])
         )
+        reward_type = "gamemode"
         if rule is None:
-            await self._record_and_log(
-                message.guild, "automatic_skipped", user_id=message.author.id,
-                username=_member_name(message.author), ticket_number=parsed["ticket_number"],
-                thread_id=thread.id if thread else None, gamemode=parsed["gamemode"],
-                reason=f"Gamemode '{parsed['gamemode']}' is not configured in the Points dashboard.",
-                details="Format passed, but no automatic points were awarded.",
-            )
-            return
+            # If section 3 is not an exact gamemode match, allow a configured
+            # phrase rule to match anywhere in the gamemode text. The recipients
+            # remain the unique Carry Team mentions parsed from section 1.
+            phrase_rule = points.find_phrase_reward(config, parsed["gamemode"])
+            if phrase_rule is not None:
+                rule = {**phrase_rule, "min_players": 1}
+                reward_type = "phrase"
+            else:
+                await self._record_and_log(
+                    message.guild, "automatic_skipped", user_id=message.author.id,
+                    username=_member_name(message.author), ticket_number=parsed["ticket_number"],
+                    thread_id=thread.id if thread else None, gamemode=parsed["gamemode"],
+                    reason=f"Gamemode '{parsed['gamemode']}' is not configured in the Points dashboard.",
+                    details="Format passed, but no automatic points were awarded.",
+                )
+                return
 
         usernames = {}
         for user_id in parsed["recipients"]:
@@ -599,7 +608,10 @@ class PointsCog(commands.Cog):
                 points.award_auto_points,
                 message.guild.id, parsed["ticket_number"], parsed["gamemode"],
                 parsed["recipients"], rule["points"],
-                rule.get("reason") or f"Automatic {rule['text']} points",
+                rule.get("reason") or (
+                    f"Automatic phrase reward: {rule['text']}" if reward_type == "phrase"
+                    else f"Automatic {rule['text']} points"
+                ),
                 usernames, thread.id if thread else None,
                 submission_id=str(message.id),
             )
@@ -626,10 +638,16 @@ class PointsCog(commands.Cog):
             recipients = ", ".join(f"<@{user_id}>" for user_id in result["awarded"])
             await self._deliver_log(
                 message.guild, "automatic_awarded", username=recipients,
-                amount=rule["points"], reason=rule.get("reason") or f"Automatic {rule['text']} points",
+                amount=rule["points"], reason=rule.get("reason") or (
+                    f"Automatic phrase reward: {rule['text']}" if reward_type == "phrase"
+                    else f"Automatic {rule['text']} points"
+                ),
                 ticket_number=parsed["ticket_number"], thread_id=thread.id if thread else None,
                 gamemode=parsed["gamemode"], actor_name="Format Checker",
                 details=(
+                    f"Awarded {rule['points']:+g} points per person for a phrase match "
+                    f"({rule['text']}) across {len(parsed['recipients'])} section 1 recipient(s)."
+                    if reward_type == "phrase" else
                     f"Awarded {rule['points']:+g} points per person using the "
                     f"{rule['min_players']}+ player tier ({len(parsed['recipients'])} pinged)."
                 ),
