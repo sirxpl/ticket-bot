@@ -1007,7 +1007,7 @@ class UtilityCog(commands.Cog):
 
     @app_commands.command(
         name="panel",
-        description="Get a link to the dashboard and site",
+        description="Get website links and live website status",
     )
     async def panel(
         self,
