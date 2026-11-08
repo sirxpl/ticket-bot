@@ -100,12 +100,15 @@ class PointsCog(commands.Cog):
         """Post the actual automatic-points result inside its Format Checker thread."""
         awarded = list(awarded or [])
         excluded = list(excluded or [])
-        total = len(awarded) * int(amount)
+        total = len(awarded) * float(amount)
+        amount_label = f"{float(amount):+g}"
+        total_label = f"{total:+g}"
+        positive = float(amount) >= 0
         container = discord.ui.Container(
-            accent_color=discord.Color.green() if awarded else discord.Color.orange()
+            accent_color=discord.Color.green() if awarded and positive else discord.Color.orange()
         )
         container.add_item(discord.ui.TextDisplay(
-            "## " + ("✨ Automatic Points Awarded" if awarded else "⚠️ No Automatic Points Awarded")
+            "## " + (("✨ Automatic Points Awarded" if positive else "⚠️ Automatic Points Deducted") if awarded else "⚠️ No Automatic Points Awarded")
         ))
         container.add_item(discord.ui.Separator())
         lines = [
@@ -113,11 +116,11 @@ class PointsCog(commands.Cog):
             f"**Ticket:** {ticket_number}",
         ]
         if awarded:
-            lines.append(f"**Points per member:** +{int(amount):,}")
-            lines.append(f"**Total awarded:** +{total:,} points")
+            lines.append(f"**Points per member:** {amount_label}")
+            lines.append(f"**Total point change:** {total_label} points")
             lines.append("")
             lines.append("**Recipients**")
-            lines.extend(f"• <@{user_id}> — **+{int(amount):,} points**" for user_id in awarded)
+            lines.extend(f"• <@{user_id}> — **{amount_label} points**" for user_id in awarded)
         else:
             lines.append("No points were added for this ticket.")
         if excluded:
