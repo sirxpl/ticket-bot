@@ -86,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const input = document.createElement("input");
                 input.name = name; input.type = type; input.placeholder = placeholder;
                 input.setAttribute("aria-label", placeholder);
-                if (type === "number") { input.min = "0"; input.max = "1000000000"; input.step = "1"; }
+                if (type === "number") { input.min = "-1000000000"; input.max = "1000000000"; input.step = "any"; }
                 else input.maxLength = limit;
                 row.appendChild(input);
             }
