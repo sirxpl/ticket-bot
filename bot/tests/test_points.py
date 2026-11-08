@@ -268,6 +268,25 @@ class PointsStorageTests(unittest.TestCase):
         self.assertEqual(points.get_points_leaderboard("guild")["total"], 2)
         self.assertEqual(points.get_points_activity("guild")["total"], 2)
 
+    def test_same_ticket_number_can_be_awarded_for_distinct_submissions(self):
+        first = points.award_auto_points(
+            "guild", "2011", "Fallen", ["101"], 100, "First submission",
+            submission_id="discord-message-1",
+        )
+        second = points.award_auto_points(
+            "guild", "2011", "Fallen", ["101"], 100, "Second submission",
+            submission_id="discord-message-2",
+        )
+        retry = points.award_auto_points(
+            "guild", "2011", "Fallen", ["101"], 100, "Second submission",
+            submission_id="discord-message-2",
+        )
+        self.assertEqual(first["awarded"], ["101"])
+        self.assertEqual(second["awarded"], ["101"])
+        self.assertTrue(retry["duplicate"])
+        self.assertEqual(points.get_points_leaderboard("guild")["items"][0]["points"], 200)
+        self.assertEqual(points.get_points_activity("guild")["total"], 2)
+
     def test_remove_user_hides_member_from_leaderboard_and_keeps_audit_history(self):
         points.adjust_points("guild", "101", "CarryOne", "add", 500, "Top-up")
         points.remove_points_user("guild", "101", "CarryOne", "Staff decision", "900", "Manager")
