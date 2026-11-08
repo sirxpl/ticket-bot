@@ -229,11 +229,13 @@ def normalize_points_config(data):
         if len(text) > 80:
             raise ValueError("Gamemode text must be 80 characters or fewer.")
         try:
-            amount = int(row.get("points", row.get("number", 0)))
+            amount = float(row.get("points", row.get("number", 0)))
         except (TypeError, ValueError):
-            raise ValueError(f"Points for {text} must be a whole number.")
-        if amount < 0 or amount > MAX_POINTS:
-            raise ValueError(f"Points for {text} must be between 0 and {MAX_POINTS}.")
+            raise ValueError(f"Points for {text} must be a number.")
+        if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
+            raise ValueError(f"Points for {text} must be between -{MAX_POINTS} and {MAX_POINTS}.")
+        if amount.is_integer():
+            amount = int(amount)
         if text.casefold() in seen:
             raise ValueError(f"The gamemode {text} is configured more than once.")
         seen.add(text.casefold())
