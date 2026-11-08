@@ -96,6 +96,39 @@ class PointsStorageTests(unittest.TestCase):
         self.assertEqual(points.find_gamemode_rule(config, "mOlTeN")["points"], 75)
         self.assertIsNone(points.find_gamemode_rule(config, "Molten Boss"))
 
+    def test_gamemode_player_count_uses_highest_qualifying_tier_and_preserves_legacy_config(self):
+        config = points.normalize_points_config({
+            "gamemodes": [{
+                "text": "Easy",
+                "rewards": [
+                    {"min_players": 1, "points": "1"},
+                    {"min_players": 3, "points": "0.3"},
+                    {"min_players": 5, "points": "-2.5"},
+                ],
+            }],
+        })
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 1)["points"], 1)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 3)["points"], 0.3)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 4)["points"], 0.3)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 8)["points"], -2.5)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 8)["min_players"], 5)
+        legacy = points.normalize_points_config({
+            "gamemodes": [{"text": "Molten", "points": 75, "reason": "Carry"}],
+        })
+        self.assertEqual(points.find_gamemode_reward(legacy, "Molten", 4)["points"], 75)
+
+    def test_gamemode_player_count_tiers_reject_duplicate_thresholds(self):
+        with self.assertRaises(ValueError):
+            points.normalize_points_config({
+                "gamemodes": [{
+                    "text": "Easy",
+                    "rewards": [
+                        {"min_players": 1, "points": 1},
+                        {"min_players": 1, "points": 2},
+                    ],
+                }],
+            })
+
     def test_phrase_rewards_normalize_and_match_plain_text_case_insensitively(self):
         config = points.normalize_points_config({
             "phrase_rewards": [{"text": "Night 4 Hard", "points": "125", "reason": "Challenge"}],
