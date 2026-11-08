@@ -508,7 +508,7 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
                     activity = {
                         "guild_id": guild_key, "user_id": uid, "username": str(username or uid)[:100],
                         "action": action, "amount": amount if mode != "subtract" else -amount,
-                        "points_after": int((updated or {}).get("points", 0)), "reason": clean_reason,
+                        "points_after": float((updated or {}).get("points", 0)), "reason": clean_reason,
                         "actor_id": str(actor_id) if actor_id else None,
                         "actor_name": str(actor_name or actor_id or "Dashboard")[:100],
                         "ticket_number": None, "thread_id": None, "details": "",
