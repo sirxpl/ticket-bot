@@ -633,6 +633,56 @@ class PointsCog(commands.Cog):
                 details="Excluded user IDs: " + ", ".join(result["excluded"]),
             )
 
+    async def _handle_phrase_reward(self, message, config):
+        """Award the message author when a configured phrase appears outside a case submission."""
+        content = str(message.content or "")
+        first_line = next((line.strip() for line in content.splitlines() if line.strip()), "")
+        # Numbered submissions use the existing case/gamemode reward path instead.
+        if first_line.startswith("1."):
+            return
+        rule = points.find_phrase_reward(config, content)
+        if rule is None:
+            return
+        try:
+            result = await asyncio.to_thread(
+                points.award_auto_points,
+                message.guild.id, str(message.id), rule["text"],
+                [str(message.author.id)], rule["points"],
+                rule.get("reason") or f"Automatic phrase reward: {rule['text']}",
+                {str(message.author.id): _member_name(message.author)}, None,
+            )
+        except Exception:
+            logger.exception("Non-case phrase reward failed for message=%s", message.id)
+            await self._record_and_log(
+                message.guild, "automatic_skipped",
+                user_id=message.author.id, username=_member_name(message.author),
+                gamemode=rule["text"], reason="The phrase reward could not be safely saved.",
+                details=f"Message {message.id}; no points were confirmed.",
+            )
+            return
+        if result.get("duplicate") or not result.get("awarded"):
+            return
+        await self._deliver_log(
+            message.guild, "automatic_awarded",
+            user_id=message.author.id, username=_member_name(message.author),
+            amount=rule["points"], reason=rule.get("reason") or f"Automatic phrase reward: {rule['text']}",
+            gamemode=rule["text"], actor_name="Phrase Reward",
+            details=f"Matched phrase in message {message.id} in #{message.channel.name}.",
+        )
+        try:
+            await message.channel.send(
+                view=_v2_notice(
+                    "✨ Automatic Points Awarded",
+                    f"{message.author.mention} received **+{int(rule['points']):,} points** "
+                    f"for matching **{discord.utils.escape_markdown(rule['text'])}**.",
+                ),
+                allowed_mentions=discord.AllowedMentions.none(),
+                reference=message,
+                mention_author=False,
+            )
+        except discord.HTTPException:
+            logger.exception("Could not announce phrase reward for message=%s", message.id)
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.guild is None or message.author.bot or isinstance(message.channel, discord.Thread):
@@ -649,6 +699,7 @@ class PointsCog(commands.Cog):
             if not self.bot.intents.message_content:
                 logger.warning("Format Checker is enabled but Message Content Intent is disabled.")
                 return
+            await self._handle_phrase_reward(message, config)
             await self._handle_format_checker(message, config)
             return
 
