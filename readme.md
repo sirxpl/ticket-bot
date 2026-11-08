@@ -40,6 +40,36 @@ To run your own copy of this bot, fork the repository first rather than cloning 
 - **Application notifications** — choose bot delivery or a Discord webhook in Access Control; webhook delivery also creates a bot-owned review card so verdict buttons continue working
 - **Linked Roles verification** — optional Discord Connections integration so members can verify they've agreed to your rules without the bot needing any privileged intents
 - **MongoDB-backed persistence** — falls back to local JSON automatically if no database is configured, so it still works out of the box
+- **Points automation** — configure exact gamemode rewards with player-count tiers, plus case-insensitive phrase rewards; valid Format Checker submissions award the unique Carry Team members pinged in section 1
+- **Format Checker flexibility** — repeated ticket numbers are allowed across separate submissions, while the same Discord message cannot be processed twice
+- **Discord API incident handling** — detects explicit global/API access blocks, pauses repeated REST attempts during the server-provided cooldown, records and resolves incidents, and queues Discord status notifications until access recovers
+- **Carry Manager slash toggles** — admins can use `/toggle-tickets` and `/toggle-aprilfools` with true/false options; changes stay synchronized with dashboard settings
+
+
+---
+
+## 🎯 Points & Format Checker
+
+The Points dashboard brings gamemode and phrase-based rewards together in the same Automatic Rewards area while keeping their matching rules distinct:
+
+- **Exact gamemode rewards take priority.** A valid numbered Format Checker submission first checks section 3 against the configured gamemode names. Gamemode rules can have multiple player-count reward tiers; the highest tier met by the unique Carry Team members pinged in section 1 is selected.
+- **Phrase fallback for section 3.** If section 3 does not exactly match a configured gamemode, the bot checks it for a configured phrase. Matching is case-insensitive and can occur anywhere in the text. For example, a configured phrase such as `test` matches `super duper tiki tiki tiki test`.
+- **Who receives points.** For numbered Format Checker submissions, both gamemode rewards and phrase-fallback rewards go to the unique Carry Team members pinged in section 1—not the person who submitted the message. Section 2 identifies the carried user and is validation-only.
+- **Ordinary phrase messages.** Phrase rules can also match ordinary, non-numbered messages in configured Format Checker channels; those rewards go to the message author.
+- **Duplicate protection.** Each Discord submission message is processed at most once. Different messages may reuse the same ticket number and still be eligible for their own automatic reward.
+- **Audit history.** Automatic awards, skipped awards, exclusions, and related Format Checker outcomes are recorded in the Points activity logs.
+
+The phrase matching area is labeled **Phrase matching** within the shared Automatic Rewards panel. Keep the configured phrase rules and gamemode tiers current in the dashboard; an unmatched section 3 value will not receive an automatic reward.
+
+## 🛡️ Discord API access incidents
+
+Discord may temporarily block API access independently of ordinary route-level rate limits. When the bot detects an explicit global/API access block, it opens or updates a dedicated incident and honors Discord's server-provided cooldown instead of repeatedly retrying REST requests. The incident is resolved after access recovers. Repeated notifications for the same active block are coalesced, and queued Discord status messages are delivered after Discord access returns.
+
+For alerts that must reach an independent provider while Discord itself is unavailable, configure the optional `ALERT_WEBHOOK_URL` integration supported by the deployment. That provider must be reachable and can have its own rate limits. Discord webhooks cannot deliver through a Discord-wide API block.
+
+## ⚙️ Carry Manager system toggles
+
+Administrators can use `/toggle-tickets` and `/toggle-aprilfools` with a `true` or `false` option to change the corresponding system setting. These commands use the same storage settings as Carry Manager in the dashboard, so the command and dashboard remain synchronized.
 
 ---
 
