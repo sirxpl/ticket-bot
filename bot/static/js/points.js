@@ -120,7 +120,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (tierGroup.querySelectorAll("[data-gamemode-tier]").length > 1) {
                     removeTier.closest("[data-gamemode-tier]")?.remove();
                 } else {
-                    removeTier.closest("[data-gamemode-tier]")?.querySelectorAll("input:not([type=hidden])").forEach((input) => { input.value = ""; });
+                    removeTier.closest("[data-gamemode-group]")?.remove();
                 }
                 return;
             }
