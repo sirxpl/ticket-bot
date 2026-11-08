@@ -228,21 +228,54 @@ def normalize_points_config(data):
             continue
         if len(text) > 80:
             raise ValueError("Gamemode text must be 80 characters or fewer.")
-        try:
-            amount = float(row.get("points", row.get("number", 0)))
-        except (TypeError, ValueError):
-            raise ValueError(f"Points for {text} must be a number.")
-        if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
-            raise ValueError(f"Points for {text} must be between -{MAX_POINTS} and {MAX_POINTS}.")
-        if amount.is_integer():
-            amount = int(amount)
-        if text.casefold() in seen:
+        key = text.casefold()
+        if key in seen:
             raise ValueError(f"The gamemode {text} is configured more than once.")
-        seen.add(text.casefold())
+        seen.add(key)
+        reward_rows = row.get("rewards")
+        if not isinstance(reward_rows, list) or not reward_rows:
+            reward_rows = [{
+                "min_players": 1,
+                "points": row.get("points", row.get("number", 0)),
+                "reason": row.get("reason", ""),
+            }]
+        if len(reward_rows) > MAX_GAMEMODES:
+            raise ValueError(f"Gamemode {text} cannot have more than {MAX_GAMEMODES} reward tiers.")
+        rewards = []
+        seen_thresholds = set()
+        for reward in reward_rows:
+            if not isinstance(reward, dict):
+                continue
+            try:
+                minimum = int(reward.get("min_players", 1))
+            except (TypeError, ValueError):
+                raise ValueError(f"Player count for {text} must be a whole number.")
+            if minimum < 1 or minimum > 1000:
+                raise ValueError(f"Player count for {text} must be between 1 and 1000.")
+            if minimum in seen_thresholds:
+                raise ValueError(f"Gamemode {text} has duplicate {minimum}-player reward tiers.")
+            seen_thresholds.add(minimum)
+            try:
+                amount = float(reward.get("points", 0))
+            except (TypeError, ValueError):
+                raise ValueError(f"Points for {text} must be a number.")
+            if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
+                raise ValueError(f"Points for {text} must be between -{MAX_POINTS} and {MAX_POINTS}.")
+            if amount.is_integer():
+                amount = int(amount)
+            rewards.append({
+                "min_players": minimum,
+                "points": amount,
+                "reason": str(reward.get("reason") or "").strip()[:500],
+            })
+        if not rewards:
+            raise ValueError(f"Gamemode {text} must have at least one player-count reward tier.")
+        rewards.sort(key=lambda item: item["min_players"])
         result["gamemodes"].append({
             "text": text,
-            "points": amount,
-            "reason": str(row.get("reason") or "").strip()[:500],
+            "points": rewards[0]["points"],
+            "reason": rewards[0]["reason"],
+            "rewards": rewards,
         })
     phrase_rewards = data.get("phrase_rewards") or []
     if not isinstance(phrase_rewards, list) or len(phrase_rewards) > MAX_GAMEMODES:
@@ -330,6 +363,25 @@ def find_gamemode_rule(config, gamemode):
         if str(rule.get("text") or "").strip().casefold() == target:
             return dict(rule)
     return None
+
+def find_gamemode_reward(config, gamemode, player_count):
+    """Select the highest minimum-player tier met by the section 1 mentions."""
+    rule = find_gamemode_rule(config, gamemode)
+    if rule is None:
+        return None
+    rewards = rule.get("rewards") or [{
+        "min_players": 1,
+        "points": rule.get("points", 0),
+        "reason": rule.get("reason", ""),
+    }]
+    eligible = [
+        reward for reward in rewards
+        if int(reward.get("min_players", 1)) <= int(player_count)
+    ]
+    if not eligible:
+        return None
+    selected = max(eligible, key=lambda reward: int(reward.get("min_players", 1)))
+    return {**rule, **selected, "player_count": int(player_count)}
 
 
 def validate_format(content):
