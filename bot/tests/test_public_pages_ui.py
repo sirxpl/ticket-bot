@@ -102,7 +102,7 @@ class PublicPagesLayoutTests(unittest.TestCase):
         self.assertIn('"label": "Status"', utilities)
         self.assertIn('"label": "Downtime"', utilities)
         self.assertIn('name="application-panel"', utilities)
-        self.assertIn('"/carry-application"', utilities)
+        self.assertIn("/carry-application", utilities)
         self.assertNotIn('"label": "Dashboard"', utilities)
 
     def test_legacy_carry_agreement_page_is_removed(self):
