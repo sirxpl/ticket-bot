@@ -638,7 +638,10 @@ class PointsCog(commands.Cog):
             recipients = ", ".join(f"<@{user_id}>" for user_id in result["awarded"])
             await self._deliver_log(
                 message.guild, "automatic_awarded", username=recipients,
-                amount=rule["points"], reason=rule.get("reason") or f"Automatic {rule['text']} points",
+                amount=rule["points"], reason=rule.get("reason") or (
+                    f"Automatic phrase reward: {rule['text']}" if reward_type == "phrase"
+                    else f"Automatic {rule['text']} points"
+                ),
                 ticket_number=parsed["ticket_number"], thread_id=thread.id if thread else None,
                 gamemode=parsed["gamemode"], actor_name="Format Checker",
                 details=(
