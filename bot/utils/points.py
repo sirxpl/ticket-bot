@@ -149,10 +149,24 @@ def _ensure_indexes(db):
             [("guild_id", ASCENDING), ("user_id", ASCENDING), ("created_at", DESCENDING)],
             name="points_activity_user",
         )
+        # Preserve legacy idempotency records while allowing the same ticket number
+        # to be awarded again for a distinct Format Checker submission.
+        for legacy_award in db.points_awards.find(
+            {"submission_id": {"$exists": False}},
+            {"_id": 1, "ticket_number": 1},
+        ):
+            legacy_ticket = str(legacy_award.get("ticket_number") or "")
+            db.points_awards.update_one(
+                {"_id": legacy_award["_id"], "submission_id": {"$exists": False}},
+                {"$set": {"submission_id": f"legacy:{legacy_ticket}"}},
+            )
+        existing_indexes = db.points_awards.index_information()
+        if "points_ticket_award_unique" in existing_indexes:
+            db.points_awards.drop_index("points_ticket_award_unique")
         db.points_awards.create_index(
-            [("guild_id", ASCENDING), ("ticket_number", ASCENDING)],
+            [("guild_id", ASCENDING), ("submission_id", ASCENDING)],
             unique=True,
-            name="points_ticket_award_unique",
+            name="points_submission_award_unique",
         )
         _INDEXED_DATABASES.add(key)
 
@@ -712,10 +726,11 @@ def set_user_excluded(guild_id, user_id, username=None, excluded=True, reason=No
     return True
 
 
-def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, reason, usernames=None, thread_id=None):
-    """Award a validated ticket once; MongoDB updates are committed as a transaction."""
+def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, reason, usernames=None, thread_id=None, submission_id=None):
+    """Award one submission once; a ticket number may appear in multiple submissions."""
     guild_key = _guild_key(guild_id)
     ticket = str(ticket_number).strip()
+    submission = str(submission_id or ticket).strip()
     recipients = list(dict.fromkeys(str(item) for item in (recipient_ids or []) if str(item).isdigit()))
     if not ticket or not ticket.isdigit():
         raise ValueError("A valid ticket number is required for automatic points.")
@@ -732,7 +747,7 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
     usernames = usernames or {}
     now = _now()
     award_record = {
-        "guild_id": guild_key, "ticket_number": ticket, "gamemode": str(gamemode),
+        "guild_id": guild_key, "ticket_number": ticket, "submission_id": submission, "gamemode": str(gamemode),
         "amount": amount, "reason": str(reason or "")[:500],
         "thread_id": str(thread_id) if thread_id else None,
         "recipient_ids": recipients, "created_at": now,
@@ -773,7 +788,7 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
                         }, session=session)
                         awarded.append(uid)
                     db.points_awards.update_one(
-                        {"guild_id": guild_key, "ticket_number": ticket},
+                        {"guild_id": guild_key, "submission_id": submission},
                         {"$set": {"awarded_ids": awarded, "excluded_ids": excluded, "completed_at": _now()}},
                         session=session,
                     )
@@ -785,7 +800,7 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
             raise RuntimeError("Automatic points could not be safely recorded; the award was not completed.") from error
     with _LOCAL_LOCK:
         data = _load_local()
-        if any(row.get("guild_id") == guild_key and str(row.get("ticket_number")) == ticket for row in data["awards"]):
+        if any(row.get("guild_id") == guild_key and str(row.get("submission_id") or row.get("ticket_number")) == submission for row in data["awards"]):
             return {"awarded": [], "excluded": [], "duplicate": True}
         awarded, excluded = [], []
         for uid in recipients:
