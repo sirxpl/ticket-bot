@@ -104,6 +104,16 @@ class PointsStorageTests(unittest.TestCase):
         self.assertEqual(points.find_phrase_reward(config, "I completed NIGHT 4 HARD today")["text"], "Night 4 Hard")
         self.assertIsNone(points.find_phrase_reward(config, "Night 4"))
 
+    def test_gamemode_rewards_accept_negative_integers_and_decimal_values(self):
+        config = points.normalize_points_config({
+            "gamemodes": [
+                {"text": "Night 4 Hard", "points": "-25"},
+                {"text": "Night 5 Hard", "points": "12.75"},
+            ],
+        })
+        self.assertEqual(config["gamemodes"][0]["points"], -25)
+        self.assertEqual(config["gamemodes"][1]["points"], 12.75)
+
     def test_phrase_rewards_accept_negative_integers_and_decimal_values(self):
         config = points.normalize_points_config({
             "phrase_rewards": [
