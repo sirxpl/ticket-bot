@@ -4048,6 +4048,16 @@ def run_status_checker():
                 continue
 
             online = bool(bot.is_ready()) and not bot.is_closed()
+            if api_block_seconds_left() <= 0:
+                try:
+                    from utils.status_history import resolve_api_block_incident
+                    resolve_api_block_incident()
+                except Exception as incident_error:
+                    print(
+                        f"Status API incident resolution failed: "
+                        f"{type(incident_error).__name__}: {incident_error}",
+                        flush=True,
+                    )
             transition = record_check(online)
             if transition == "offline":
                 _queue_status_event(
