@@ -3,6 +3,7 @@ import copy
 import datetime
 import json
 import logging
+import math
 import os
 import re
 import tempfile
@@ -254,11 +255,13 @@ def normalize_points_config(data):
         if len(text) > 80:
             raise ValueError("Phrase reward text must be 80 characters or fewer.")
         try:
-            amount = int(row.get("points", 0))
+            amount = float(row.get("points", 0))
         except (TypeError, ValueError):
-            raise ValueError(f"Points for phrase {text} must be a whole number.")
-        if amount < 0 or amount > MAX_POINTS:
-            raise ValueError(f"Points for phrase {text} must be between 0 and {MAX_POINTS}.")
+            raise ValueError(f"Points for phrase {text} must be a number.")
+        if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
+            raise ValueError(f"Points for phrase {text} must be between -{MAX_POINTS} and {MAX_POINTS}.")
+        if amount.is_integer():
+            amount = int(amount)
         key = text.casefold()
         if key in phrase_seen:
             raise ValueError(f"The phrase {text} is configured more than once.")
@@ -405,9 +408,11 @@ def _new_user(guild_key, user_id, username=None):
 
 def _points_pipeline(guild_key, user_id, username, mode, amount, now):
     if mode == "set":
-        points_value = {"$literal": int(amount)}
+        points_value = {"$literal": float(amount) if isinstance(amount, float) else int(amount)}
     else:
-        delta = int(amount) if mode == "add" else -int(amount)
+        delta = float(amount) if isinstance(amount, float) else int(amount)
+        if mode != "add":
+            delta = -delta
         points_value = {"$max": [0, {"$add": [{"$ifNull": ["$points", 0]}, delta]}]}
     return [{"$set": {
         "guild_id": {"$literal": guild_key},
@@ -438,8 +443,8 @@ def record_event(guild_id, action, *, user_id=None, username=None, amount=0,
         "user_id": str(user_id) if user_id else None,
         "username": str(username or user_id or "")[:100] or None,
         "action": action,
-        "amount": int(amount or 0),
-        "points_after": int(points_after) if points_after is not None else None,
+        "amount": float(amount) if isinstance(amount, float) else int(amount or 0),
+        "points_after": float(points_after) if isinstance(points_after, float) else (int(points_after) if points_after is not None else None),
         "reason": str(reason or "")[:500],
         "actor_id": str(actor_id) if actor_id else None,
         "actor_name": str(actor_name or actor_id or "Automation")[:100],
@@ -660,9 +665,14 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
         raise ValueError("A valid ticket number is required for automatic points.")
     if not recipients:
         return {"awarded": [], "excluded": [], "duplicate": False}
-    amount = int(amount)
-    if amount < 0 or amount > MAX_POINTS:
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        raise ValueError("Automatic point amount must be a number.")
+    if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
         raise ValueError("Automatic point amount is outside the supported range.")
+    if amount.is_integer():
+        amount = int(amount)
     usernames = usernames or {}
     now = _now()
     award_record = {
@@ -731,7 +741,9 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
                 user = _new_user(guild_key, uid, usernames.get(uid))
                 data["users"].append(user)
             user["username"] = str(usernames.get(uid) or user.get("username") or uid)[:100]
-            user["points"] = int(user.get("points", 0)) + amount
+            user["points"] = max(0, float(user.get("points", 0)) + amount)
+            if float(user["points"]).is_integer():
+                user["points"] = int(user["points"])
             user["hidden"] = False
             user["updated_at"] = now
             _record_local_event(data, {
@@ -782,14 +794,16 @@ def get_points_leaderboard(guild_id, page=1, query=""):
         if query:
             lowered = query.casefold()
             rows = [row for row in rows if query == str(row.get("user_id")) or lowered in str(row.get("username", "")).casefold()]
-        rows.sort(key=lambda row: (-int(row.get("points", 0)), str(row.get("user_id", ""))))
+        rows.sort(key=lambda row: (-float(row.get("points", 0)), str(row.get("user_id", ""))))
         total = len(rows)
         rows = rows[(page - 1) * PAGE_SIZE:page * PAGE_SIZE]
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     if page > pages:
         return get_points_leaderboard(guild_key, pages, query)
     for row in rows:
-        row["points"] = int(row.get("points", 0))
+        row["points"] = float(row.get("points", 0))
+        if row["points"].is_integer():
+            row["points"] = int(row["points"])
     return {"items": rows, "total": total, "page": page, "pages": pages, "per_page": PAGE_SIZE, "query": query}
 
 
