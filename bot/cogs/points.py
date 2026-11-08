@@ -672,7 +672,7 @@ class PointsCog(commands.Cog):
         try:
             await message.channel.send(
                 view=_v2_notice(
-                    "✨ Automatic Points Awarded",
+                    "✨ Automatic Points Awarded" if float(rule["points"]) >= 0 else "⚠️ Automatic Points Deducted",
                     f"{message.author.mention} {'received' if float(rule['points']) >= 0 else 'lost'} "
                     f"**{float(rule['points']):+g} points** "
                     f"for matching **{discord.utils.escape_markdown(rule['text'])}**.",
