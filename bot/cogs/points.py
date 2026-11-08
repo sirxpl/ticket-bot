@@ -360,9 +360,9 @@ class PointsCog(commands.Cog):
             elif fields.get("username"):
                 lines.append(f"Member: {discord.utils.escape_markdown(str(fields['username']))}")
             if fields.get("amount") is not None:
-                lines.append(f"Points: {int(fields.get('amount') or 0):+,}")
+                lines.append(f"Points: {float(fields.get('amount') or 0):+g}")
             if fields.get("points_after") is not None:
-                lines.append(f"Balance after: {int(fields['points_after']):,}")
+                lines.append(f"Balance after: {float(fields['points_after']):g}")
             if fields.get("gamemode"):
                 lines.append(f"Gamemode: {discord.utils.escape_markdown(str(fields['gamemode']))}")
             if fields.get("ticket_number"):
@@ -673,7 +673,8 @@ class PointsCog(commands.Cog):
             await message.channel.send(
                 view=_v2_notice(
                     "✨ Automatic Points Awarded",
-                    f"{message.author.mention} received **+{int(rule['points']):,} points** "
+                    f"{message.author.mention} {'received' if float(rule['points']) >= 0 else 'lost'} "
+                    f"**{float(rule['points']):+g} points** "
                     f"for matching **{discord.utils.escape_markdown(rule['text'])}**.",
                 ),
                 allowed_mentions=discord.AllowedMentions.none(),
