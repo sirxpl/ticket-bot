@@ -601,6 +601,7 @@ class PointsCog(commands.Cog):
                 parsed["recipients"], rule["points"],
                 rule.get("reason") or f"Automatic {rule['text']} points",
                 usernames, thread.id if thread else None,
+                submission_id=str(message.id),
             )
         except Exception as error:
             await self._record_and_log(
