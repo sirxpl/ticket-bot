@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import copy
+import time
 from datetime import datetime, timedelta, timezone
 
 from utils.db import get_db
@@ -11,7 +12,7 @@ STATUS_FILE = os.path.join(DATA_DIR, "status_history.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-_DEFAULTS = {"daily": {}, "incidents": [], "last_state": None, "open_incident_id": None, "notifications": [], "last_deploy_commit": None, "processed_render_events": []}
+_DEFAULTS = {"daily": {}, "incidents": [], "last_state": None, "open_incident_id": None, "notifications": [], "last_deploy_commit": None, "processed_render_events": [], "api_block_until": 0.0, "open_api_incident_id": None}
 
 
 def _now_iso():
@@ -183,6 +184,98 @@ def record_check(is_online: bool):
     data["last_state"] = is_online
     _save(data)
     return transition
+
+
+def get_api_block_until():
+    """Return the persisted Discord REST cooldown deadline, if any."""
+    data = get_status_data()
+    try:
+        return max(0.0, float(data.get("api_block_until", 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def record_api_block(until_ts, details=None):
+    """Open or extend one incident for a Discord-wide REST API block."""
+    data = get_status_data()
+    try:
+        until_ts = max(0.0, float(until_ts))
+    except (TypeError, ValueError):
+        until_ts = time.time() + 60.0
+
+    data["api_block_until"] = max(
+        float(data.get("api_block_until", 0.0) or 0.0), until_ts
+    )
+    now = _now_iso()
+    incident_id = data.get("open_api_incident_id")
+    incident = next(
+        (item for item in data.setdefault("incidents", [])
+         if item.get("id") == incident_id),
+        None,
+    ) if incident_id else None
+
+    if incident is None:
+        incident = {
+            "id": uuid.uuid4().hex[:8],
+            "title": "Discord API Access Blocked",
+            "created_at": now,
+            "source": "discord_api",
+            "updates": [{
+                "status": "identified",
+                "message": (
+                    "Discord temporarily blocked REST API access. "
+                    "The bot is pausing REST requests until the cooldown expires."
+                ),
+                "details": str(details or "")[:1000],
+                "timestamp": now,
+            }],
+        }
+        data.setdefault("incidents", []).append(incident)
+        data["open_api_incident_id"] = incident["id"]
+    else:
+        incident["last_updated_at"] = now
+        incident["details"] = str(details or "")[:1000]
+
+    _save(data)
+    return dict(incident)
+
+
+def resolve_api_block_incident():
+    """Close the active Discord API incident after its cooldown has elapsed."""
+    data = get_status_data()
+    try:
+        until_ts = float(data.get("api_block_until", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        until_ts = 0.0
+    if until_ts > time.time():
+        return False
+
+    incident_id = data.get("open_api_incident_id")
+    incident = next(
+        (item for item in data.setdefault("incidents", [])
+         if item.get("id") == incident_id),
+        None,
+    ) if incident_id else None
+    if incident is None:
+        if data.get("api_block_until"):
+            data["api_block_until"] = 0.0
+            _save(data)
+        return False
+
+    now = _now_iso()
+    updates = incident.setdefault("updates", [])
+    if not updates or updates[-1].get("status") != "resolved":
+        updates.append({
+            "status": "resolved",
+            "message": (
+                "The Discord API cooldown expired. The bot may resume REST requests."
+            ),
+            "timestamp": now,
+        })
+    data["open_api_incident_id"] = None
+    data["api_block_until"] = 0.0
+    _save(data)
+    return True
 
 
 def get_daily_uptime(days: int = 90):

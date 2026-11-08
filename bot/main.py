@@ -296,6 +296,16 @@ intents.members = _privileged_intent_enabled("DISCORD_MEMBERS_INTENT")
 intents.message_content = _privileged_intent_enabled("DISCORD_MESSAGE_CONTENT_INTENT")
 class GlobalCommandTree(discord.app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Do not run command callbacks that would generate more REST traffic
+        # while Discord has explicitly blocked this host. The interaction
+        # cannot be acknowledged until Discord accepts REST requests again.
+        if api_block_seconds_left() > 0:
+            print(
+                f"🛡️ Slash command {getattr(interaction.command, 'qualified_name', 'unknown')} "
+                "not executed: Discord API cooldown is active.",
+                flush=True,
+            )
+            return False
         if is_globally_blocked(interaction.user.id):
             await interaction.response.send_message(
                 "⛔ Your account is blocked from using this bot.",
@@ -330,10 +340,38 @@ class DiagnosticBot(commands.Bot):
 # discord.py exposes aiohttp's TraceConfig for tracing the HTTP requests it
 # makes internally. This lets us see exactly where startup stalls without
 # making an extra Discord API request or logging the bot token.
+def _safe_discord_request_url(raw_url):
+    """Redact interaction/webhook secrets and query strings from diagnostics."""
+    try:
+        parsed = urlsplit(str(raw_url))
+        path = re.sub(r"(/interactions/\d+/)[^/?]+", r"\1[REDACTED]", parsed.path)
+        path = re.sub(r"(/webhooks/\d+/)[^/?]+", r"\1[REDACTED]", path)
+        return parsed._replace(path=path, query="", fragment="").geturl()
+    except Exception:
+        return "<Discord URL redacted>"
+
+
 async def _discord_http_request_start(session, trace_config_ctx, params):
+    # discord.py may retry a Cloudflare/global 429 immediately when its body
+    # omits Discord's normal retry_after field. Stop those retries locally:
+    # once Discord tells us to wait, do not send more REST traffic until it
+    # expires. The Gateway connection and Flask status site remain available.
+    blocked_until = float(globals().get("api_block_until", 0.0) or 0.0)
+    if blocked_until > time.time():
+        remaining = max(1, int(blocked_until - time.time()))
+        safe_url = _safe_discord_request_url(params.url)
+        print(
+            f"🛡️ API Guard prevented Discord REST request during cooldown "
+            f"({remaining}s remaining): {params.method} {safe_url}",
+            flush=True,
+        )
+        raise aiohttp.ClientConnectionError(
+            f"Discord REST circuit breaker active for {remaining}s"
+        )
     trace_config_ctx.start_time = time.monotonic()
     print(
-        f"🔎 Discord HTTP request started: {params.method} {params.url}",
+        f"🔎 Discord HTTP request started: {params.method} "
+        f"{_safe_discord_request_url(params.url)}",
         flush=True,
     )
 
@@ -348,67 +386,104 @@ async def _discord_http_request_end(session, trace_config_ctx, params):
         try:
             retry_after = float(headers.get("Retry-After", "0") or 0)
         except (TypeError, ValueError):
-            retry_after = 0
+            retry_after = 0.0
         scope = headers.get("X-RateLimit-Scope", "unknown")
         global_limit = headers.get("X-RateLimit-Global", "unknown")
         cf_ray = headers.get("CF-Ray", "not-present")
         content_type = headers.get("Content-Type", "unknown")
-        if retry_after > 0:
-            # Record the server-provided wait. The watchdog must not restart
-            # the process while Discord/Cloudflare is still asking us to wait.
-            api_block_until = max(api_block_until, time.time() + retry_after)
-            api_block_reason = "Discord REST API returned HTTP 429"
+        try:
+            body = (await response.text())[:500].replace("\\n", " ")
+        except Exception as body_error:
+            body = ""
+            print(f"🛡️ Could not read 429 response body: {body_error!r}", flush=True)
+
+        body_lower = body.lower()
+        is_global_block = (
+            str(global_limit).lower() == "true"
+            or str(scope).lower() == "global"
+            or "exceeding global rate limits" in body_lower
+            or "blocked from accessing our api temporarily" in body_lower
+        )
         print(
             "🛡️ Discord API Guard observed HTTP 429: "
             f"Retry-After={retry_after:g}s, scope={scope}, "
             f"global={global_limit}, CF-Ray={cf_ray}, "
-            f"Content-Type={content_type}.",
+            f"Content-Type={content_type}, global_block={is_global_block}.",
             flush=True,
         )
-        # The response body can distinguish a normal route/global limit from
-        # an upstream IP restriction. aiohttp caches text() after reading it.
-        try:
-            body = (await response.text())[:500].replace("\\n", " ")
-            if body:
-                print(f"🛡️ Discord 429 response body (truncated): {body}", flush=True)
-        except Exception as body_error:
-            print(f"🛡️ Could not read 429 response body: {body_error!r}", flush=True)
-        if retry_after > 0:
+        if body:
+            print(f"🛡️ Discord 429 response body (truncated): {body}", flush=True)
+
+        if is_global_block:
+            # Only a global/Cloudflare block should pause the entire REST
+            # client. Normal per-route 429s remain discord.py's responsibility.
+            with _api_block_lock:
+                was_already_blocked = api_block_until > time.time()
+                guard_wait = max(60.0, retry_after)
+                api_block_until = max(api_block_until, time.time() + guard_wait)
+                api_block_reason = "Discord global REST API block"
+                blocked_until = api_block_until
+
+            rate_limit_details = (
+                f"HTTP 429 · Retry-After: {retry_after:.0f}s · "
+                f"Guard window: {guard_wait:.0f}s · CF-Ray: {cf_ray}"
+            )
+            try:
+                from utils.status_history import record_api_block
+                record_api_block(blocked_until, rate_limit_details)
+            except Exception as incident_error:
+                print(
+                    f"⚠️ Could not persist Discord API incident: "
+                    f"{type(incident_error).__name__}: {incident_error}",
+                    flush=True,
+                )
+
+            if not was_already_blocked:
+                # Queue one status incident and one independent owner alert per
+                # cooldown window. Repeated callback retries are coalesced.
+                _queue_status_event(
+                    "rate_limited",
+                    "Discord API access blocked",
+                    "Discord temporarily blocked REST API access. The bot has paused further REST requests and will retry after the server-provided cooldown.",
+                    rate_limit_details,
+                    f"discord_api_rate_limited:{int(time.time())}",
+                    force_queue=True,
+                    deliver=False,
+                )
+                alert_text = (
+                    "⚠️ Carry Ticket Bot: Discord API access is temporarily blocked. "
+                    f"Retry-After: {retry_after:.0f}s. CF-Ray: {cf_ray}. "
+                    "The bot has paused Discord REST requests until the cooldown expires."
+                )
+                threading.Thread(
+                    target=_send_rate_limit_alert,
+                    args=(alert_text,),
+                    daemon=True,
+                    name="discord-rate-limit-alert",
+                ).start()
+            else:
+                print(
+                    "🛡️ API Guard coalesced another HTTP 429 into the active incident.",
+                    flush=True,
+                )
+        else:
             print(
-                f"⏸️ API Guard cooldown recorded for {retry_after:.0f}s; "
-                "dashboard lockdown countdown updated.",
+                "🛡️ Route-level 429 left to discord.py rate-limit handling; "
+                "global REST circuit breaker was not activated.",
                 flush=True,
             )
-        rate_limit_details = f"HTTP 429 · Retry-After: {retry_after:.0f}s · CF-Ray: {cf_ray}"
-        # Persist the incident without attempting another Discord request.
-        # The separate owner alert must use a non-Discord provider.
-        _queue_status_event(
-            "rate_limited",
-            "Discord API rate limited",
-            "Discord temporarily blocked REST API access. This notice will be delivered when access recovers.",
-            rate_limit_details,
-            "discord_api_rate_limited",
-            force_queue=True,
-            deliver=False,
-        )
-        threading.Thread(
-            target=_send_rate_limit_alert,
-            args=(f"⚠️ Carry Ticket Bot: Discord API access is rate-limited. "
-                  f"Retry-After: {retry_after:.0f}s. CF-Ray: {cf_ray}. "
-                  "The bot is paused; avoid reconnect attempts until the cooldown expires.",),
-            daemon=True,
-        ).start()
+
     print(
-        f"🔎 Discord HTTP request finished: {params.method} {params.url} "
-        f"-> HTTP {status} in {elapsed:.2f}s",
+        f"🔎 Discord HTTP request finished: {params.method} "
+        f"{_safe_discord_request_url(params.url)} -> HTTP {status} in {elapsed:.2f}s",
         flush=True,
     )
-
 
 async def _discord_http_request_exception(session, trace_config_ctx, params):
     elapsed = time.monotonic() - getattr(trace_config_ctx, "start_time", time.monotonic())
     print(
-        f"❌ Discord HTTP request failed: {params.method} {params.url} "
+        f"❌ Discord HTTP request failed: {params.method} "
+        f"{_safe_discord_request_url(params.url)} "
         f"after {elapsed:.2f}s: {params.exception!r}",
         flush=True,
     )
@@ -434,13 +509,21 @@ def _queue_status_event(event_type, title, message, details=None, dedupe_key=Non
             return None
         from utils.status_history import queue_notification, mark_notification_delivered
         event = queue_notification(event_type, title, message, details, dedupe_key)
-        # Critical callers can persist an event without making another Discord request.
+        # Keep persistence and delivery failures separate: a webhook 429 must
+        # never make a successfully queued incident look like it was lost.
         if deliver and event and destination == "webhook":
-            if _send_status_discord_webhook(event):
-                mark_notification_delivered(event.get("id"))
+            try:
+                if _send_status_discord_webhook(event):
+                    mark_notification_delivered(event.get("id"))
+            except Exception as delivery_error:
+                print(
+                    f"Status notification queued; Discord webhook delivery deferred: "
+                    f"{type(delivery_error).__name__}: {delivery_error}",
+                    flush=True,
+                )
         return event
     except Exception as exc:
-        print(f"Status notification queue failed: {type(exc).__name__}: {exc}", flush=True)
+        print(f"Status notification persistence failed: {type(exc).__name__}: {exc}", flush=True)
         return None
 
 
@@ -495,6 +578,10 @@ def _send_status_discord_webhook(event):
     status_config = get_status_log_config()
     webhook_url = status_config["webhook_url"] if status_config["destination"] == "webhook" else ""
     if not webhook_url:
+        return False
+    # Discord webhooks use Discord's API too; attempting one during a
+    # global/Cloudflare block only burns retries. Leave the event queued.
+    if api_block_seconds_left() > 0:
         return False
     parsed = urlsplit(webhook_url)
     if parsed.scheme != "https" or parsed.hostname not in {"discord.com", "canary.discord.com", "ptb.discord.com"} or not parsed.path.startswith("/api/webhooks/"):
@@ -618,7 +705,8 @@ def receive_render_status_webhook():
     event = queue_notification(event_type_key, title, message, details, f"render:{event_id}")
     try:
         if destination == "webhook":
-            _send_status_discord_webhook(event)
+            if not _send_status_discord_webhook(event):
+                return jsonify({"error": "Discord status delivery is deferred until API access recovers"}), 503
             mark_notification_delivered(event.get("id"))
         elif destination == "channel":
             if not bot.is_ready() or bot.is_closed():
@@ -690,6 +778,21 @@ last_start_error = None
 # can show the exact Retry-After countdown without guessing.
 api_block_until = 0.0
 api_block_reason = None
+try:
+    from utils.status_history import get_api_block_until
+    api_block_until = get_api_block_until()
+    if api_block_until > time.time():
+        print(
+            f"🛡️ Restored persisted Discord API cooldown "
+            f"({int(api_block_until - time.time())}s remaining).",
+            flush=True,
+        )
+except Exception as restore_error:
+    print(
+        f"⚠️ Could not restore persisted Discord API cooldown: "
+        f"{type(restore_error).__name__}: {restore_error}",
+        flush=True,
+    )
 
 # --- Idle sleep -----------------------------------------------------------
 # Optional (IDLE_SLEEP_HOURS env var, off by default). After that many hours
@@ -2688,15 +2791,40 @@ def points_save_settings_route():
                     raise ValueError("Choose valid server roles for Points access and exemptions.")
 
         gamemode_texts = request.form.getlist("gamemode_text")
+        gamemode_min_players = request.form.getlist("gamemode_min_players")
         gamemode_points = request.form.getlist("gamemode_points")
         gamemode_reasons = request.form.getlist("gamemode_reason")
-        gamemodes = []
+        gamemodes_by_name = {}
         for index, text_value in enumerate(gamemode_texts):
+            name = str(text_value or "").strip()
             amount = gamemode_points[index] if index < len(gamemode_points) else ""
+            minimum = gamemode_min_players[index] if index < len(gamemode_min_players) else "1"
             reason = gamemode_reasons[index] if index < len(gamemode_reasons) else ""
+            if not name and not str(amount or "").strip() and not str(reason or "").strip():
+                continue
+            if not name:
+                raise ValueError("Every player-count reward tier needs a gamemode name.")
+            key = name.casefold()
+            entry = gamemodes_by_name.setdefault(key, {"text": name, "rewards": []})
+            if entry["text"] != name and entry["text"].casefold() == key:
+                name = entry["text"]
+            entry["rewards"].append({
+                "min_players": minimum or 1,
+                "points": amount or 0,
+                "reason": reason,
+            })
+        gamemodes = list(gamemodes_by_name.values())
+
+        phrase_texts = request.form.getlist("phrase_reward_text")
+        phrase_points = request.form.getlist("phrase_reward_points")
+        phrase_reasons = request.form.getlist("phrase_reward_reason")
+        phrase_rewards = []
+        for index, text_value in enumerate(phrase_texts):
+            amount = phrase_points[index] if index < len(phrase_points) else ""
+            reason = phrase_reasons[index] if index < len(phrase_reasons) else ""
             if not str(text_value or "").strip() and not str(amount or "").strip() and not str(reason or "").strip():
                 continue
-            gamemodes.append({"text": text_value, "points": amount or 0, "reason": reason})
+            phrase_rewards.append({"text": text_value, "points": amount or 0, "reason": reason})
 
         config = {
             "command_role_ids": command_roles,
@@ -2711,6 +2839,7 @@ def points_save_settings_route():
                 "exempt_role_ids": exempt_roles,
             },
             "gamemodes": gamemodes,
+            "phrase_rewards": phrase_rewards,
             "logging": {
                 "enabled": request.form.get("points_logging_enabled") == "yes",
                 "channel_id": log_channel_id or None,
@@ -3945,6 +4074,16 @@ def run_status_checker():
                 continue
 
             online = bool(bot.is_ready()) and not bot.is_closed()
+            if api_block_seconds_left() <= 0:
+                try:
+                    from utils.status_history import resolve_api_block_incident
+                    resolve_api_block_incident()
+                except Exception as incident_error:
+                    print(
+                        f"Status API incident resolution failed: "
+                        f"{type(incident_error).__name__}: {incident_error}",
+                        flush=True,
+                    )
             transition = record_check(online)
             if transition == "offline":
                 _queue_status_event(
@@ -3961,10 +4100,14 @@ def run_status_checker():
 
             destination = get_status_log_config()["destination"]
             if destination == "webhook":
+                # A Discord webhook cannot report a Discord-wide API block.
+                # Keep the event queued and wait for the same server cooldown.
+                if api_block_seconds_left() > 0:
+                    webhook_retry_after_at = max(webhook_retry_after_at, api_block_until)
                 # Retry pending webhook alerts whether the bot is online or
                 # offline. A failed immediate send must not strand the event
                 # until the next disconnect/restart.
-                if time.time() >= webhook_retry_after_at:
+                if api_block_seconds_left() <= 0 and time.time() >= webhook_retry_after_at:
                     for pending_status_event in get_pending_notifications(10):
                         try:
                             if _send_status_discord_webhook(pending_status_event):
@@ -4005,6 +4148,7 @@ def run_status_checker():
 
 import threading
 
+_api_block_lock = threading.Lock()
 _cooldown_lock = threading.Lock()
 _cooldown_active = False
 last_online_at = None  # updated by the watchdog whenever the bot is connected
@@ -4052,22 +4196,61 @@ def _send_rate_limit_alert(text):
             flush=True,
         )
         return False
-    try:
-        import requests
-        if "ntfy" in lowered:
-            response = requests.post(
-                url, data=text.encode("utf-8"),
-                headers={"Title": "Carry Ticket Bot · Discord API rate limit"},
-                timeout=10,
+    import requests
+    backoff = 30.0
+    for attempt in range(1, 7):
+        try:
+            if "ntfy" in lowered:
+                response = requests.post(
+                    url, data=text.encode("utf-8"),
+                    headers={"Title": "Carry Ticket Bot · Discord API rate limit"},
+                    timeout=10,
+                )
+            else:
+                response = requests.post(
+                    url, json={"content": text, "text": text}, timeout=10
+                )
+            response.raise_for_status()
+            print("✅ Independent Discord rate-limit alert delivered.", flush=True)
+            return True
+        except requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            headers = getattr(exc.response, "headers", {}) or {}
+            try:
+                retry_after = float(headers.get("Retry-After", "0") or 0)
+            except (TypeError, ValueError):
+                retry_after = 0.0
+            if attempt >= 6:
+                print(
+                    f"❌ Independent Discord rate-limit alert exhausted retries: "
+                    f"HTTP {status}.",
+                    flush=True,
+                )
+                return False
+            delay = max(backoff, retry_after) if status == 429 or retry_after else backoff
+            print(
+                f"⚠️ Independent alert provider returned HTTP {status}; "
+                f"retrying once in {delay:.0f}s (attempt {attempt}/6).",
+                flush=True,
             )
-        else:
-            response = requests.post(url, json={"content": text, "text": text}, timeout=10)
-        response.raise_for_status()
-        print("✅ Independent Discord rate-limit alert delivered.", flush=True)
-        return True
-    except Exception as exc:
-        print(f"❌ Independent Discord rate-limit alert failed: {type(exc).__name__}: {exc}", flush=True)
-        return False
+            time.sleep(delay)
+            backoff = min(backoff * 2, 900.0)
+        except requests.RequestException as exc:
+            if attempt >= 6:
+                print(
+                    f"❌ Independent Discord rate-limit alert exhausted retries: "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                return False
+            print(
+                f"⚠️ Independent alert delivery failed ({type(exc).__name__}); "
+                f"retrying in {backoff:.0f}s (attempt {attempt}/6).",
+                flush=True,
+            )
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 900.0)
+    return False
 
 
 def _current_attempt():

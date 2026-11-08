@@ -69,7 +69,7 @@
                         <td><span class="points-rank">{{ (points_leaderboard.page - 1) * points_leaderboard.per_page + loop.index }}</span></td>
                         <td><strong>{{ row.username or 'Unknown member' }}</strong></td>
                         <td><code>{{ row.user_id }}</code></td>
-                        <td><strong class="points-value">{{ "{:,}".format(row.points|int) }}</strong></td>
+                        <td><strong class="points-value">{{ "{:g}".format(row.points) }}</strong></td>
                         <td>{% if row.excluded %}<span class="points-status points-status-warning">Excluded</span>{% else %}<span class="points-status">Active</span>{% endif %}</td>
                         {% if can_manage_points %}<td><button class="points-use-member" type="button" data-points-user="{{ row.user_id }}" data-points-name="{{ row.username or row.user_id }}">Manage</button></td>{% endif %}
                     </tr>
@@ -164,7 +164,7 @@
                     {% if item.details %}<small>{{ item.details }}</small>{% endif %}
                 </div>
                 <div class="points-activity-meta">
-                    {% if item.amount %}<strong class="{% if item.amount > 0 %}points-positive{% else %}points-negative{% endif %}">{{ "%+d"|format(item.amount) }}</strong>{% endif %}
+                    {% if item.amount %}<strong class="{% if item.amount > 0 %}points-positive{% else %}points-negative{% endif %}">{{ "{:+g}".format(item.amount) }}</strong>{% endif %}
                     <time>{{ item.created_at }}</time>
                     {% if item.actor_name %}<small>By {{ item.actor_name }}</small>{% endif %}
                 </div>

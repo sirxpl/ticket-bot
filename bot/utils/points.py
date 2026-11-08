@@ -3,6 +3,7 @@ import copy
 import datetime
 import json
 import logging
+import math
 import os
 import re
 import tempfile
@@ -59,6 +60,7 @@ _DEFAULT_CONFIG = {
         "exempt_role_ids": [],
     },
     "gamemodes": [],
+    "phrase_rewards": [],
     "logging": {
         "enabled": False,
         "channel_id": None,
@@ -201,6 +203,7 @@ def normalize_points_config(data):
             "events": [],
         },
         "gamemodes": [],
+        "phrase_rewards": [],
     }
     if not result["thread_automation"]["thread_name"]:
         result["thread_automation"]["thread_name"] = "{author} - {ticket_number}"
@@ -225,21 +228,93 @@ def normalize_points_config(data):
             continue
         if len(text) > 80:
             raise ValueError("Gamemode text must be 80 characters or fewer.")
-        try:
-            amount = int(row.get("points", row.get("number", 0)))
-        except (TypeError, ValueError):
-            raise ValueError(f"Points for {text} must be a whole number.")
-        if amount < 0 or amount > MAX_POINTS:
-            raise ValueError(f"Points for {text} must be between 0 and {MAX_POINTS}.")
-        if text.casefold() in seen:
+        key = text.casefold()
+        if key in seen:
             raise ValueError(f"The gamemode {text} is configured more than once.")
-        seen.add(text.casefold())
+        seen.add(key)
+        reward_rows = row.get("rewards")
+        if not isinstance(reward_rows, list) or not reward_rows:
+            reward_rows = [{
+                "min_players": 1,
+                "points": row.get("points", row.get("number", 0)),
+                "reason": row.get("reason", ""),
+            }]
+        if len(reward_rows) > MAX_GAMEMODES:
+            raise ValueError(f"Gamemode {text} cannot have more than {MAX_GAMEMODES} reward tiers.")
+        rewards = []
+        seen_thresholds = set()
+        for reward in reward_rows:
+            if not isinstance(reward, dict):
+                continue
+            try:
+                minimum = int(reward.get("min_players", 1))
+            except (TypeError, ValueError):
+                raise ValueError(f"Player count for {text} must be a whole number.")
+            if minimum < 1 or minimum > 1000:
+                raise ValueError(f"Player count for {text} must be between 1 and 1000.")
+            if minimum in seen_thresholds:
+                raise ValueError(f"Gamemode {text} has duplicate {minimum}-player reward tiers.")
+            seen_thresholds.add(minimum)
+            try:
+                amount = float(reward.get("points", 0))
+            except (TypeError, ValueError):
+                raise ValueError(f"Points for {text} must be a number.")
+            if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
+                raise ValueError(f"Points for {text} must be between -{MAX_POINTS} and {MAX_POINTS}.")
+            if amount.is_integer():
+                amount = int(amount)
+            rewards.append({
+                "min_players": minimum,
+                "points": amount,
+                "reason": str(reward.get("reason") or "").strip()[:500],
+            })
+        if not rewards:
+            raise ValueError(f"Gamemode {text} must have at least one player-count reward tier.")
+        rewards.sort(key=lambda item: item["min_players"])
         result["gamemodes"].append({
             "text": text,
-            "points": amount,
-            "reason": str(row.get("reason") or "").strip()[:500],
+            "points": rewards[0]["points"],
+            "reason": rewards[0]["reason"],
+            "rewards": rewards,
         })
+    phrase_rewards = data.get("phrase_rewards") or []
+    if not isinstance(phrase_rewards, list) or len(phrase_rewards) > MAX_GAMEMODES:
+        raise ValueError(f"Configure no more than {MAX_GAMEMODES} phrase reward rules.")
+    phrase_seen = set()
+    for row in phrase_rewards:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        if len(text) > 80:
+            raise ValueError("Phrase reward text must be 80 characters or fewer.")
+        try:
+            amount = float(row.get("points", 0))
+        except (TypeError, ValueError):
+            raise ValueError(f"Points for phrase {text} must be a number.")
+        if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
+            raise ValueError(f"Points for phrase {text} must be between -{MAX_POINTS} and {MAX_POINTS}.")
+        if amount.is_integer():
+            amount = int(amount)
+        key = text.casefold()
+        if key in phrase_seen:
+            raise ValueError(f"The phrase {text} is configured more than once.")
+        phrase_seen.add(key)
+        result["phrase_rewards"].append({"text": text, "points": amount, "reason": str(row.get("reason") or "").strip()[:500]})
     return result
+
+
+def find_phrase_reward(config, content):
+    """Return the first configured phrase found in a non-case message, ignoring case."""
+    message = str(content or "").casefold()
+    if not message:
+        return None
+    for rule in (config or {}).get("phrase_rewards", []):
+        phrase = str(rule.get("text") or "").strip()
+        if phrase and phrase.casefold() in message:
+            return dict(rule)
+    return None
 
 
 def get_points_config(guild_id):
@@ -288,6 +363,25 @@ def find_gamemode_rule(config, gamemode):
         if str(rule.get("text") or "").strip().casefold() == target:
             return dict(rule)
     return None
+
+def find_gamemode_reward(config, gamemode, player_count):
+    """Select the highest minimum-player tier met by the section 1 mentions."""
+    rule = find_gamemode_rule(config, gamemode)
+    if rule is None:
+        return None
+    rewards = rule.get("rewards") or [{
+        "min_players": 1,
+        "points": rule.get("points", 0),
+        "reason": rule.get("reason", ""),
+    }]
+    eligible = [
+        reward for reward in rewards
+        if int(reward.get("min_players", 1)) <= int(player_count)
+    ]
+    if not eligible:
+        return None
+    selected = max(eligible, key=lambda reward: int(reward.get("min_players", 1)))
+    return {**rule, **selected, "player_count": int(player_count)}
 
 
 def validate_format(content):
@@ -368,9 +462,11 @@ def _new_user(guild_key, user_id, username=None):
 
 def _points_pipeline(guild_key, user_id, username, mode, amount, now):
     if mode == "set":
-        points_value = {"$literal": int(amount)}
+        points_value = {"$literal": float(amount) if isinstance(amount, float) else int(amount)}
     else:
-        delta = int(amount) if mode == "add" else -int(amount)
+        delta = float(amount) if isinstance(amount, float) else int(amount)
+        if mode != "add":
+            delta = -delta
         points_value = {"$max": [0, {"$add": [{"$ifNull": ["$points", 0]}, delta]}]}
     return [{"$set": {
         "guild_id": {"$literal": guild_key},
@@ -401,8 +497,8 @@ def record_event(guild_id, action, *, user_id=None, username=None, amount=0,
         "user_id": str(user_id) if user_id else None,
         "username": str(username or user_id or "")[:100] or None,
         "action": action,
-        "amount": int(amount or 0),
-        "points_after": int(points_after) if points_after is not None else None,
+        "amount": float(amount) if isinstance(amount, float) else int(amount or 0),
+        "points_after": float(points_after) if isinstance(points_after, float) else (int(points_after) if points_after is not None else None),
         "reason": str(reason or "")[:500],
         "actor_id": str(actor_id) if actor_id else None,
         "actor_name": str(actor_name or actor_id or "Automation")[:100],
@@ -466,7 +562,7 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
                     activity = {
                         "guild_id": guild_key, "user_id": uid, "username": str(username or uid)[:100],
                         "action": action, "amount": amount if mode != "subtract" else -amount,
-                        "points_after": int((updated or {}).get("points", 0)), "reason": clean_reason,
+                        "points_after": float((updated or {}).get("points", 0)), "reason": clean_reason,
                         "actor_id": str(actor_id) if actor_id else None,
                         "actor_name": str(actor_name or actor_id or "Dashboard")[:100],
                         "ticket_number": None, "thread_id": None, "details": "",
@@ -484,8 +580,10 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
             user = _new_user(guild_key, uid, username)
             data["users"].append(user)
         user["username"] = str(username or user.get("username") or uid)[:100]
-        current = int(user.get("points", 0))
+        current = float(user.get("points", 0))
         user["points"] = amount if mode == "set" else max(0, current + (amount if mode == "add" else -amount))
+        if isinstance(user["points"], float) and user["points"].is_integer():
+            user["points"] = int(user["points"])
         if mode in {"set", "add"}:
             user["hidden"] = False
         user["updated_at"] = now
@@ -531,7 +629,7 @@ def remove_points_user(guild_id, user_id, username=None, reason=None, actor_id=N
                     _write_activity(db, {
                         "guild_id": guild_key, "user_id": uid, "username": str(username or uid)[:100],
                         "action": "leaderboard_removed", "amount": 0,
-                        "points_after": int((updated or {}).get("points", 0)),
+                        "points_after": float((updated or {}).get("points", 0)),
                         "reason": clean_reason, "actor_id": str(actor_id) if actor_id else None,
                         "actor_name": str(actor_name or actor_id or "Discord")[:100],
                         "ticket_number": None, "thread_id": None, "details": "", "created_at": now,
@@ -549,7 +647,7 @@ def remove_points_user(guild_id, user_id, username=None, reason=None, actor_id=N
         user.update({"username": str(username or uid)[:100], "hidden": True, "updated_at": now})
         _record_local_event(data, {
             "guild_id": guild_key, "user_id": uid, "username": user["username"],
-            "action": "leaderboard_removed", "amount": 0, "points_after": int(user.get("points", 0)),
+            "action": "leaderboard_removed", "amount": 0, "points_after": float(user.get("points", 0)),
             "reason": clean_reason, "actor_id": str(actor_id) if actor_id else None,
             "actor_name": str(actor_name or actor_id or "Discord")[:100],
             "ticket_number": None, "thread_id": None, "details": "", "created_at": now,
@@ -623,9 +721,14 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
         raise ValueError("A valid ticket number is required for automatic points.")
     if not recipients:
         return {"awarded": [], "excluded": [], "duplicate": False}
-    amount = int(amount)
-    if amount < 0 or amount > MAX_POINTS:
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        raise ValueError("Automatic point amount must be a number.")
+    if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
         raise ValueError("Automatic point amount is outside the supported range.")
+    if amount.is_integer():
+        amount = int(amount)
     usernames = usernames or {}
     now = _now()
     award_record = {
@@ -694,7 +797,9 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
                 user = _new_user(guild_key, uid, usernames.get(uid))
                 data["users"].append(user)
             user["username"] = str(usernames.get(uid) or user.get("username") or uid)[:100]
-            user["points"] = int(user.get("points", 0)) + amount
+            user["points"] = max(0, float(user.get("points", 0)) + amount)
+            if float(user["points"]).is_integer():
+                user["points"] = int(user["points"])
             user["hidden"] = False
             user["updated_at"] = now
             _record_local_event(data, {
@@ -745,14 +850,16 @@ def get_points_leaderboard(guild_id, page=1, query=""):
         if query:
             lowered = query.casefold()
             rows = [row for row in rows if query == str(row.get("user_id")) or lowered in str(row.get("username", "")).casefold()]
-        rows.sort(key=lambda row: (-int(row.get("points", 0)), str(row.get("user_id", ""))))
+        rows.sort(key=lambda row: (-float(row.get("points", 0)), str(row.get("user_id", ""))))
         total = len(rows)
         rows = rows[(page - 1) * PAGE_SIZE:page * PAGE_SIZE]
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     if page > pages:
         return get_points_leaderboard(guild_key, pages, query)
     for row in rows:
-        row["points"] = int(row.get("points", 0))
+        row["points"] = float(row.get("points", 0))
+        if row["points"].is_integer():
+            row["points"] = int(row["points"])
     return {"items": rows, "total": total, "page": page, "pages": pages, "per_page": PAGE_SIZE, "query": query}
 
 

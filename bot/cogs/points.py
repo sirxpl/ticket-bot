@@ -100,12 +100,15 @@ class PointsCog(commands.Cog):
         """Post the actual automatic-points result inside its Format Checker thread."""
         awarded = list(awarded or [])
         excluded = list(excluded or [])
-        total = len(awarded) * int(amount)
+        total = len(awarded) * float(amount)
+        amount_label = f"{float(amount):+g}"
+        total_label = f"{total:+g}"
+        positive = float(amount) >= 0
         container = discord.ui.Container(
-            accent_color=discord.Color.green() if awarded else discord.Color.orange()
+            accent_color=discord.Color.green() if awarded and positive else discord.Color.orange()
         )
         container.add_item(discord.ui.TextDisplay(
-            "## " + ("✨ Automatic Points Awarded" if awarded else "⚠️ No Automatic Points Awarded")
+            "## " + (("✨ Automatic Points Awarded" if positive else "⚠️ Automatic Points Deducted") if awarded else "⚠️ No Automatic Points Awarded")
         ))
         container.add_item(discord.ui.Separator())
         lines = [
@@ -113,11 +116,11 @@ class PointsCog(commands.Cog):
             f"**Ticket:** {ticket_number}",
         ]
         if awarded:
-            lines.append(f"**Points per member:** +{int(amount):,}")
-            lines.append(f"**Total awarded:** +{total:,} points")
+            lines.append(f"**Points per member:** {amount_label}")
+            lines.append(f"**Total point change:** {total_label} points")
             lines.append("")
             lines.append("**Recipients**")
-            lines.extend(f"• <@{user_id}> — **+{int(amount):,} points**" for user_id in awarded)
+            lines.extend(f"• <@{user_id}> — **{amount_label} points**" for user_id in awarded)
         else:
             lines.append("No points were added for this ticket.")
         if excluded:
@@ -169,11 +172,11 @@ class PointsCog(commands.Cog):
         await self._deliver_log(
             interaction.guild, action, user_id=user.id, username=_member_name(user),
             amount=amount if mode != "subtract" else -amount,
-            points_after=int(result.get("points", 0)), reason=reason,
+            points_after=float(result.get("points", 0)), reason=reason,
             actor_id=interaction.user.id, actor_name=_member_name(interaction.user),
         )
         public_body = (
-            f"{user.mention} now has {int(result.get('points', 0)):,} points.\n"
+            f"{user.mention} now has {float(result.get('points', 0)):g} points.\n"
             f"Action: {mode.title()} {amount:,}\n"
             f"Reason: {discord.utils.escape_mentions(reason)}\n"
             f"Changed by: {discord.utils.escape_markdown(_member_name(interaction.user))}"
@@ -183,7 +186,7 @@ class PointsCog(commands.Cog):
             view=_v2_notice(
                 "Points Updated",
                 f"Your change was processed. {user.mention} now has "
-                f"{int(result.get('points', 0)):,} points.",
+                f"{float(result.get('points', 0)):g} points.",
             ),
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
@@ -220,8 +223,8 @@ class PointsCog(commands.Cog):
                 user_id = str(row.get("user_id") or "").strip()
                 if not user_id.isdigit():
                     continue
-                points_value = int(row.get("points", 0))
-                lines.append(f"**#{index}** <@{user_id}> — **{points_value:,}** points")
+                points_value = float(row.get("points", 0))
+                lines.append(f"**#{index}** <@{user_id}> — **{points_value:g}** points")
             body = "\n".join(lines) if lines else "No leaderboard members are available yet."
             container.add_item(discord.ui.TextDisplay(body))
         else:
@@ -360,9 +363,9 @@ class PointsCog(commands.Cog):
             elif fields.get("username"):
                 lines.append(f"Member: {discord.utils.escape_markdown(str(fields['username']))}")
             if fields.get("amount") is not None:
-                lines.append(f"Points: {int(fields.get('amount') or 0):+,}")
+                lines.append(f"Points: {float(fields.get('amount') or 0):+g}")
             if fields.get("points_after") is not None:
-                lines.append(f"Balance after: {int(fields['points_after']):,}")
+                lines.append(f"Balance after: {float(fields['points_after']):g}")
             if fields.get("gamemode"):
                 lines.append(f"Gamemode: {discord.utils.escape_markdown(str(fields['gamemode']))}")
             if fields.get("ticket_number"):
@@ -574,7 +577,9 @@ class PointsCog(commands.Cog):
             )
             return
 
-        rule = points.find_gamemode_rule(config, parsed["gamemode"])
+        rule = points.find_gamemode_reward(
+            config, parsed["gamemode"], len(parsed["recipients"])
+        )
         if rule is None:
             await self._record_and_log(
                 message.guild, "automatic_skipped", user_id=message.author.id,
@@ -623,7 +628,10 @@ class PointsCog(commands.Cog):
                 amount=rule["points"], reason=rule.get("reason") or f"Automatic {rule['text']} points",
                 ticket_number=parsed["ticket_number"], thread_id=thread.id if thread else None,
                 gamemode=parsed["gamemode"], actor_name="Format Checker",
-                details=f"Awarded to {len(result['awarded'])} Carry Team member(s).",
+                details=(
+                    f"Awarded {rule['points']:+g} points per person using the "
+                    f"{rule['min_players']}+ player tier ({len(parsed['recipients'])} pinged)."
+                ),
             )
         if result.get("excluded"):
             await self._record_and_log(
@@ -632,6 +640,57 @@ class PointsCog(commands.Cog):
                 reason="One or more recipients are excluded from automatic points.",
                 details="Excluded user IDs: " + ", ".join(result["excluded"]),
             )
+
+    async def _handle_phrase_reward(self, message, config):
+        """Award the message author when a configured phrase appears outside a case submission."""
+        content = str(message.content or "")
+        first_line = next((line.strip() for line in content.splitlines() if line.strip()), "")
+        # Numbered submissions use the existing case/gamemode reward path instead.
+        if first_line.startswith("1."):
+            return
+        rule = points.find_phrase_reward(config, content)
+        if rule is None:
+            return
+        try:
+            result = await asyncio.to_thread(
+                points.award_auto_points,
+                message.guild.id, str(message.id), rule["text"],
+                [str(message.author.id)], rule["points"],
+                rule.get("reason") or f"Automatic phrase reward: {rule['text']}",
+                {str(message.author.id): _member_name(message.author)}, None,
+            )
+        except Exception:
+            logger.exception("Non-case phrase reward failed for message=%s", message.id)
+            await self._record_and_log(
+                message.guild, "automatic_skipped",
+                user_id=message.author.id, username=_member_name(message.author),
+                gamemode=rule["text"], reason="The phrase reward could not be safely saved.",
+                details=f"Message {message.id}; no points were confirmed.",
+            )
+            return
+        if result.get("duplicate") or not result.get("awarded"):
+            return
+        await self._deliver_log(
+            message.guild, "automatic_awarded",
+            user_id=message.author.id, username=_member_name(message.author),
+            amount=rule["points"], reason=rule.get("reason") or f"Automatic phrase reward: {rule['text']}",
+            gamemode=rule["text"], actor_name="Phrase Reward",
+            details=f"Matched phrase in message {message.id} in #{message.channel.name}.",
+        )
+        try:
+            await message.channel.send(
+                view=_v2_notice(
+                    "✨ Automatic Points Awarded" if float(rule["points"]) >= 0 else "⚠️ Automatic Points Deducted",
+                    f"{message.author.mention} {'received' if float(rule['points']) >= 0 else 'lost'} "
+                    f"**{float(rule['points']):+g} points** "
+                    f"for matching **{discord.utils.escape_markdown(rule['text'])}**.",
+                ),
+                allowed_mentions=discord.AllowedMentions.none(),
+                reference=message,
+                mention_author=False,
+            )
+        except discord.HTTPException:
+            logger.exception("Could not announce phrase reward for message=%s", message.id)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -649,6 +708,7 @@ class PointsCog(commands.Cog):
             if not self.bot.intents.message_content:
                 logger.warning("Format Checker is enabled but Message Content Intent is disabled.")
                 return
+            await self._handle_phrase_reward(message, config)
             await self._handle_format_checker(message, config)
             return
 

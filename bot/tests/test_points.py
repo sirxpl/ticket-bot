@@ -96,6 +96,84 @@ class PointsStorageTests(unittest.TestCase):
         self.assertEqual(points.find_gamemode_rule(config, "mOlTeN")["points"], 75)
         self.assertIsNone(points.find_gamemode_rule(config, "Molten Boss"))
 
+    def test_gamemode_player_count_uses_highest_qualifying_tier_and_preserves_legacy_config(self):
+        config = points.normalize_points_config({
+            "gamemodes": [{
+                "text": "Easy",
+                "rewards": [
+                    {"min_players": 1, "points": "1"},
+                    {"min_players": 3, "points": "0.3"},
+                    {"min_players": 5, "points": "-2.5"},
+                ],
+            }],
+        })
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 1)["points"], 1)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 3)["points"], 0.3)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 4)["points"], 0.3)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 8)["points"], -2.5)
+        self.assertEqual(points.find_gamemode_reward(config, "easy", 8)["min_players"], 5)
+        legacy = points.normalize_points_config({
+            "gamemodes": [{"text": "Molten", "points": 75, "reason": "Carry"}],
+        })
+        self.assertEqual(points.find_gamemode_reward(legacy, "Molten", 4)["points"], 75)
+
+    def test_gamemode_player_count_tiers_reject_duplicate_thresholds(self):
+        with self.assertRaises(ValueError):
+            points.normalize_points_config({
+                "gamemodes": [{
+                    "text": "Easy",
+                    "rewards": [
+                        {"min_players": 1, "points": 1},
+                        {"min_players": 1, "points": 2},
+                    ],
+                }],
+            })
+
+    def test_phrase_rewards_normalize_and_match_plain_text_case_insensitively(self):
+        config = points.normalize_points_config({
+            "phrase_rewards": [{"text": "Night 4 Hard", "points": "125", "reason": "Challenge"}],
+        })
+        self.assertEqual(config["phrase_rewards"][0]["points"], 125)
+        self.assertEqual(points.find_phrase_reward(config, "I completed NIGHT 4 HARD today")["text"], "Night 4 Hard")
+        self.assertIsNone(points.find_phrase_reward(config, "Night 4"))
+
+    def test_gamemode_rewards_accept_negative_integers_and_decimal_values(self):
+        config = points.normalize_points_config({
+            "gamemodes": [
+                {"text": "Night 4 Hard", "points": "-25"},
+                {"text": "Night 5 Hard", "points": "12.75"},
+            ],
+        })
+        self.assertEqual(config["gamemodes"][0]["points"], -25)
+        self.assertEqual(config["gamemodes"][1]["points"], 12.75)
+
+    def test_phrase_rewards_accept_negative_integers_and_decimal_values(self):
+        config = points.normalize_points_config({
+            "phrase_rewards": [
+                {"text": "Night 4 Hard", "points": "-25"},
+                {"text": "Night 5 Hard", "points": "12.75"},
+            ],
+        })
+        self.assertEqual(config["phrase_rewards"][0]["points"], -25)
+        self.assertEqual(config["phrase_rewards"][1]["points"], 12.75)
+
+    def test_automatic_phrase_adjustments_preserve_decimals_and_floor_balance_at_zero(self):
+        points.adjust_points("guild", "101", "CarryOne", "add", 10, "Initial balance")
+        deducted = points.award_auto_points("guild", "3011", "Night 4 Hard", ["101"], -3.5, "Phrase deduction")
+        self.assertEqual(deducted["awarded"], ["101"])
+        self.assertEqual(points.get_points_leaderboard("guild")["items"][0]["points"], 6.5)
+        points.award_auto_points("guild", "3012", "Night 5 Hard", ["101"], -10, "Phrase deduction")
+        self.assertEqual(points.get_points_leaderboard("guild")["items"][0]["points"], 0)
+
+    def test_phrase_rewards_reject_duplicate_phrases_ignoring_case(self):
+        with self.assertRaises(ValueError):
+            points.normalize_points_config({
+                "phrase_rewards": [
+                    {"text": "Night 4 Hard", "points": 10},
+                    {"text": "night 4 hard", "points": 20},
+                ],
+            })
+
     def test_valid_format_uses_section_one_and_three_for_points(self):
         parsed, error = points.validate_format(
             "1. <@101> <@!102>\n"
