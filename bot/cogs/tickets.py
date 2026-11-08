@@ -1556,6 +1556,65 @@ class TicketsCog(commands.Cog):
             return False
         return True
 
+    # Carry Manager system-setting controls. These update the same persisted
+    # settings used by the dashboard, so slash commands and dashboard stay in sync.
+    async def _set_carry_system_setting(self, interaction, option, setting_name, setter, label):
+        from utils.access import is_admin
+
+        if not interaction.guild or not is_admin(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ Only bot administrators can change Carry Manager system settings.",
+                ephemeral=True,
+            )
+            return
+
+        enabled = option == "true"
+        try:
+            setter(enabled)
+        except Exception:
+            logger.exception("Failed to update Carry Manager setting %s", setting_name)
+            await interaction.response.send_message(
+                f"❌ Could not update {label}. Please try again.",
+                ephemeral=True,
+            )
+            return
+
+        state = "enabled" if enabled else "disabled"
+        await interaction.response.send_message(
+            f"✅ **{label}** has been {state}. The Carry Manager dashboard now reflects this setting.",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="toggle-tickets",
+        description="Enable or disable new ticket creation",
+    )
+    @app_commands.guild_only()
+    @app_commands.describe(option="Set ticket creation to true (on) or false (off)")
+    async def toggle_tickets_command(
+        self, interaction: discord.Interaction, option: Literal["true", "false"]
+    ):
+        from utils.storage import set_tickets_enabled
+
+        await self._set_carry_system_setting(
+            interaction, option, "tickets_enabled", set_tickets_enabled, "Ticket creation"
+        )
+
+    @app_commands.command(
+        name="toggle-aprilfools",
+        description="Enable or disable the April Fools advertisement gag",
+    )
+    @app_commands.guild_only()
+    @app_commands.describe(option="Set the April Fools ad gag to true (on) or false (off)")
+    async def toggle_aprilfools_command(
+        self, interaction: discord.Interaction, option: Literal["true", "false"]
+    ):
+        from utils.storage import set_april_fools_enabled
+
+        await self._set_carry_system_setting(
+            interaction, option, "april_fools_enabled", set_april_fools_enabled, "April Fools ad gag"
+        )
+
     # Slash Command: /close [reason] — closes immediately, no opener confirmation
     @app_commands.command(
         name="close",
