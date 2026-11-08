@@ -83,6 +83,40 @@ class PublicPagesLayoutTests(unittest.TestCase):
         self.assertIn("schedule_days", status)
         self.assertNotIn('_bot_status_section.html', status)
 
+    def test_website_health_is_separate_from_discord_bot_status(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        status = (TEMPLATES / "status.html").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/healthz")', main)
+        self.assertIn('"service": "website"', main)
+        self.assertIn('id="websiteStatusCard"', status)
+        self.assertIn('id="botStatusCard"', status)
+        self.assertIn("fetch('/healthz'", status)
+        self.assertIn("Discord bot uptime · last 90 days", status)
+
+    def test_main_and_application_panels_are_separate(self):
+        utilities = (ROOT / "cogs" / "utilities.py").read_text(encoding="utf-8")
+        self.assertIn('"label": "Docs"', utilities)
+        self.assertIn('"label": "Rules"', utilities)
+        self.assertIn('"label": "Guidelines"', utilities)
+        self.assertIn('"label": "Privacy"', utilities)
+        self.assertIn('"label": "Status"', utilities)
+        self.assertIn('"label": "Downtime"', utilities)
+        self.assertIn('name="application-panel"', utilities)
+        self.assertIn("/carry-application", utilities)
+        self.assertNotIn('"label": "Dashboard"', utilities)
+        self.assertIn('**Outage started:** <t:{start_ts}:F>', utilities)
+        self.assertIn('**Recovery:** Ongoing — no recovery time has been recorded.', utilities)
+        self.assertIn('**Recovered:** <t:{int(recovered.timestamp())}:F>', utilities)
+
+    def test_legacy_carry_agreement_page_is_removed(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        application_rules = (TEMPLATES / "carry_application_rules.html").read_text(encoding="utf-8")
+        self.assertFalse((TEMPLATES / "carry_agreement.html").exists())
+        self.assertNotIn('@app.route("/carry-agreement")', main)
+        self.assertNotIn('@app.route("/carry-agreement/accept"', main)
+        self.assertIn("url_for('rules')", application_rules)
+        self.assertNotIn("carry_agreement", application_rules)
+
     def test_access_control_collapsed_sections_keep_forms(self):
         path = TEMPLATES / "dashboard_pages" / "access_control.html"
         content = path.read_text(encoding="utf-8")

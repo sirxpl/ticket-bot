@@ -4,6 +4,7 @@ import os
 import random
 import base64
 import asyncio
+import datetime
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -321,135 +322,225 @@ def components_v2_supported() -> bool:
 # ============================================================
 
 SITE_ABOUT_TEXT = (
-    "This bot runs a full support-ticket system for the server — open a "
-    "ticket, get matched with the carry team, and everything's tracked on "
-    "a web dashboard staff can review anytime."
+    "Quick links for Carry Ticket Bot documentation, service rules, "
+    "carry guidelines, privacy information, and live service status."
 )
 
+DEFAULT_SITE_BASE_URL = "https://ticket-bot-f184.onrender.com"
 
-def _site_links():
-    base = get_dashboard_base_url().rstrip("/")
 
-    if not base:
-        return []
+def _site_base_url():
+    return (get_dashboard_base_url() or DEFAULT_SITE_BASE_URL).rstrip("/")
 
+
+def _site_links(base_url=None):
+    base = (base_url or _site_base_url()).rstrip("/")
     return [
-        {
-            "label": "Dashboard",
-            "emoji": "🔗",
-            "url": f"{base}/",
-        },
-        {
-            "label": "Docs",
-            "emoji": "📘",
-            "url": f"{base}/docs",
-        },
-        {
-            "label": "Rules & Regulations",
-            "emoji": "📋",
-            "url": f"{base}/rules",
-        },
-        {
-            "label": "Carry Guidelines",
-            "emoji": "📖",
-            "url": f"{base}/guidelines",
-        },
-        {
-            "label": "Privacy Policy",
-            "emoji": "🔒",
-            "url": f"{base}/privacy",
-        },
-        {
-            "label": "Status",
-            "emoji": "🟢",
-            "url": f"{base}/status",
-        },
+        {"label": "Docs", "emoji": "📘", "url": f"{base}/docs"},
+        {"label": "Rules", "emoji": "📋", "url": f"{base}/rules"},
+        {"label": "Guidelines", "emoji": "📖", "url": f"{base}/guidelines"},
+        {"label": "Privacy", "emoji": "🔒", "url": f"{base}/privacy"},
+        {"label": "Status", "emoji": "🟢", "url": f"{base}/status"},
+        {"label": "Downtime", "emoji": "🕒", "url": f"{base}/downtime"},
     ]
 
 
-def build_panel_view():
-    """Build Components V2 dashboard panel."""
+async def check_website_availability(base_url=None):
+    """Check the Flask website itself; this does not use Discord bot state."""
+    base = (base_url or _site_base_url()).rstrip("/")
+    timeout = aiohttp.ClientTimeout(total=6)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"{base}/healthz") as response:
+                if response.status != 200:
+                    return "Unavailable", f"Health check returned HTTP {response.status}."
+                payload = await response.json(content_type=None)
+                if payload.get("service") == "website" and payload.get("status") == "operational":
+                    return "Operational", "The website health endpoint responded successfully."
+                return "Unverified", "The health endpoint returned an unexpected response."
+    except asyncio.TimeoutError:
+        return "Unreachable", "The website health check timed out."
+    except (aiohttp.ClientError, ValueError):
+        return "Unreachable", "The website health endpoint could not be reached."
 
+
+def _latest_downtime_summary():
+    """Format the latest persisted bot incident with native Discord timestamps."""
+    try:
+        from utils.status_history import get_status_data
+
+        data = get_status_data()
+        incidents = data.get("incidents", []) or []
+        open_id = data.get("open_incident_id")
+        incident = next((item for item in incidents if item.get("id") == open_id), None)
+        if incident is None and incidents:
+            incident = max(incidents, key=lambda item: item.get("created_at") or "")
+        if not incident:
+            return "No recorded bot downtime incidents."
+
+        started = datetime.datetime.fromisoformat(incident["created_at"])
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=datetime.timezone.utc)
+        start_ts = int(started.timestamp())
+        resolved_update = next(
+            (item for item in incident.get("updates", []) if item.get("status") == "resolved"),
+            None,
+        )
+        if incident.get("id") == open_id or not resolved_update:
+            return (
+                f"**Outage started:** <t:{start_ts}:F>\n"
+                "**Recovery:** Ongoing — no recovery time has been recorded."
+            )
+        recovered = datetime.datetime.fromisoformat(resolved_update["timestamp"])
+        if recovered.tzinfo is None:
+            recovered = recovered.replace(tzinfo=datetime.timezone.utc)
+        return (
+            f"**Outage started:** <t:{start_ts}:F>\n"
+            f"**Recovered:** <t:{int(recovered.timestamp())}:F>"
+        )
+    except Exception:
+        return "Downtime details are temporarily unavailable."
+
+
+def build_panel_view(
+    *,
+    base_url=None,
+    website_status="Not checked",
+    website_detail="",
+    outage_summary="",
+):
+    """Build the main website links as an independent Components V2 panel."""
     try:
         layout_cls = getattr(discord.ui, "LayoutView", None)
         container_cls = getattr(discord.ui, "Container", None)
         text_display_cls = getattr(discord.ui, "TextDisplay", None)
         separator_cls = getattr(discord.ui, "Separator", None)
         action_row_cls = getattr(discord.ui, "ActionRow", None)
-
-        if not (
-            layout_cls
-            and container_cls
-            and text_display_cls
-            and action_row_cls
-        ):
+        if not all((layout_cls, container_cls, text_display_cls, action_row_cls)):
             return None
 
-        links = _site_links()
+        links = _site_links(base_url)
+        colors = {
+            "Operational": discord.Color.green(),
+            "Unavailable": discord.Color.red(),
+            "Unreachable": discord.Color.red(),
+            "Unverified": discord.Color.orange(),
+        }
 
         class PanelView(layout_cls):
             def __init__(self):
                 super().__init__(timeout=None)
-
-                container = container_cls(
-                    accent_color=discord.Color.blurple()
-                )
-
-                container.add_item(
-                    text_display_cls("### 🎫 Carry Ticket Bot")
-                )
-
-                container.add_item(
-                    text_display_cls(SITE_ABOUT_TEXT)
-                )
-
+                container = container_cls(accent_color=colors.get(website_status, discord.Color.blurple()))
+                container.add_item(text_display_cls("### 🎫 Carry Ticket Bot · Website"))
+                container.add_item(text_display_cls(SITE_ABOUT_TEXT))
                 if separator_cls:
                     container.add_item(separator_cls())
-
+                container.add_item(text_display_cls(
+                    f"**Website availability:** {website_status}\n{website_detail}"
+                ))
+                if outage_summary:
+                    if separator_cls:
+                        container.add_item(separator_cls())
+                    container.add_item(text_display_cls(
+                        f"**Latest Discord bot downtime**\n{outage_summary}"
+                    ))
+                if separator_cls:
+                    container.add_item(separator_cls())
                 for i in range(0, len(links), 5):
                     row = action_row_cls()
-
                     for link in links[i:i + 5]:
-                        row.add_item(
-                            Button(
-                                label=link["label"],
-                                emoji=link["emoji"],
-                                url=link["url"],
-                                style=discord.ButtonStyle.link,
-                            )
-                        )
-
+                        row.add_item(Button(
+                            label=link["label"],
+                            emoji=link["emoji"],
+                            url=link["url"],
+                            style=discord.ButtonStyle.link,
+                        ))
                     container.add_item(row)
-
                 self.add_item(container)
 
         return PanelView()
-
     except Exception:
         return None
 
 
-def build_panel_embed_and_view():
-    """Classic embed + button fallback."""
-
+def build_panel_embed_and_view(
+    *,
+    base_url=None,
+    website_status="Not checked",
+    website_detail="",
+    outage_summary="",
+):
+    """Classic compatibility fallback for the main website panel."""
+    description = (
+        f"{SITE_ABOUT_TEXT}\n\n"
+        f"**Website availability:** {website_status}\n{website_detail}"
+    )
+    if outage_summary:
+        description += f"\n\n**Latest Discord bot downtime**\n{outage_summary}"
     embed = discord.Embed(
-        title="🎫 Carry Ticket Bot",
-        description=SITE_ABOUT_TEXT,
+        title="🎫 Carry Ticket Bot · Website",
+        description=description,
         color=discord.Color.blurple(),
     )
-
     view = View(timeout=None)
+    for link in _site_links(base_url):
+        view.add_item(Button(
+            label=link["label"],
+            emoji=link["emoji"],
+            url=link["url"],
+            style=discord.ButtonStyle.link,
+        ))
+    return embed, view
 
-    for link in _site_links():
-        view.add_item(
-            Button(
-                label=link["label"],
-                emoji=link["emoji"],
-                url=link["url"],
-                style=discord.ButtonStyle.link,
-            )
-        )
 
+def build_application_panel_view(base_url=None):
+    """Build a separate Components V2 application panel with one redirect only."""
+    try:
+        layout_cls = getattr(discord.ui, "LayoutView", None)
+        container_cls = getattr(discord.ui, "Container", None)
+        text_display_cls = getattr(discord.ui, "TextDisplay", None)
+        action_row_cls = getattr(discord.ui, "ActionRow", None)
+        if not all((layout_cls, container_cls, text_display_cls, action_row_cls)):
+            return None
+        application_url = f"{(base_url or _site_base_url()).rstrip('/')}/carry-application"
+
+        class ApplicationPanelView(layout_cls):
+            def __init__(self):
+                super().__init__(timeout=None)
+                container = container_cls(accent_color=discord.Color.blurple())
+                container.add_item(text_display_cls("### 📝 Carry Team Application"))
+                container.add_item(text_display_cls(
+                    "Ready to apply to the Carry Team? Open the application page to review the requirements and begin."
+                ))
+                row = action_row_cls()
+                row.add_item(Button(
+                    label="Open Application",
+                    emoji="📝",
+                    url=application_url,
+                    style=discord.ButtonStyle.link,
+                ))
+                container.add_item(row)
+                self.add_item(container)
+
+        return ApplicationPanelView()
+    except Exception:
+        return None
+
+
+def build_application_panel_fallback(base_url=None):
+    application_url = f"{(base_url or _site_base_url()).rstrip('/')}/carry-application"
+    embed = discord.Embed(
+        title="📝 Carry Team Application",
+        description="Open the application page to review the requirements and begin.",
+        color=discord.Color.blurple(),
+    )
+    view = View(timeout=None)
+    view.add_item(Button(
+        label="Open Application",
+        emoji="📝",
+        url=application_url,
+        style=discord.ButtonStyle.link,
+    ))
     return embed, view
 
 
@@ -916,23 +1007,53 @@ class UtilityCog(commands.Cog):
 
     @app_commands.command(
         name="panel",
-        description="Get a link to the dashboard and site",
+        description="Get website links and live website status",
     )
     async def panel(
         self,
         interaction: discord.Interaction,
     ):
-        view = build_panel_view()
+        base_url = _site_base_url()
+        website_status, website_detail = await check_website_availability(base_url)
+        outage_summary = _latest_downtime_summary()
+        view = build_panel_view(
+            base_url=base_url,
+            website_status=website_status,
+            website_detail=website_detail,
+            outage_summary=outage_summary,
+        )
 
         if view is not None:
-            await interaction.response.send_message(
-                view=view,
-                ephemeral=True,
-            )
+            await interaction.response.send_message(view=view, ephemeral=True)
             return
 
-        embed, fallback_view = build_panel_embed_and_view()
+        embed, fallback_view = build_panel_embed_and_view(
+            base_url=base_url,
+            website_status=website_status,
+            website_detail=website_detail,
+            outage_summary=outage_summary,
+        )
+        await interaction.response.send_message(
+            embed=embed,
+            view=fallback_view,
+            ephemeral=True,
+        )
 
+    # --------------------------------------------------------
+    # /application-panel
+    # --------------------------------------------------------
+
+    @app_commands.command(
+        name="application-panel",
+        description="Get the separate Carry Team application panel",
+    )
+    async def application_panel(self, interaction: discord.Interaction):
+        base_url = _site_base_url()
+        view = build_application_panel_view(base_url)
+        if view is not None:
+            await interaction.response.send_message(view=view, ephemeral=True)
+            return
+        embed, fallback_view = build_application_panel_fallback(base_url)
         await interaction.response.send_message(
             embed=embed,
             view=fallback_view,

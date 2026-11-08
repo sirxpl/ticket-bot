@@ -118,8 +118,13 @@
 
 
 <main id="page-content">
-  <div class="doc-header"><div class="eyebrow">Service health</div><h1 class="doctitle">System Status</h1><p class="rev">Live connectivity, scheduled downtime, and service notices.</p></div>
-  <div class="status-card">
+  <div class="doc-header"><div class="eyebrow">Service health</div><h1 class="doctitle">System Status</h1><p class="rev">Website availability, Discord bot connectivity, scheduled downtime, and service notices.</p></div>
+  <div class="status-card" id="websiteStatusCard">
+    <div><span class="status-icon" id="websiteStatusIcon">●</span><span class="status-label" id="websiteStatusLabel">Checking Website...</span></div>
+    <div class="status-sub" id="websiteStatusSub">Checking whether this website is reachable.</div>
+    <div class="status-sub mono" id="websiteLastChecked">Last checked: —</div>
+  </div>
+  <div class="status-card" id="botStatusCard">
     <div><span class="status-icon" id="statusIcon">●</span><span class="status-label" id="statusLabel">Checking...</span></div>
     <div class="status-sub" id="statusSub">Loading current status</div>
   </div>
@@ -147,7 +152,7 @@
 
   <div class="uptime-card">
     <div class="uptime-header">
-      <span class="url"><span class="url-check">✓</span> {{ base_url }}/</span>
+      <span class="url">Discord bot uptime · last 90 days</span>
       <span class="pct" id="overallPct">—% uptime</span>
     </div>
     <div class="bars" id="bars"></div>
@@ -276,6 +281,31 @@ async function refreshHistory(){
   }
 }
 
+async function refreshWebsiteStatus(){
+  const icon = document.getElementById('websiteStatusIcon');
+  const label = document.getElementById('websiteStatusLabel');
+  const sub = document.getElementById('websiteStatusSub');
+  const checked = document.getElementById('websiteLastChecked');
+  try{
+    const response = await fetch('/healthz', {cache:'no-store'});
+    const data = await response.json();
+    if(!response.ok || data.service !== 'website' || data.status !== 'operational'){
+      throw new Error('Website health check failed');
+    }
+    icon.className = 'status-icon online';
+    icon.textContent = '✓';
+    label.textContent = 'Website Operational';
+    sub.textContent = 'The Flask website is responding successfully. This is separate from Discord bot connectivity.';
+    checked.textContent = 'Last checked: ' + new Date(data.checked_at || Date.now()).toLocaleString();
+  }catch(_){
+    icon.className = 'status-icon offline';
+    icon.textContent = '✕';
+    label.textContent = 'Website Unavailable';
+    sub.textContent = 'The website health check could not be completed.';
+    checked.textContent = 'Last checked: ' + new Date().toLocaleString();
+  }
+}
+
 async function refresh(){
   const icon = document.getElementById('statusIcon');
   const label = document.getElementById('statusLabel');
@@ -307,10 +337,12 @@ async function refresh(){
     icon.className = 'status-icon offline';
     icon.textContent = '✕';
     label.textContent = 'Unable to Reach Server';
-    sub.textContent = 'Could not load status — the web app itself may be down.';
+    sub.textContent = 'Could not load the Discord bot status endpoint.';
     document.getElementById('lastChecked').textContent = new Date().toLocaleTimeString();
   }
 }
+refreshWebsiteStatus();
+setInterval(refreshWebsiteStatus, 15000);
 refresh();
 refreshHistory();
 setInterval(refresh, 15000);
