@@ -59,6 +59,7 @@ _DEFAULT_CONFIG = {
         "exempt_role_ids": [],
     },
     "gamemodes": [],
+    "phrase_rewards": [],
     "logging": {
         "enabled": False,
         "channel_id": None,
@@ -201,6 +202,7 @@ def normalize_points_config(data):
             "events": [],
         },
         "gamemodes": [],
+        "phrase_rewards": [],
     }
     if not result["thread_automation"]["thread_name"]:
         result["thread_automation"]["thread_name"] = "{author} - {ticket_number}"
@@ -239,7 +241,42 @@ def normalize_points_config(data):
             "points": amount,
             "reason": str(row.get("reason") or "").strip()[:500],
         })
+    phrase_rewards = data.get("phrase_rewards") or []
+    if not isinstance(phrase_rewards, list) or len(phrase_rewards) > MAX_GAMEMODES:
+        raise ValueError(f"Configure no more than {MAX_GAMEMODES} phrase reward rules.")
+    phrase_seen = set()
+    for row in phrase_rewards:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        if len(text) > 80:
+            raise ValueError("Phrase reward text must be 80 characters or fewer.")
+        try:
+            amount = int(row.get("points", 0))
+        except (TypeError, ValueError):
+            raise ValueError(f"Points for phrase {text} must be a whole number.")
+        if amount < 0 or amount > MAX_POINTS:
+            raise ValueError(f"Points for phrase {text} must be between 0 and {MAX_POINTS}.")
+        key = text.casefold()
+        if key in phrase_seen:
+            raise ValueError(f"The phrase {text} is configured more than once.")
+        phrase_seen.add(key)
+        result["phrase_rewards"].append({"text": text, "points": amount, "reason": str(row.get("reason") or "").strip()[:500]})
     return result
+
+
+def find_phrase_reward(config, content):
+    """Return the first configured phrase found in a non-case message, ignoring case."""
+    message = str(content or "").casefold()
+    if not message:
+        return None
+    for rule in (config or {}).get("phrase_rewards", []):
+        phrase = str(rule.get("text") or "").strip()
+        if phrase and phrase.casefold() in message:
+            return dict(rule)
+    return None
 
 
 def get_points_config(guild_id):
