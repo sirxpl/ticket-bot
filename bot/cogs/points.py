@@ -577,7 +577,9 @@ class PointsCog(commands.Cog):
             )
             return
 
-        rule = points.find_gamemode_rule(config, parsed["gamemode"])
+        rule = points.find_gamemode_reward(
+            config, parsed["gamemode"], len(parsed["recipients"])
+        )
         if rule is None:
             await self._record_and_log(
                 message.guild, "automatic_skipped", user_id=message.author.id,
@@ -626,7 +628,10 @@ class PointsCog(commands.Cog):
                 amount=rule["points"], reason=rule.get("reason") or f"Automatic {rule['text']} points",
                 ticket_number=parsed["ticket_number"], thread_id=thread.id if thread else None,
                 gamemode=parsed["gamemode"], actor_name="Format Checker",
-                details=f"Awarded to {len(result['awarded'])} Carry Team member(s).",
+                details=(
+                    f"Awarded {rule['points']:+g} points per person using the "
+                    f"{rule['min_players']}+ player tier ({len(parsed['recipients'])} pinged)."
+                ),
             )
         if result.get("excluded"):
             await self._record_and_log(
