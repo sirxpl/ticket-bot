@@ -344,8 +344,8 @@ def _safe_discord_request_url(raw_url):
     """Redact interaction/webhook secrets and query strings from diagnostics."""
     try:
         parsed = urlsplit(str(raw_url))
-        path = re.sub(r"(/interactions/\\d+/)[^/?]+", r"\\1[REDACTED]", parsed.path)
-        path = re.sub(r"(/webhooks/\\d+/)[^/?]+", r"\\1[REDACTED]", path)
+        path = re.sub(r"(/interactions/\d+/)[^/?]+", r"\1[REDACTED]", parsed.path)
+        path = re.sub(r"(/webhooks/\d+/)[^/?]+", r"\1[REDACTED]", path)
         return parsed._replace(path=path, query="", fragment="").geturl()
     except Exception:
         return "<Discord URL redacted>"
