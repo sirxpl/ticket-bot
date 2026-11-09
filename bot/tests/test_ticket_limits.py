@@ -76,6 +76,15 @@ class TicketLimitStorageTests(ApplicationFixture, unittest.TestCase):
         self.assertEqual(storage.get_active_ticket_count("42"), 1)
         self.assertTrue(storage.release_active_ticket_reservation(first))
 
+    def test_cooldown_updates_do_not_overwrite_active_ticket_reservations(self):
+        reservation = storage.reserve_active_ticket_slot("42", "100", 2)
+        self.assertTrue(reservation)
+
+        storage.add_cooldown("200", hours=1)
+
+        self.assertEqual(storage.get_active_ticket_count("42"), 1)
+        self.assertTrue(storage.release_active_ticket_reservation(reservation))
+
     def test_legacy_tickets_are_assigned_to_their_cached_server(self):
         self.db.tickets_data.insert_one({
             "_id": "singleton",
