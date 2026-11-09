@@ -1636,8 +1636,10 @@ function addCatRequiredRole(btn, roleIdOverride) {
     };
     chip.append(text, removeBtn);
     row.querySelector('.cat-required-role-list').appendChild(chip);
-    if (!roleIdOverride) select.value = '';
-    saveCategoriesNow();
+    if (!roleIdOverride) {
+        select.value = '';
+        saveCategoriesNow();
+    }
 }
 
 function addCatBadge(button, badgeIdOverride) {
