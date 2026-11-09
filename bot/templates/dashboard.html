@@ -1610,6 +1610,36 @@ function addCatBlacklistChip(row, roleId, roleName) {
     list.appendChild(chip);
 }
 
+function addCatRequiredRole(btn, roleIdOverride) {
+    const row = btn.closest('.embed-field-row');
+    const select = row.querySelector('.cat-required-role-select');
+    const roleId = roleIdOverride || select.value;
+    if (!roleId) return;
+    const hidden = row.querySelector('.cat-required-roles-hidden');
+    const current = hidden.value ? hidden.value.split(',') : [];
+    if (current.includes(roleId)) return;
+    current.push(roleId);
+    hidden.value = current.join(',');
+    const role = ALL_ROLES.find(r => r.id === roleId);
+    const chip = document.createElement('div');
+    chip.style.cssText = "display:flex;justify-content:space-between;align-items:center;background:var(--raised-2);padding:6px 10px;border-radius:4px;margin-top:6px;";
+    const text = document.createElement('span');
+    text.textContent = `@${role ? role.name : roleId}`;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.style.cssText = "background:var(--danger);color:white;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;";
+    removeBtn.onclick = function() {
+        hidden.value = hidden.value.split(',').filter(id => id !== roleId).join(',');
+        chip.remove();
+        saveCategoriesNow();
+    };
+    chip.append(text, removeBtn);
+    row.querySelector('.cat-required-role-list').appendChild(chip);
+    if (!roleIdOverride) select.value = '';
+    saveCategoriesNow();
+}
+
 function addCatBadge(button, badgeIdOverride) {
     const row = button.closest('.embed-field-row');
     if (!row) return;
@@ -1650,7 +1680,7 @@ function addCatBadge(button, badgeIdOverride) {
     if (!badgeIdOverride) input.value = '';
 }
 
-function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables, badgeMode, badgeIds) {
+function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, openNote, discordCategoryId, dropdownEnabled, variables, badgeMode, badgeIds, requiredRoles) {
     categoryCount++;
     const container = document.getElementById('categoriesContainer');
     if (!container) return;
@@ -1682,6 +1712,16 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
             <input type="hidden" name="cat_variables" class="cat-variables-json" value="">
         </div>
         <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <strong style="font-size:.9em;">Required Roles</strong>
+            <p style="color:var(--text-dim);font-size:.85em;margin:4px 0;">Members need at least one of these roles to open this ticket type. Leave empty to allow everyone.</p>
+            <div style="display:flex;gap:8px;">
+                <select class="cat-required-role-select" data-unsaved-ignore style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">${catRoleOptionsHtml()}</select>
+                <button type="button" onclick="addCatRequiredRole(this)" style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;">+ Add field</button>
+            </div>
+            <div class="cat-required-role-list"></div>
+            <input type="hidden" name="cat_required_roles" class="cat-required-roles-hidden" value="">
+        </div>
             <strong style="font-size:.9em;">Blacklist Roles</strong>
             <div style="display:flex;gap:8px;">
                 <select class="cat-blacklist-select" data-unsaved-ignore style="flex:1;padding:8px;background:var(--raised-2);border:1px solid var(--border);color:white;border-radius:4px;">${catRoleOptionsHtml()}</select>
@@ -1730,6 +1770,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
 
     const varText = Object.entries(variables || {}).map(([k,v]) => `${k}=${v}`).join('\\n');
     row.querySelector('.cat-variables').value = varText;
+    (requiredRoles || []).forEach(roleId => addCatRequiredRole(row.querySelector('.cat-required-role-select').nextElementSibling, roleId));
     (blacklistRoles || []).forEach(roleId => {
         const role = ALL_ROLES.find(r => r.id === roleId);
         addCatBlacklistChip(row, roleId, role ? role.name : roleId);
@@ -1737,7 +1778,7 @@ function addCategoryRow(label, description, emoji, blacklistRoles, namePrefix, o
 }
 
 const existingCategories = {{ ticket_categories | default([]) | tojson }};
-existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables, c.badge_mode, c.badge_ids));
+existingCategories.forEach(c => addCategoryRow(c.label, c.description, c.emoji, c.blacklist_roles, c.name_prefix, c.open_note, c.discord_category_id, c.dropdown_enabled, c.variables, c.badge_mode, c.badge_ids, c.required_roles));
 if (existingCategories.length === 0) addCategoryRow();
 
 document.getElementById('categoriesForm')?.addEventListener('submit', function() {
