@@ -851,7 +851,6 @@ class TicketView(discord.ui.View):
         # a second, atomic reservation so this friendly early check cannot be raced.
         if interaction.guild:
             try:
-                sync_legacy_ticket_guild_ids(self.bot)
                 limit_config = get_ticket_limit_config(interaction.guild.id)
                 active_count = get_active_ticket_count(interaction.guild.id)
                 if active_count >= limit_config["limit"]:
