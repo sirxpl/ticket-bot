@@ -40,17 +40,20 @@ def get_settings():
     memo = has_request_context() and request.endpoint == "home" and request.method == "GET"
     if memo and hasattr(g, "_dashboard_bot_settings"):
         return g._dashboard_bot_settings
-    db=get_db()
+    db = get_db()
+    if db is None and os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is configured but unavailable; persistent settings cannot be loaded.")
     if db is not None:
         try:
-            doc=db.bot_settings.find_one({"_id":"singleton"})
+            doc = db.bot_settings.find_one({"_id": "singleton"})
             if doc:
                 doc.pop("_id", None)
                 if memo:
                     g._dashboard_bot_settings = doc
                 return doc
-        except Exception:
+        except Exception as error:
             logger.exception("get_settings Mongo read failed")
+            raise RuntimeError("Could not load persistent bot settings from MongoDB.") from error
     if not os.path.exists(SETTINGS_FILE):
         result = {"tickets_enabled": True}
     else:
@@ -63,13 +66,22 @@ def get_settings():
         g._dashboard_bot_settings = result
     return result
 
+
 def save_settings(settings):
-    db=get_db()
+    db = get_db()
+    if db is None and os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is configured but unavailable; settings were not saved.")
     if db is not None:
         try:
-            doc=dict(settings);doc["_id"]="singleton";db.bot_settings.replace_one({"_id":"singleton"},doc,upsert=True)
-        except Exception:logger.exception("save_settings Mongo write failed")
-    with open(SETTINGS_FILE,"w") as f:json.dump(settings,f,indent=4)
+            doc = dict(settings)
+            doc["_id"] = "singleton"
+            db.bot_settings.replace_one({"_id": "singleton"}, doc, upsert=True)
+            return
+        except Exception as error:
+            logger.exception("save_settings Mongo write failed")
+            raise RuntimeError("Could not save persistent bot settings to MongoDB.") from error
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
 
 def set_tickets_enabled(status):
     s=get_settings();s["tickets_enabled"]=bool(status);save_settings(s)
