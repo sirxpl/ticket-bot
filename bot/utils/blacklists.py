@@ -12,7 +12,6 @@ from pymongo.errors import DuplicateKeyError
 from utils import access, storage
 
 _lock = threading.RLock()
-LEGACY_VOIDCORE_ROLE = "1535963860203470858"
 
 
 def get_types(guild=None):
@@ -164,7 +163,7 @@ def remove(user_id, expected_entry=None):
 
 def role_id(entry):
     # Preserve the exact assigned role when types are renamed, edited or removed.
-    return str(entry.get("role_id", (LEGACY_VOIDCORE_ROLE if entry.get("blacklist_type") == "voidcore" else "")))
+    return str(entry.get("role_id") or "")
 
 
 def blocks(entry, category):
