@@ -42,6 +42,8 @@ from utils.storage import (
     get_blacklist_data, 
     TRANSCRIPTS_DIR,
     get_settings,
+    get_ticket_limit_config,
+    save_ticket_limit_config,
     set_tickets_enabled,
     get_april_fools_enabled,
     set_april_fools_enabled,
@@ -2064,6 +2066,7 @@ def home(page="overview"):
         panel_draft=get_ticket_panel_draft() if page == "carry-settings" else {},
         redirect_message=get_redirect_message() if page == "carry-settings" else {},
         welcome_message=get_welcome_message() if page == "carry-settings" else {},
+        ticket_limit_config=get_ticket_limit_config(guild.id if guild else "global") if page == "carry-settings" else {"limit": 15, "full_message": "🚫 This server has reached its active ticket limit ({active_tickets}/{limit}). Please try again when a ticket slot becomes available."},
         trial_schedule=get_trial_schedule_settings() if page == "trial-schedules" else {},
         warning_presets=warning_presets,
         warning_builder=warning_builder,
@@ -2388,6 +2391,33 @@ def toggle_tickets():
     status_text = "enabled" if is_enabled else "disabled"
     flash(f"⚙️ Ticket creation has been {status_text}.", "success" if is_enabled else "warning")
     return redirect(url_for("home", page="overview"))
+
+
+@app.post("/dashboard/ticket-limits/save")
+@carry_manager_required
+def save_ticket_limits_route():
+    if not _valid_carry_application_csrf():
+        abort(400, "Your form expired. Reload Carry Manager Settings and try again.")
+    guild = bot.guilds[0] if bot.guilds else None
+    if guild is None:
+        flash("❌ The Discord bot is not connected to a server. Ticket limits were not saved.", "danger")
+        return redirect(url_for("home", page="carry-settings", _anchor="ticket-limits"))
+    try:
+        saved = save_ticket_limit_config(
+            guild.id,
+            request.form.get("active_ticket_limit"),
+            request.form.get("ticket_full_message", ""),
+        )
+        flash(
+            f"✅ Active ticket limit saved: {saved['limit']} tickets. The full message was updated.",
+            "success",
+        )
+    except ValueError as error:
+        flash(f"❌ {error}", "danger")
+    except Exception:
+        app.logger.exception("Could not save ticket limit settings for guild=%s", guild.id)
+        flash("❌ Ticket limit settings could not be saved. Please try again.", "danger")
+    return redirect(url_for("home", page="carry-settings", _anchor="ticket-limits"))
 
 
 @app.route("/dashboard/toggle-april-fools", methods=["POST"])
