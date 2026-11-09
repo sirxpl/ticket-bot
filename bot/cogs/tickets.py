@@ -210,11 +210,20 @@ def can_manage_ticket(member):
 
 
 def sync_legacy_ticket_guild_ids(bot):
-    """Attach server IDs to older ticket records using cached Discord channels."""
+    """Attach server IDs to older ticket records using cached ticket channels only."""
+    active_channel_ids = {
+        str(ticket.get("channel_id"))
+        for ticket in get_tickets_data().get("active_tickets", [])
+        if ticket.get("channel_id")
+    }
+    if not active_channel_ids:
+        return
     channel_to_guild = {}
     for guild in getattr(bot, "guilds", []):
         for channel in getattr(guild, "channels", []):
-            channel_to_guild[str(channel.id)] = str(guild.id)
+            channel_id = str(channel.id)
+            if channel_id in active_channel_ids:
+                channel_to_guild[channel_id] = str(guild.id)
     if channel_to_guild:
         migrate_legacy_ticket_guild_ids(channel_to_guild)
 
