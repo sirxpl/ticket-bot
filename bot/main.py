@@ -3351,6 +3351,7 @@ def save_ticket_categories_route():
     descriptions = request.form.getlist("cat_description")
     emojis = request.form.getlist("cat_emoji")
     blacklist_roles_raw = request.form.getlist("cat_blacklist_roles")
+    required_roles_raw = request.form.getlist("cat_required_roles")
     name_prefixes = request.form.getlist("cat_name_prefix")
     open_notes = request.form.getlist("cat_open_note")
     discord_category_ids = request.form.getlist("cat_discord_category_id")
@@ -3361,21 +3362,26 @@ def save_ticket_categories_route():
 
     # these lists aren't guaranteed to line up 1:1 with the other lists
     # (older cached pages, etc.) so pad them out defensively
-    for lst in (blacklist_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw):
+    for lst in (blacklist_roles_raw, required_roles_raw, name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw):
         while len(lst) < len(labels):
             lst.append("")
 
     from utils.storage import slugify
 
     categories = []
-    for label, desc, emoji, bl_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw, badge_mode, badge_ids_item in zip(
-        labels, descriptions, emojis, blacklist_roles_raw,
+    for label, desc, emoji, bl_raw, req_raw, prefix_raw, note_raw, disc_cat_raw, dd_enabled, vars_raw, badge_mode, badge_ids_item in zip(
+        labels, descriptions, emojis, blacklist_roles_raw, required_roles_raw,
         name_prefixes, open_notes, discord_category_ids, dropdown_enabled_raw, variables_raw, badge_mode_raw, badge_ids_raw,
     ):
         label = label.strip()
         if not label:
             continue
         blacklist_roles = [r.strip() for r in bl_raw.split(",") if r.strip()]
+        required_roles = []
+        for role_id in str(req_raw or "").split(","):
+            role_id = role_id.strip()
+            if role_id.isdigit() and role_id not in required_roles:
+                required_roles.append(role_id)
         badge_ids = []
         for badge_id in str(badge_ids_item or "").split(","):
             badge_id = badge_id.strip()
@@ -3397,6 +3403,7 @@ def save_ticket_categories_route():
             "description": desc.strip()[:100],
             "emoji": emoji.strip() or None,
             "blacklist_roles": blacklist_roles,
+            "required_roles": required_roles,
             "badge_mode": badge_mode if badge_mode in {"off", "require_badge", "block_badge"} else "off",
             "badge_ids": badge_ids,
             "name_prefix": prefix,

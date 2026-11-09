@@ -516,6 +516,16 @@ class TicketView(discord.ui.View):
 
         try:
             category = next((item for item in get_ticket_categories() if item.get("label") == selection), None)
+            required_role_ids = {str(role_id) for role_id in ((category or {}).get("required_roles") or []) if str(role_id).isdigit()}
+            member_role_ids = {str(role.id) for role in getattr(interaction.user, "roles", [])}
+            if required_role_ids and not member_role_ids.intersection(required_role_ids):
+                await interaction.response.send_message(
+                    "❌ You need at least one of the required roles to open this ticket type.",
+                    ephemeral=True,
+                )
+                audit.record_event("ticket_creation_denied", interaction.user.id, user_id=str(interaction.user.id), category=selection, reason="missing_required_category_role")
+                await audit.send_event(self.bot, "ticket_creation_denied", user_id=str(interaction.user.id), category=selection, reason="missing_required_category_role")
+                return
             blocked_reason = blacklists.restriction_reason(interaction.user, category)
         except Exception:
             logger.exception("Could not verify ticket blacklist before opening form")
