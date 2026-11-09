@@ -777,8 +777,9 @@ class TicketView(discord.ui.View):
 
         # Modal is constructed below; delay the gate until after modal creation.
 
-        # Check for an existing ticket or an in-progress creation reservation.
+        # Migrate legacy records and clear deleted channels before checking this user.
         try:
+            sync_legacy_ticket_guild_ids(self.bot)
             reservation = (
                 get_ticket_reservation_for_user(interaction.guild.id, interaction.user.id)
                 if interaction.guild else None
@@ -791,6 +792,14 @@ class TicketView(discord.ui.View):
                 return
             existing = get_active_ticket_for_user(interaction.user.id)
             if existing:
+                existing_guild_id = str(existing.get("guild_id") or "")
+                current_guild_id = str(interaction.guild.id) if interaction.guild else ""
+                if existing_guild_id and current_guild_id and existing_guild_id != current_guild_id:
+                    await interaction.response.send_message(
+                        "❌ You already have an open ticket in another server. Please close it before opening a new one.",
+                        ephemeral=True,
+                    )
+                    return
                 existing_channel_id = existing.get("channel_id")
                 existing_channel = (
                     interaction.guild.get_channel(int(existing_channel_id))
