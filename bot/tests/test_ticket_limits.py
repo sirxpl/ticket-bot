@@ -48,6 +48,10 @@ class TicketLimitStorageTests(ApplicationFixture, unittest.TestCase):
     def test_mongo_reservations_enforce_the_cap_per_server_and_finalize(self):
         first = storage.reserve_active_ticket_slot("42", "100", 1)
         self.assertTrue(first)
+        pending_data = storage.get_tickets_data()
+        self.assertEqual(pending_data["active_tickets"], [])
+        self.assertEqual(len(pending_data["ticket_reservations"]), 1)
+        self.assertIsNone(storage.get_active_ticket_for_user("100"))
         self.assertEqual(storage.get_active_ticket_count("42"), 1)
         self.assertIsNone(storage.reserve_active_ticket_slot("42", "200", 1))
 
@@ -132,6 +136,9 @@ class FileTicketLimitStorageTests(ApplicationFixture, unittest.TestCase):
     def test_failed_creation_reservation_can_be_released(self):
         reservation = storage.reserve_active_ticket_slot("42", "100", 1)
         self.assertTrue(reservation)
+        pending_data = storage.get_tickets_data()
+        self.assertEqual(pending_data["active_tickets"], [])
+        self.assertEqual(len(pending_data["ticket_reservations"]), 1)
         self.assertEqual(storage.get_active_ticket_count("42"), 1)
         self.assertTrue(storage.release_active_ticket_reservation(reservation))
         self.assertEqual(storage.get_active_ticket_count("42"), 0)
