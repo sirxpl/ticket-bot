@@ -28,6 +28,16 @@ class TicketBlacklistGateTests(unittest.IsolatedAsyncioTestCase):
             patch.object(storage, "get_ticket_categories", side_effect=lambda: [self.category]),
             patch.object(self.tickets, "get_ticket_badge_config", return_value={}),
             patch.object(self.tickets, "get_active_ticket_for_user", return_value=None),
+            patch.object(self.tickets, "get_ticket_limit_config", return_value={
+                "limit": 15,
+                "full_message": "Server full ({active_tickets}/{limit}).",
+            }),
+            patch.object(self.tickets, "get_active_ticket_count", return_value=0),
+            patch.object(self.tickets, "get_ticket_reservation_for_user", return_value=None),
+            patch.object(self.tickets, "reserve_active_ticket_slot", return_value="reservation:test"),
+            patch.object(self.tickets, "finalize_active_ticket_reservation", return_value=True),
+            patch.object(self.tickets, "release_active_ticket_reservation"),
+            patch.object(self.tickets, "sync_legacy_ticket_guild_ids"),
             patch.object(self.tickets, "is_on_cooldown", return_value=(False, None)),
             patch.object(access, "get_access_settings", return_value={}),
             patch.object(blacklists, "get_data", return_value={"blacklisted_users": []}),
@@ -51,7 +61,7 @@ class TicketBlacklistGateTests(unittest.IsolatedAsyncioTestCase):
         self.guild.create_text_channel.return_value = channel
         patches = [patch.object(self.tickets, "get_welcome_message", return_value={"title": "Created", "content": "{user_mention}"}),
             patch.object(self.tickets, "get_redirect_message", return_value={}),
-            patch.object(self.tickets, "add_active_ticket"), patch.object(self.tickets, "update_active_ticket"),
+            patch.object(self.tickets, "update_active_ticket"),
             patch.object(storage, "append_ticket_log"), patch.object(self.tickets, "increment_ticket_open_count"),
             patch.object(self.tickets, "send_ticket_log", new_callable=AsyncMock)]
         for item in patches:

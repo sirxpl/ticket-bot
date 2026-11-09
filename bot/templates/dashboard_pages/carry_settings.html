@@ -51,6 +51,38 @@
             </form>
             </div>
         </details>
+<details class="card" id="ticket-limits">
+            <summary>
+                <div class="card-head-text">
+                    <h3><span class="card-icon">🎫</span> Active Ticket Limits</h3>
+                    <p class="card-subtitle">Set how many tickets can be active in this server at once and customize the message members see when the limit is reached.</p>
+                </div>
+                <span class="card-chevron">▾</span>
+            </summary>
+            <div class="card-body">
+                <form action="/dashboard/ticket-limits/save" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ dashboard_csrf_token }}">
+                    <label for="active-ticket-limit">Maximum Active Tickets</label>
+                    <input id="active-ticket-limit" type="number" name="active_ticket_limit"
+                           min="1" max="10000" step="1" required
+                           value="{{ ticket_limit_config.limit | default(15) }}">
+                    <p class="card-subtitle" style="margin-top:8px;">
+                        Counts every active ticket in this server, across all panels and ticket categories.
+                        Closing a ticket frees a slot immediately. Default: <strong>15</strong>.
+                    </p>
+
+                    <label for="ticket-full-message" style="margin-top:16px;">Ticket Full Message</label>
+                    <textarea id="ticket-full-message" name="ticket_full_message" rows="3"
+                              maxlength="1800" required>{{ ticket_limit_config.full_message | default("🚫 This server has reached its active ticket limit ({active_tickets}/{limit}). Please try again when a ticket slot becomes available.") }}</textarea>
+                    <p class="card-subtitle" style="margin-top:8px;">
+                        Placeholders: <code>{active_tickets}</code> current active tickets,
+                        <code>{limit}</code> configured limit, and <code>{server}</code> server name.
+                        Mentions in this message are sent without notifying users or roles.
+                    </p>
+                    <button type="submit" class="btn-submit" style="width:auto;margin-top:14px;">💾 Save Ticket Limits</button>
+                </form>
+            </div>
+        </details>
 </section>
 <section class="settings-group" id="carry-categories-verification"><h2 class="settings-group-title">Categories and verification</h2>
 <details class="card" id="carry-categories">
