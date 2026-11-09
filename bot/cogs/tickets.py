@@ -211,22 +211,42 @@ def can_manage_ticket(member):
 
 
 def sync_legacy_ticket_guild_ids(bot):
-    """Attach server IDs to older ticket records using cached ticket channels only."""
+    """Tag legacy records and clear deleted ticket channels for connected servers."""
+    active_tickets = list(get_tickets_data().get("active_tickets", []))
+    if not active_tickets:
+        return
+
+    known_guild_ids = set()
     active_channel_ids = {
         str(ticket.get("channel_id"))
-        for ticket in get_tickets_data().get("active_tickets", [])
+        for ticket in active_tickets
         if ticket.get("channel_id")
     }
-    if not active_channel_ids:
-        return
     channel_to_guild = {}
     for guild in getattr(bot, "guilds", []):
+        guild_id = str(guild.id)
+        known_guild_ids.add(guild_id)
         for channel in getattr(guild, "channels", []):
             channel_id = str(channel.id)
             if channel_id in active_channel_ids:
-                channel_to_guild[channel_id] = str(guild.id)
+                channel_to_guild[channel_id] = guild_id
+
     if channel_to_guild:
         migrate_legacy_ticket_guild_ids(channel_to_guild)
+
+    # Manually deleted ticket channels must not permanently consume a slot.
+    for ticket in active_tickets:
+        guild_id = str(ticket.get("guild_id") or channel_to_guild.get(
+            str(ticket.get("channel_id") or ""), ""
+        ))
+        channel_id = str(ticket.get("channel_id") or "")
+        if guild_id in known_guild_ids and channel_id and channel_id not in channel_to_guild:
+            remove_active_ticket(str(ticket.get("ticket_id") or channel_id))
+            logger.info(
+                "Removed stale active-ticket record for deleted channel=%s in guild=%s",
+                channel_id,
+                guild_id,
+            )
 
 
 def format_ticket_full_message(config, guild, active_count):
