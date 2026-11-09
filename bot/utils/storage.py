@@ -467,7 +467,7 @@ def increment_ticket_counter():
                 {"_id": "singleton"},
                 {
                     "$inc": {"ticket_counter": 1},
-                    "$setOnInsert": {"active_tickets": [], "cooldowns": []},
+                    "$setOnInsert": {"active_tickets": [], "ticket_reservations": [], "cooldowns": []},
                 },
                 upsert=True,
                 return_document=ReturnDocument.AFTER,
@@ -563,7 +563,7 @@ def add_active_ticket(ticket_id, channel_id, user_id, ticket_number=None, guild_
         try:
             db.tickets_data.update_one(
                 {"_id": "singleton"},
-                {"$setOnInsert": {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}},
+                {"$setOnInsert": {"ticket_counter": 0, "active_tickets": [], "ticket_reservations": [], "cooldowns": []}},
                 upsert=True,
             )
             result = db.tickets_data.update_one(
@@ -1061,7 +1061,7 @@ def add_cooldown(user_id, hours=8):
         try:
             db.tickets_data.update_one(
                 {"_id": "singleton"},
-                {"$setOnInsert": {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}},
+                {"$setOnInsert": {"ticket_counter": 0, "active_tickets": [], "ticket_reservations": [], "cooldowns": []}},
                 upsert=True,
             )
             db.tickets_data.update_one(
