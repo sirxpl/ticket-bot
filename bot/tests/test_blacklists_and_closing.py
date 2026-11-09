@@ -110,13 +110,14 @@ class BlacklistChecks:
 
     def test_no_presets_and_preexisting_flat_roles_supply_command_choices(self):
         self.assertEqual(blacklists.get_types(), [])
+        self.assertEqual(blacklists.role_id({"blacklist_type": "voidcore"}), "")
         access.add_blacklist_role("555")
         self.assertEqual([row["role_id"] for row in blacklists.get_types()], ["555"])
         # Old automatically seeded choices must not return when settings are read.
         settings = access.get_access_settings()
         settings["blacklist_types"] = [
             dict(id="regular", name="Regular", role_id="", reason="Old", block_all=True),
-            dict(id="voidcore", name="Voidcore", role_id=blacklists.LEGACY_VOIDCORE_ROLE, reason="Old", block_all=False),
+            dict(id="voidcore", name="Voidcore", role_id="", reason="Old", block_all=False),
             dict(id="custom", name="Custom", role_id="666", reason="Configured reason", block_all=False)]
         access._save(settings)
         self.assertEqual({row["role_id"] for row in blacklists.get_types()}, {"555", "666"})
