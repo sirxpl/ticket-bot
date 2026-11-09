@@ -442,14 +442,14 @@ def get_tickets_data():
     if db is not None:
         try:
             d=db.tickets_data.find_one({"_id":"singleton"})
-            if not d:d={"_id":"singleton","ticket_counter":0,"active_tickets":[],"cooldowns":[]};db.tickets_data.insert_one(dict(d))
-            d.setdefault("ticket_counter",0);d.setdefault("active_tickets",[]);d.setdefault("cooldowns",[]);return d
+            if not d:d={"_id":"singleton","ticket_counter":0,"active_tickets":[],"ticket_reservations":[],"cooldowns":[]};db.tickets_data.insert_one(dict(d))
+            d.setdefault("ticket_counter",0);d.setdefault("active_tickets",[]);d.setdefault("ticket_reservations",[]);d.setdefault("cooldowns",[]);return d
         except Exception:logger.exception("tickets Mongo read failed")
     if not os.path.exists(TICKETS_FILE):
-        d={"ticket_counter":0,"active_tickets":[],"cooldowns":[]};json.dump(d,open(TICKETS_FILE,"w"),indent=2);return d
+        d={"ticket_counter":0,"active_tickets":[],"ticket_reservations":[],"cooldowns":[]};json.dump(d,open(TICKETS_FILE,"w"),indent=2);return d
     try:
-        d=json.load(open(TICKETS_FILE));d.setdefault("ticket_counter",0);d.setdefault("active_tickets",[]);d.setdefault("cooldowns",[]);return d
-    except Exception:return {"ticket_counter":0,"active_tickets":[],"cooldowns":[]}
+        d=json.load(open(TICKETS_FILE));d.setdefault("ticket_counter",0);d.setdefault("active_tickets",[]);d.setdefault("ticket_reservations",[]);d.setdefault("cooldowns",[]);return d
+    except Exception:return {"ticket_counter":0,"active_tickets":[],"ticket_reservations":[],"cooldowns":[]}
 
 def _save_tickets_data(data):
     db=get_db()
@@ -589,13 +589,8 @@ TICKET_RESERVATION_SECONDS = 900
 
 
 def _ticket_record_is_countable(ticket, now=None):
-    now = time.time() if now is None else now
-    if ticket.get("status") == "creating":
-        try:
-            return float(ticket.get("reservation_expires_at", 0)) > now
-        except (TypeError, ValueError):
-            return False
-    return True
+    """Active-ticket records are countable unless explicitly marked closed."""
+    return ticket.get("status") != "closed"
 
 
 def migrate_legacy_ticket_guild_ids(channel_to_guild):
@@ -622,7 +617,11 @@ def migrate_legacy_ticket_guild_ids(channel_to_guild):
                         "active_tickets": {
                             "$elemMatch": {
                                 "channel_id": channel_id,
-                                "guild_id": {"$exists": False},
+                                "$or": [
+                                    {"guild_id": {"$exists": False}},
+                                    {"guild_id": None},
+                                    {"guild_id": ""},
+                                ],
                             }
                         },
                     },
@@ -645,8 +644,25 @@ def migrate_legacy_ticket_guild_ids(channel_to_guild):
     return changed
 
 
+def _active_ticket_count_for_guild(active_tickets, guild_key):
+    return sum(
+        1 for ticket in active_tickets
+        if str(ticket.get("guild_id") or "") == guild_key
+        and _ticket_record_is_countable(ticket)
+    )
+
+
+def _pending_reservation_count_for_guild(reservations, guild_key, now=None):
+    now = time.time() if now is None else now
+    return sum(
+        1 for reservation in reservations
+        if str(reservation.get("guild_id") or "") == guild_key
+        and float(reservation.get("expires_at", 0) or 0) > now
+    )
+
+
 def get_active_ticket_count(guild_id):
-    """Count active tickets and unexpired creation reservations for one server."""
+    """Count active tickets plus unexpired slot reservations for one server."""
     guild_key = str(guild_id or "").strip()
     if not guild_key:
         raise ValueError("A Discord server is required.")
@@ -657,28 +673,64 @@ def get_active_ticket_count(guild_id):
         if db is not None:
             document = db.tickets_data.find_one(
                 {"_id": "singleton"},
-                {"_id": 0, "active_tickets": 1},
+                {"_id": 0, "active_tickets": 1, "ticket_reservations": 1},
             ) or {}
-            records = document.get("active_tickets", [])
+            active_tickets = document.get("active_tickets", [])
+            reservations = document.get("ticket_reservations", [])
         else:
             with _TICKET_STORAGE_LOCK:
-                records = list(get_tickets_data().get("active_tickets", []))
+                data = get_tickets_data()
+                active_tickets = list(data.get("active_tickets", []))
+                reservations = list(data.get("ticket_reservations", []))
         now = time.time()
-        return sum(
-            1 for ticket in records
-            if str(ticket.get("guild_id") or "") == guild_key
-            and _ticket_record_is_countable(ticket, now)
+        return (
+            _active_ticket_count_for_guild(active_tickets, guild_key)
+            + _pending_reservation_count_for_guild(reservations, guild_key, now)
         )
     except Exception as error:
         logger.exception("Could not count active tickets for guild=%s", guild_key)
         raise RuntimeError("Could not check active ticket capacity.") from error
 
 
-def reserve_active_ticket_slot(guild_id, user_id, limit):
-    """Atomically reserve a server ticket slot before creating its Discord channel.
+def get_ticket_reservation_for_user(guild_id, user_id):
+    """Return a member's unexpired in-progress ticket slot reservation, if any."""
+    guild_key = str(guild_id or "").strip()
+    user_key = str(user_id or "").strip()
+    if not guild_key or not user_key:
+        return None
+    db = get_db()
+    if db is None and os.getenv("MONGODB_URI"):
+        raise RuntimeError("MongoDB is unavailable; ticket reservations cannot be checked.")
+    if db is not None:
+        try:
+            document = db.tickets_data.find_one(
+                {"_id": "singleton"},
+                {"_id": 0, "ticket_reservations": 1},
+            ) or {}
+            reservations = document.get("ticket_reservations", [])
+        except Exception as error:
+            logger.exception("Could not read ticket reservations")
+            raise RuntimeError("Could not check ticket creation status.") from error
+    else:
+        with _TICKET_STORAGE_LOCK:
+            reservations = list(get_tickets_data().get("ticket_reservations", []))
+    now = time.time()
+    return next(
+        (
+            reservation for reservation in reservations
+            if str(reservation.get("guild_id") or "") == guild_key
+            and str(reservation.get("user_id") or "") == user_key
+            and float(reservation.get("expires_at", 0) or 0) > now
+        ),
+        None,
+    )
 
-    MongoDB evaluates the cap and appends the reservation in one update, so
-    simultaneous submissions cannot both claim the final available slot.
+
+def reserve_active_ticket_slot(guild_id, user_id, limit):
+    """Atomically reserve one server slot without adding a fake ticket channel.
+
+    The reservation and active-ticket arrays share a single MongoDB document,
+    so the capacity check and reservation append happen in one atomic update.
     """
     guild_key = str(guild_id or "").strip()
     user_key = str(user_id or "").strip()
@@ -690,18 +742,11 @@ def reserve_active_ticket_slot(guild_id, user_id, limit):
     now = time.time()
     reservation_id = "reservation:" + uuid.uuid4().hex
     entry = {
-        "ticket_id": reservation_id,
-        "channel_id": "",
+        "reservation_id": reservation_id,
         "guild_id": guild_key,
         "user_id": user_key,
-        "status": "creating",
-        "reservation_expires_at": now + TICKET_RESERVATION_SECONDS,
+        "expires_at": now + TICKET_RESERVATION_SECONDS,
         "created_at": now,
-        "last_activity": now,
-        "autoclose_disabled": False,
-        "reminder_sent": False,
-        "owner_close_locked": False,
-        "owner_close_revision": 0,
     }
     db = get_db()
     if db is None and os.getenv("MONGODB_URI"):
@@ -710,15 +755,17 @@ def reserve_active_ticket_slot(guild_id, user_id, limit):
         try:
             db.tickets_data.update_one(
                 {"_id": "singleton"},
-                {"$setOnInsert": {"ticket_counter": 0, "active_tickets": [], "cooldowns": []}},
+                {"$setOnInsert": {
+                    "ticket_counter": 0,
+                    "active_tickets": [],
+                    "ticket_reservations": [],
+                    "cooldowns": [],
+                }},
                 upsert=True,
             )
             db.tickets_data.update_one(
                 {"_id": "singleton"},
-                {"$pull": {"active_tickets": {
-                    "status": "creating",
-                    "reservation_expires_at": {"$lte": now},
-                }}},
+                {"$pull": {"ticket_reservations": {"expires_at": {"$lte": now}}}},
             )
             result = db.tickets_data.update_one(
                 {
@@ -727,45 +774,57 @@ def reserve_active_ticket_slot(guild_id, user_id, limit):
                         "$not": {"$elemMatch": {
                             "guild_id": guild_key,
                             "user_id": user_key,
-                            "$or": [
-                                {"status": {"$ne": "creating"}},
-                                {"reservation_expires_at": {"$gt": now}},
-                            ],
+                        }}
+                    },
+                    "ticket_reservations": {
+                        "$not": {"$elemMatch": {
+                            "guild_id": guild_key,
+                            "user_id": user_key,
+                            "expires_at": {"$gt": now},
                         }}
                     },
                     "$expr": {
                         "$lt": [
                             {
-                                "$size": {
-                                    "$filter": {
-                                        "input": {"$ifNull": ["$active_tickets", []]},
-                                        "as": "ticket",
-                                        "cond": {
-                                            "$and": [
-                                                {"$eq": [
-                                                    {"$ifNull": ["$ticket.guild_id", ""]},
-                                                    guild_key,
-                                                ]},
-                                                {"$or": [
-                                                    {"$ne": [
-                                                        {"$ifNull": ["$ticket.status", "active"]},
-                                                        "creating",
-                                                    ]},
-                                                    {"$gt": [
-                                                        {"$ifNull": ["$ticket.reservation_expires_at", 0]},
-                                                        now,
-                                                    ]},
-                                                ]},
-                                            ]
-                                        },
-                                    }
-                                }
+                                "$add": [
+                                    {
+                                        "$size": {
+                                            "$filter": {
+                                                "input": {"$ifNull": ["$active_tickets", []]},
+                                                "as": "ticket",
+                                                "cond": {
+                                                    "$eq": [
+                                                        {"$ifNull": ["$$ticket.guild_id", ""]},
+                                                        guild_key,
+                                                    ]
+                                                },
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "$size": {
+                                            "$filter": {
+                                                "input": {"$ifNull": ["$ticket_reservations", []]},
+                                                "as": "reservation",
+                                                "cond": {
+                                                    "$and": [
+                                                        {"$eq": [
+                                                            {"$ifNull": ["$$reservation.guild_id", ""]},
+                                                            guild_key,
+                                                        ]},
+                                                        {"$gt": ["$$reservation.expires_at", now]},
+                                                    ]
+                                                },
+                                            }
+                                        }
+                                    },
+                                ]
                             },
                             limit,
                         ]
                     },
                 },
-                {"$push": {"active_tickets": entry}},
+                {"$push": {"ticket_reservations": entry}},
             )
             return reservation_id if result.modified_count == 1 else None
         except Exception as error:
@@ -774,29 +833,30 @@ def reserve_active_ticket_slot(guild_id, user_id, limit):
 
     with _TICKET_STORAGE_LOCK:
         data = get_tickets_data()
-        active = data.setdefault("active_tickets", [])
-        active[:] = [
-            ticket for ticket in active
-            if not (
-                ticket.get("status") == "creating"
-                and float(ticket.get("reservation_expires_at", 0) or 0) <= now
-            )
+        active_tickets = data.setdefault("active_tickets", [])
+        reservations = data.setdefault("ticket_reservations", [])
+        reservations[:] = [
+            reservation for reservation in reservations
+            if float(reservation.get("expires_at", 0) or 0) > now
         ]
         already_open = any(
             str(ticket.get("guild_id") or "") == guild_key
             and str(ticket.get("user_id") or "") == user_key
-            and _ticket_record_is_countable(ticket, now)
-            for ticket in active
+            for ticket in active_tickets
+        ) or any(
+            str(reservation.get("guild_id") or "") == guild_key
+            and str(reservation.get("user_id") or "") == user_key
+            for reservation in reservations
         )
-        current_count = sum(
-            1 for ticket in active
-            if str(ticket.get("guild_id") or "") == guild_key
-            and _ticket_record_is_countable(ticket, now)
+        current_count = (
+            _active_ticket_count_for_guild(active_tickets, guild_key)
+            + _pending_reservation_count_for_guild(reservations, guild_key, now)
         )
         if already_open or current_count >= limit:
-            _save_tickets_data(data)
+            if not _save_tickets_data(data):
+                raise RuntimeError("Could not save ticket reservation cleanup.")
             return None
-        active.append(entry)
+        reservations.append(entry)
         if not _save_tickets_data(data):
             raise RuntimeError("Could not save the ticket slot reservation.")
     return reservation_id
@@ -805,35 +865,40 @@ def reserve_active_ticket_slot(guild_id, user_id, limit):
 def finalize_active_ticket_reservation(
     reservation_id, ticket_id, channel_id, guild_id, user_id, ticket_number=None
 ):
-    """Convert a temporary slot reservation into the newly-created active ticket."""
+    """Move a pending reservation into the real active-ticket array atomically."""
     reservation_id = str(reservation_id or "")
     if not reservation_id:
         return False
-    fields = {
+    now = time.time()
+    active_entry = {
         "ticket_id": str(ticket_id),
         "channel_id": str(channel_id),
         "guild_id": str(guild_id),
         "user_id": str(user_id),
-        "status": "active",
-        "last_activity": time.time(),
+        "created_at": now,
+        "last_activity": now,
         "autoclose_disabled": False,
         "reminder_sent": False,
         "owner_close_locked": False,
         "owner_close_revision": 0,
+        "status": "active",
     }
     if ticket_number is not None:
-        fields["ticket_number"] = int(ticket_number)
+        active_entry["ticket_number"] = int(ticket_number)
     db = get_db()
     if db is None and os.getenv("MONGODB_URI"):
         raise RuntimeError("MongoDB is unavailable; the ticket reservation cannot be finalized.")
     if db is not None:
         try:
-            update_fields = {f"active_tickets.$.{key}": value for key, value in fields.items()}
             result = db.tickets_data.update_one(
-                {"_id": "singleton", "active_tickets.ticket_id": reservation_id},
                 {
-                    "$set": update_fields,
-                    "$unset": {"active_tickets.$.reservation_expires_at": ""},
+                    "_id": "singleton",
+                    "ticket_reservations.reservation_id": reservation_id,
+                    "active_tickets.ticket_id": {"$ne": str(ticket_id)},
+                },
+                {
+                    "$push": {"active_tickets": active_entry},
+                    "$pull": {"ticket_reservations": {"reservation_id": reservation_id}},
                 },
             )
             return result.modified_count == 1
@@ -842,10 +907,13 @@ def finalize_active_ticket_reservation(
             raise RuntimeError("Could not save the newly-created ticket.") from error
     with _TICKET_STORAGE_LOCK:
         data = get_tickets_data()
-        for ticket in data.get("active_tickets", []):
-            if str(ticket.get("ticket_id")) == reservation_id:
-                ticket.update(fields)
-                ticket.pop("reservation_expires_at", None)
+        reservations = data.setdefault("ticket_reservations", [])
+        for index, reservation in enumerate(reservations):
+            if str(reservation.get("reservation_id")) == reservation_id:
+                if any(str(ticket.get("ticket_id")) == str(ticket_id) for ticket in data.get("active_tickets", [])):
+                    return False
+                reservations.pop(index)
+                data.setdefault("active_tickets", []).append(active_entry)
                 if not _save_tickets_data(data):
                     raise RuntimeError("Could not save the newly-created ticket.")
                 return True
@@ -853,7 +921,7 @@ def finalize_active_ticket_reservation(
 
 
 def release_active_ticket_reservation(reservation_id):
-    """Release a slot reservation if channel creation fails."""
+    """Remove a pending slot hold when ticket-channel creation fails."""
     reservation_id = str(reservation_id or "")
     if not reservation_id:
         return False
@@ -864,7 +932,7 @@ def release_active_ticket_reservation(reservation_id):
         try:
             result = db.tickets_data.update_one(
                 {"_id": "singleton"},
-                {"$pull": {"active_tickets": {"ticket_id": reservation_id, "status": "creating"}}},
+                {"$pull": {"ticket_reservations": {"reservation_id": reservation_id}}},
             )
             return result.modified_count == 1
         except Exception as error:
@@ -872,18 +940,18 @@ def release_active_ticket_reservation(reservation_id):
             raise RuntimeError("Could not release the ticket slot.") from error
     with _TICKET_STORAGE_LOCK:
         data = get_tickets_data()
-        before = len(data.get("active_tickets", []))
-        data["active_tickets"] = [
-            ticket for ticket in data.get("active_tickets", [])
-            if not (
-                str(ticket.get("ticket_id")) == reservation_id
-                and ticket.get("status") == "creating"
-            )
+        reservations = data.setdefault("ticket_reservations", [])
+        before = len(reservations)
+        data["ticket_reservations"] = [
+            reservation for reservation in reservations
+            if str(reservation.get("reservation_id")) != reservation_id
         ]
-        changed = len(data["active_tickets"]) != before
+        changed = len(data["ticket_reservations"]) != before
         if changed and not _save_tickets_data(data):
             raise RuntimeError("Could not release the ticket slot.")
         return changed
+
+
 def set_ticket_owner_close_locked(channel_id, locked):
     """Persist the owner-close lock and invalidate outstanding close prompts.
 
