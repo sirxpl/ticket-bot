@@ -652,12 +652,20 @@ def _active_ticket_count_for_guild(active_tickets, guild_key):
     )
 
 
+def _reservation_is_live(reservation, now=None):
+    now = time.time() if now is None else now
+    try:
+        return float(reservation.get("expires_at", 0) or 0) > now
+    except (TypeError, ValueError):
+        return False
+
+
 def _pending_reservation_count_for_guild(reservations, guild_key, now=None):
     now = time.time() if now is None else now
     return sum(
         1 for reservation in reservations
         if str(reservation.get("guild_id") or "") == guild_key
-        and float(reservation.get("expires_at", 0) or 0) > now
+        and _reservation_is_live(reservation, now)
     )
 
 
@@ -720,7 +728,7 @@ def get_ticket_reservation_for_user(guild_id, user_id):
             reservation for reservation in reservations
             if str(reservation.get("guild_id") or "") == guild_key
             and str(reservation.get("user_id") or "") == user_key
-            and float(reservation.get("expires_at", 0) or 0) > now
+            and _reservation_is_live(reservation, now)
         ),
         None,
     )
@@ -837,7 +845,7 @@ def reserve_active_ticket_slot(guild_id, user_id, limit):
         reservations = data.setdefault("ticket_reservations", [])
         reservations[:] = [
             reservation for reservation in reservations
-            if float(reservation.get("expires_at", 0) or 0) > now
+            if _reservation_is_live(reservation, now)
         ]
         already_open = any(
             str(ticket.get("guild_id") or "") == guild_key
