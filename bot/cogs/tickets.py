@@ -13,8 +13,13 @@ from utils.components import embed_layout
 from utils import blacklists, audit, pin_permissions
 
 from utils.storage import (
-    add_active_ticket,
     add_cooldown,
+    get_ticket_limit_config,
+    get_active_ticket_count,
+    migrate_legacy_ticket_guild_ids,
+    reserve_active_ticket_slot,
+    finalize_active_ticket_reservation,
+    release_active_ticket_reservation,
     append_ticket_log,
     get_active_ticket,
     get_active_ticket_for_user,
@@ -202,6 +207,29 @@ def can_manage_ticket(member):
     return str(member.id) in allowed_users or bool(
         allowed_roles.intersection(str(role.id) for role in getattr(member, "roles", []))
     )
+
+
+def sync_legacy_ticket_guild_ids(bot):
+    """Attach server IDs to older ticket records using cached Discord channels."""
+    channel_to_guild = {}
+    for guild in getattr(bot, "guilds", []):
+        for channel in getattr(guild, "channels", []):
+            channel_to_guild[str(channel.id)] = str(guild.id)
+    if channel_to_guild:
+        migrate_legacy_ticket_guild_ids(channel_to_guild)
+
+
+def format_ticket_full_message(config, guild, active_count):
+    """Render the dashboard-configured message shown when the cap is reached."""
+    return render_ticket_template(
+        config.get("full_message") or
+        "🚫 This server has reached its active ticket limit ({active_tickets}/{limit}). "
+        "Please try again when a ticket slot becomes available.",
+        active_tickets=int(active_count),
+        limit=int(config.get("limit", 15)),
+        server=getattr(guild, "name", "this server"),
+        guild=getattr(guild, "name", "this server"),
+    )[:1900]
 
 
 def ticket_notice(title, description, *, okay=True):
@@ -719,10 +747,16 @@ class TicketView(discord.ui.View):
 
         # Modal is constructed below; delay the gate until after modal creation.
 
-        # check for an already-open ticket (any category) before letting them make another
+        # Check for an existing ticket or an in-progress creation reservation.
         try:
             existing = get_active_ticket_for_user(interaction.user.id)
             if existing:
+                if existing.get("status") == "creating":
+                    await interaction.response.send_message(
+                        "⏳ A ticket is already being created for you. Please wait for it to finish.",
+                        ephemeral=True,
+                    )
+                    return
                 existing_channel_id = existing.get("channel_id")
                 existing_channel = (
                     interaction.guild.get_channel(int(existing_channel_id))
@@ -730,23 +764,26 @@ class TicketView(discord.ui.View):
                     else None
                 )
                 if existing_channel is None:
-                    # the channel is gone (deleted manually, or while the bot
-                    # was offline) but the record was never cleaned up — heal
-                    # it here instead of permanently blocking this user
-                    remove_active_ticket(str(existing_channel_id))
+                    # The channel was deleted manually or while the bot was offline.
+                    remove_active_ticket(str(existing.get("ticket_id") or existing_channel_id or ""))
                     logger.info(
-                        f"Cleared stale active-ticket record for missing channel={existing_channel_id} (self-heal on new ticket attempt)"
+                        "Cleared stale active-ticket record for missing channel=%s",
+                        existing_channel_id,
                     )
                 else:
-                    channel_mention = f"<#{existing_channel_id}>"
                     await interaction.response.send_message(
-                        f"❌ You already have an open ticket: {channel_mention}. "
-                        f"Please close it before opening a new one.",
+                        f"❌ You already have an open ticket: <#{existing_channel_id}>. "
+                        "Please close it before opening a new one.",
                         ephemeral=True,
                     )
                     return
         except Exception:
-            pass
+            logger.exception("Could not check whether the member already has an active ticket.")
+            await interaction.response.send_message(
+                "❌ I couldn't check your existing tickets. Please retry shortly.",
+                ephemeral=True,
+            )
+            return
 
         # check cooldown
         try:
@@ -766,6 +803,31 @@ class TicketView(discord.ui.View):
                 return
         except Exception:
             pass
+
+        # Check capacity before showing the form. The form submission performs
+        # a second, atomic reservation so this friendly early check cannot be raced.
+        if interaction.guild:
+            try:
+                sync_legacy_ticket_guild_ids(self.bot)
+                limit_config = get_ticket_limit_config(interaction.guild.id)
+                active_count = get_active_ticket_count(interaction.guild.id)
+                if active_count >= limit_config["limit"]:
+                    await interaction.response.send_message(
+                        format_ticket_full_message(limit_config, interaction.guild, active_count),
+                        ephemeral=True,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                    return
+            except Exception:
+                logger.exception(
+                    "Could not check active ticket capacity for guild=%s",
+                    interaction.guild.id,
+                )
+                await interaction.response.send_message(
+                    "⚠️ Ticket availability could not be checked right now. Please try again shortly.",
+                    ephemeral=True,
+                )
+                return
 
         class TicketModal(discord.ui.Modal, title=f"{selection}"):
             def __init__(self, author, selection):
@@ -900,21 +962,85 @@ class TicketView(discord.ui.View):
                 )
                 from utils.storage import increment_ticket_counter
 
-                # Shared/combined numbering: every category draws from the
-                # SAME running sequence, so fallen-carry-0001 and
-                # frost-carry-0002 share one continuous count rather than
-                # each category numbering independently from 1.
-                ticket_number = increment_ticket_counter()
-                category_number = ticket_number
-                channel_name = f"{prefix}-{ticket_number:04d}"
+                reservation_id = None
+                ticket_channel = None
+                reservation_finalized = False
+
+                async def cleanup_ticket_reservation():
+                    if reservation_finalized or not reservation_id:
+                        return
+                    if ticket_channel is not None:
+                        try:
+                            await ticket_channel.delete(reason="Ticket creation failed before activation")
+                        except Exception:
+                            logger.exception(
+                                "Could not remove untracked ticket channel=%s",
+                                getattr(ticket_channel, "id", None),
+                            )
+                    try:
+                        release_active_ticket_reservation(reservation_id)
+                    except Exception:
+                        logger.exception(
+                            "Could not release ticket creation reservation=%s",
+                            reservation_id,
+                        )
 
                 try:
+                    sync_legacy_ticket_guild_ids(outer_view.bot)
+                    limit_config = get_ticket_limit_config(guild.id)
+                    reservation_id = reserve_active_ticket_slot(
+                        guild.id, user.id, limit_config["limit"]
+                    )
+                    if not reservation_id:
+                        existing = get_active_ticket_for_user(user.id)
+                        if existing:
+                            if existing.get("status") == "creating":
+                                message = "⏳ A ticket is already being created for you. Please wait for it to finish."
+                            elif existing.get("channel_id"):
+                                message = (
+                                    f"❌ You already have an open ticket: <#{existing['channel_id']}>. "
+                                    "Please close it before opening a new one."
+                                )
+                            else:
+                                message = "❌ You already have an active ticket. Please close it before opening another."
+                            await modal_interaction.followup.send(
+                                message,
+                                ephemeral=True,
+                                allowed_mentions=discord.AllowedMentions.none(),
+                            )
+                        else:
+                            active_count = get_active_ticket_count(guild.id)
+                            await modal_interaction.followup.send(
+                                format_ticket_full_message(limit_config, guild, active_count),
+                                ephemeral=True,
+                                allowed_mentions=discord.AllowedMentions.none(),
+                            )
+                        return
+
+                    # Shared/combined numbering: every category draws from the
+                    # SAME running sequence, so all ticket names share one sequence.
+                    ticket_number = increment_ticket_counter()
+                    category_number = ticket_number
+                    channel_name = f"{prefix}-{ticket_number:04d}"
+
                     ticket_channel = await guild.create_text_channel(
                         name=channel_name,
                         category=category,
                         overwrites=overwrites,
                         reason=f"Ticket created by {user.name}",
                     )
+                    if not finalize_active_ticket_reservation(
+                        reservation_id,
+                        str(ticket_channel.id),
+                        str(ticket_channel.id),
+                        guild.id,
+                        user.id,
+                        ticket_number,
+                    ):
+                        raise RuntimeError(
+                            "The ticket channel was created, but its active slot could not be confirmed."
+                        )
+                    reservation_finalized = True
 
                     # Build the placeholder set available to both editable
                     # templates (welcome message + redirect message)
@@ -1051,17 +1177,9 @@ class TicketView(discord.ui.View):
                     # counter above (used for the channel name too) - reuse
                     # it here rather than incrementing a second time.
 
-                    # Record the active ticket in its OWN try/except, separate from
-                    # logging below - this is what powers the "you already have a
-                    # ticket open" block, so a logging/counter failure must never
-                    # silently skip it too.
+                    # The slot was reserved atomically before the Discord channel was
+                    # created. Enrich that same active record with ticket metadata.
                     try:
-                        add_active_ticket(
-                            str(ticket_channel.id),
-                            str(ticket_channel.id),
-                            str(user.id),
-                            ticket_number,
-                        )
                         update_active_ticket(
                             str(ticket_channel.id),
                             welcome_message_id=str(welcome_msg.id),
@@ -1070,9 +1188,10 @@ class TicketView(discord.ui.View):
                             category_prefix=prefix,
                             category_number=category_number,
                         )
-                    except Exception as e:
+                    except Exception:
                         logger.exception(
-                            f"Failed to record active ticket for channel={ticket_channel.id} user={user.id}: {e}"
+                            "Failed to update active ticket metadata for channel=%s",
+                            ticket_channel.id,
                         )
 
                     try:
@@ -1124,11 +1243,14 @@ class TicketView(discord.ui.View):
                     )
 
                 except discord.Forbidden:
+                    await cleanup_ticket_reservation()
                     await modal_interaction.followup.send(
                         "❌ I lack permissions to create channels or set permissions in this server.",
                         ephemeral=True,
                     )
                 except Exception as e:
+                    await cleanup_ticket_reservation()
+                    logger.exception("Ticket creation failed for guild=%s user=%s", guild.id, user.id)
                     await modal_interaction.followup.send(
                         f"❌ Failed to create ticket channel: {str(e)}",
                         ephemeral=True,
