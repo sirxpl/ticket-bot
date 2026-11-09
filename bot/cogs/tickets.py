@@ -16,6 +16,7 @@ from utils.storage import (
     add_cooldown,
     get_ticket_limit_config,
     get_active_ticket_count,
+    get_ticket_reservation_for_user,
     migrate_legacy_ticket_guild_ids,
     reserve_active_ticket_slot,
     finalize_active_ticket_reservation,
@@ -758,14 +759,18 @@ class TicketView(discord.ui.View):
 
         # Check for an existing ticket or an in-progress creation reservation.
         try:
+            reservation = (
+                get_ticket_reservation_for_user(interaction.guild.id, interaction.user.id)
+                if interaction.guild else None
+            )
+            if reservation:
+                await interaction.response.send_message(
+                    "⏳ A ticket is already being created for you. Please wait for it to finish.",
+                    ephemeral=True,
+                )
+                return
             existing = get_active_ticket_for_user(interaction.user.id)
             if existing:
-                if existing.get("status") == "creating":
-                    await interaction.response.send_message(
-                        "⏳ A ticket is already being created for you. Please wait for it to finish.",
-                        ephemeral=True,
-                    )
-                    return
                 existing_channel_id = existing.get("channel_id")
                 existing_channel = (
                     interaction.guild.get_channel(int(existing_channel_id))
@@ -1001,29 +1006,26 @@ class TicketView(discord.ui.View):
                         guild.id, user.id, limit_config["limit"]
                     )
                     if not reservation_id:
+                        pending = get_ticket_reservation_for_user(guild.id, user.id)
                         existing = get_active_ticket_for_user(user.id)
-                        if existing:
-                            if existing.get("status") == "creating":
-                                message = "⏳ A ticket is already being created for you. Please wait for it to finish."
-                            elif existing.get("channel_id"):
-                                message = (
-                                    f"❌ You already have an open ticket: <#{existing['channel_id']}>. "
-                                    "Please close it before opening a new one."
-                                )
-                            else:
-                                message = "❌ You already have an active ticket. Please close it before opening another."
-                            await modal_interaction.followup.send(
-                                message,
-                                ephemeral=True,
-                                allowed_mentions=discord.AllowedMentions.none(),
+                        if pending:
+                            message = "⏳ A ticket is already being created for you. Please wait for it to finish."
+                        elif existing and existing.get("channel_id"):
+                            message = (
+                                f"❌ You already have an open ticket: <#{existing['channel_id']}>. "
+                                "Please close it before opening a new one."
                             )
+                        elif existing:
+                            message = "❌ You already have an active ticket. Please close it before opening another."
                         else:
-                            active_count = get_active_ticket_count(guild.id)
-                            await modal_interaction.followup.send(
-                                format_ticket_full_message(limit_config, guild, active_count),
-                                ephemeral=True,
-                                allowed_mentions=discord.AllowedMentions.none(),
+                            message = format_ticket_full_message(
+                                limit_config, guild, get_active_ticket_count(guild.id)
                             )
+                        await modal_interaction.followup.send(
+                            message,
+                            ephemeral=True,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
                         return
 
                     # Shared/combined numbering: every category draws from the
