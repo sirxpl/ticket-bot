@@ -742,8 +742,22 @@ async def _deliver_pending_status_notifications():
     if channel is None:
         return
 
-    from utils.status_history import get_pending_notifications, mark_notification_delivered
+    from utils.status_history import (
+        get_pending_notifications,
+        mark_notification_delivered,
+        suppress_notification,
+    )
     for event in get_pending_notifications(20):
+        # A rate-limit alert is time-sensitive. Keep it in incident history,
+        # but never replay it as a stale Discord channel message after recovery.
+        if event.get("type") == "rate_limited":
+            suppress_notification(event.get("id"))
+            print(
+                "Status log: suppressed delayed Discord API rate-limit notification; "
+                "the incident remains available in status history.",
+                flush=True,
+            )
+            continue
         view = _build_status_v2_view(event)
         try:
             if view is None:
