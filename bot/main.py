@@ -443,7 +443,7 @@ async def _discord_http_request_end(session, trace_config_ctx, params):
             if not was_already_blocked:
                 # Queue one status incident and one independent owner alert per
                 # cooldown window. Repeated callback retries are coalesced.
-                _queue_status_event(
+                rate_limit_event = _queue_status_event(
                     "rate_limited",
                     "Discord API access blocked",
                     "Discord temporarily blocked REST API access. The bot has paused further REST requests and will retry after the server-provided cooldown.",
@@ -452,6 +452,13 @@ async def _discord_http_request_end(session, trace_config_ctx, params):
                     force_queue=True,
                     deliver=False,
                 )
+                if rate_limit_event:
+                    threading.Thread(
+                        target=_send_rate_limit_status_webhook_once,
+                        args=(rate_limit_event,),
+                        daemon=True,
+                        name="discord-api-block-status-webhook",
+                    ).start()
                 alert_text = (
                     "⚠️ Carry Ticket Bot: Discord API access is temporarily blocked. "
                     f"Retry-After: {retry_after:.0f}s. CF-Ray: {cf_ray}. "
@@ -575,7 +582,7 @@ def _build_status_v2_view(event):
     return BotStatusV2View()
 
 
-def _send_status_discord_webhook(event):
+def _send_status_discord_webhook(event, allow_during_api_block=False):
     """Send a compact fallback embed without requiring a logged-in bot session."""
     status_config = get_status_log_config()
     webhook_url = status_config["webhook_url"] if status_config["destination"] == "webhook" else ""
@@ -583,7 +590,7 @@ def _send_status_discord_webhook(event):
         return False
     # Discord webhooks use Discord's API too; attempting one during a
     # global/Cloudflare block only burns retries. Leave the event queued.
-    if api_block_seconds_left() > 0:
+    if api_block_seconds_left() > 0 and not allow_during_api_block:
         return False
     parsed = urlsplit(webhook_url)
     if parsed.scheme != "https" or parsed.hostname not in {"discord.com", "canary.discord.com", "ptb.discord.com"} or not parsed.path.startswith("/api/webhooks/"):
@@ -617,6 +624,31 @@ def _send_status_discord_webhook(event):
         if not 200 <= response.status < 300:
             raise RuntimeError(f"Discord webhook returned HTTP {response.status}.")
     return True
+
+
+def _send_rate_limit_status_webhook_once(event):
+    """Make one best-effort status-webhook attempt for a newly detected global block."""
+    try:
+        if _send_status_discord_webhook(event, allow_during_api_block=True):
+            from utils.status_history import mark_notification_delivered
+            mark_notification_delivered(event.get("id"))
+            print(
+                "✅ Discord API-block status webhook delivered on first detection.",
+                flush=True,
+            )
+        else:
+            print(
+                "⚠️ Discord API-block status webhook was not configured; "
+                "the incident remains in status history.",
+                flush=True,
+            )
+    except Exception as exc:
+        # Do not retry this through Discord while the host may be blocked.
+        print(
+            "⚠️ One-time Discord API-block status webhook attempt failed: "
+            f"{type(exc).__name__}: {exc}. The incident remains in status history.",
+            flush=True,
+        )
 
 
 def _valid_render_webhook(raw_body):
