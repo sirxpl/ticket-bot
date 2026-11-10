@@ -23,7 +23,7 @@ def _append_notification(data, event_type, title, message, details=None, dedupe_
     notifications = data.setdefault("notifications", [])
     if dedupe_key:
         for existing in reversed(notifications):
-            if existing.get("dedupe_key") == dedupe_key and not existing.get("delivered_at"):
+            if existing.get("dedupe_key") == dedupe_key and not existing.get("delivered_at") and not existing.get("suppressed_at"):
                 return existing
     event = {
         "id": uuid.uuid4().hex[:12],
@@ -34,6 +34,7 @@ def _append_notification(data, event_type, title, message, details=None, dedupe_
         "timestamp": _now_iso(),
         "dedupe_key": str(dedupe_key)[:80] if dedupe_key else None,
         "delivered_at": None,
+        "suppressed_at": None,
     }
     notifications.append(event)
     data["notifications"] = notifications[-100:]
@@ -50,7 +51,7 @@ def queue_notification(event_type, title, message, details=None, dedupe_key=None
 
 def get_pending_notifications(limit=25):
     data = get_status_data()
-    pending = [dict(item) for item in data.get("notifications", []) if not item.get("delivered_at")]
+    pending = [dict(item) for item in data.get("notifications", []) if not item.get("delivered_at") and not item.get("suppressed_at")]
     return pending[:max(1, min(int(limit), 100))]
 
 
@@ -60,6 +61,17 @@ def mark_notification_delivered(event_id):
     for event in data.get("notifications", []):
         if event.get("id") == str(event_id) and not event.get("delivered_at"):
             event["delivered_at"] = now
+            _save(data)
+            return True
+    return False
+
+def suppress_notification(event_id):
+    """Keep an event in status history without replaying it as a delayed Discord notification."""
+    data = get_status_data()
+    now = _now_iso()
+    for event in data.get("notifications", []):
+        if event.get("id") == str(event_id) and not event.get("delivered_at"):
+            event["suppressed_at"] = now
             _save(data)
             return True
     return False
