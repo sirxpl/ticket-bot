@@ -476,12 +476,12 @@ def _new_user(guild_key, user_id, username=None):
 
 def _points_pipeline(guild_key, user_id, username, mode, amount, now):
     if mode == "set":
-        points_value = {"$literal": float(amount) if isinstance(amount, float) else int(amount)}
+        points_value = {"$literal": round(float(amount), 2) if isinstance(amount, float) else int(amount)}
     else:
         delta = float(amount) if isinstance(amount, float) else int(amount)
         if mode != "add":
             delta = -delta
-        points_value = {"$max": [0, {"$add": [{"$ifNull": ["$points", 0]}, delta]}]}
+        points_value = {"$max": [0, {"$round": [{"$add": [{"$ifNull": ["$points", 0]}, delta]}, 2]}]}
     return [{"$set": {
         "guild_id": {"$literal": guild_key},
         "user_id": {"$literal": str(user_id)},
@@ -553,6 +553,7 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
         raise ValueError("Point amount must be a number.")
     if not math.isfinite(amount) or amount < 0 or amount > MAX_POINTS or (mode != "set" and amount <= 0):
         raise ValueError(f"Point amount must be greater than 0 and no more than {MAX_POINTS}; Set may use 0.")
+    amount = round(amount, 2)
     if amount.is_integer():
         amount = int(amount)
     clean_reason = str(reason or "").strip()[:500]
@@ -597,7 +598,7 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
             data["users"].append(user)
         user["username"] = str(username or user.get("username") or uid)[:100]
         current = float(user.get("points", 0))
-        user["points"] = amount if mode == "set" else max(0, current + (amount if mode == "add" else -amount))
+        user["points"] = round(amount if mode == "set" else max(0, current + (amount if mode == "add" else -amount)), 2)
         if isinstance(user["points"], float) and user["points"].is_integer():
             user["points"] = int(user["points"])
         if mode in {"set", "add"}:
@@ -744,6 +745,7 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
         raise ValueError("Automatic point amount must be a number.")
     if not math.isfinite(amount) or abs(amount) > MAX_POINTS:
         raise ValueError("Automatic point amount is outside the supported range.")
+    amount = round(amount, 2)
     if amount.is_integer():
         amount = int(amount)
     usernames = usernames or {}
@@ -814,7 +816,7 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
                 user = _new_user(guild_key, uid, usernames.get(uid))
                 data["users"].append(user)
             user["username"] = str(usernames.get(uid) or user.get("username") or uid)[:100]
-            user["points"] = max(0, float(user.get("points", 0)) + amount)
+            user["points"] = round(max(0, float(user.get("points", 0)) + amount), 2)
             if float(user["points"]).is_integer():
                 user["points"] = int(user["points"])
             user["hidden"] = False
