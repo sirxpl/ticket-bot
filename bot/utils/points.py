@@ -782,7 +782,7 @@ def award_auto_points(guild_id, ticket_number, gamemode, recipient_ids, amount, 
                         _write_activity(db, {
                             "guild_id": guild_key, "user_id": uid, "username": uname,
                             "action": "automatic_awarded", "amount": amount,
-                            "points_after": int((updated or {}).get("points", 0)),
+                            "points_after": (updated or {}).get("points", 0),
                             "reason": str(reason or f"Automatic {gamemode} points")[:500],
                             "actor_id": None, "actor_name": "Format Checker",
                             "ticket_number": ticket, "thread_id": str(thread_id) if thread_id else None,
