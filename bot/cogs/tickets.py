@@ -2631,10 +2631,11 @@ class TicketsCog(commands.Cog):
                                 if stored:
                                     token = generate_transcript_token(transcript_filename, expires_seconds=10 * 365 * 24 * 3600)
                                     base_url = get_dashboard_base_url().rstrip("/")
-                                    attachment_url = (
-                                        f"{base_url}/transcripts/attachment/{stored['id']}"
-                                        f"?ticket={transcript_filename}&token={token}"
-                                    )
+                                    if base_url:
+                                        attachment_url = (
+                                            f"{base_url}/transcripts/attachment/{stored['id']}"
+                                            f"?ticket={transcript_filename}&token={token}"
+                                        )
                         except Exception:
                             logger.exception(
                                 "Could not archive image attachment %s for ticket=%s; retaining Discord URL",
