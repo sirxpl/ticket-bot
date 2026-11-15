@@ -1,5 +1,6 @@
 """Regression tests for Discord slash-command visibility rules."""
 import ast
+import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,20 +19,28 @@ def _method(path, class_name, method_name):
     )
 
 
-def test_ticket_logging_is_visible_to_bot_level_administrators():
-    method = _method("cogs/tickets.py", "TicketsCog", "ticket_logging_command")
-    decorator_names = [
-        decorator.func.attr
-        for decorator in method.decorator_list
-        if isinstance(decorator, ast.Call)
-        and isinstance(decorator.func, ast.Attribute)
-    ]
+class SlashCommandVisibilityTests(unittest.TestCase):
+    def test_ticket_logging_is_visible_to_bot_level_administrators(self):
+        method = _method("cogs/tickets.py", "TicketsCog", "ticket_logging_command")
+        decorator_names = [
+            decorator.func.attr
+            for decorator in method.decorator_list
+            if isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+        ]
 
-    # Discord's native administrator-only restriction hid this command from
-    # configured bot admins who were not also Discord server administrators.
-    assert "default_permissions" not in decorator_names
+        # Discord's native administrator-only restriction hid this command
+        # from configured bot admins who were not also server administrators.
+        self.assertNotIn("default_permissions", decorator_names)
 
-    source = ast.get_source_segment(
-        (ROOT / "cogs/tickets.py").read_text(encoding="utf-8"), method
-    )
-    assert "interaction.user.guild_permissions.administrator or is_admin(interaction.user.id)" in source
+        source = ast.get_source_segment(
+            (ROOT / "cogs/tickets.py").read_text(encoding="utf-8"), method
+        )
+        self.assertIn(
+            "interaction.user.guild_permissions.administrator or is_admin(interaction.user.id)",
+            source,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
