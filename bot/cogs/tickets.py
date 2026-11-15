@@ -2612,10 +2612,36 @@ class TicketsCog(commands.Cog):
                     is_image = bool(
                         a.content_type and a.content_type.startswith("image/")
                     ) or a.filename.lower().endswith(
-                        (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                        (".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp")
                     )
+                    attachment_url = a.url
+                    # Download image attachments up to 50 MiB so archived
+                    # transcripts keep working after Discord's CDN URL expires.
+                    if is_image and 0 < int(getattr(a, "size", 0) or 0) <= 50 * 1024 * 1024:
+                        try:
+                            media_bytes = await a.read()
+                            if len(media_bytes) <= 50 * 1024 * 1024:
+                                from utils.storage import save_transcript_attachment, generate_transcript_token, get_dashboard_base_url
+                                transcript_filename = f"ticket-{channel.id}.html"
+                                stored = save_transcript_attachment(
+                                    transcript_filename, a.filename,
+                                    a.content_type or "application/octet-stream",
+                                    media_bytes,
+                                )
+                                if stored:
+                                    token = generate_transcript_token(transcript_filename, expires_seconds=10 * 365 * 24 * 3600)
+                                    base_url = get_dashboard_base_url().rstrip("/")
+                                    attachment_url = (
+                                        f"{base_url}/transcripts/attachment/{stored['id']}"
+                                        f"?ticket={transcript_filename}&token={token}"
+                                    )
+                        except Exception:
+                            logger.exception(
+                                "Could not archive image attachment %s for ticket=%s; retaining Discord URL",
+                                a.filename, channel.id,
+                            )
                     attachments_data.append({
-                        "url": a.url,
+                        "url": attachment_url,
                         "filename": a.filename,
                         "is_image": is_image,
                     })
