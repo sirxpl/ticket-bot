@@ -248,6 +248,11 @@ class PointsStorageTests(unittest.TestCase):
         self.assertEqual(activity["items"][1]["amount"], 12.75)
         self.assertEqual(activity["items"][1]["points_after"], 12.75)
 
+    def test_manual_decimal_math_is_normalized_to_cents(self):
+        points.adjust_points("guild", "101", "CarryOne", "add", "0.10", "First fraction")
+        result = points.adjust_points("guild", "101", "CarryOne", "add", "0.20", "Second fraction")
+        self.assertEqual(result["points"], 0.30)
+
     def test_set_balance_allows_zero_and_requires_reason(self):
         result = points.adjust_points("guild", "101", "CarryOne", "set", 0, "Reset")
         self.assertEqual(result["points"], 0)
