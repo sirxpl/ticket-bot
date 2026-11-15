@@ -1314,6 +1314,8 @@ def get_transcript_attachment(media_id, transcript_filename):
     from bson import ObjectId
     import io
 
+    if not re.fullmatch(r"(?:[a-f0-9]{24}|[a-f0-9-]{36})", str(media_id or "")):
+        return None
     db = get_db()
     if db is None:
         path = os.path.join(TRANSCRIPTS_DIR, "attachments", transcript_filename, media_id)
