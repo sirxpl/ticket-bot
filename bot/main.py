@@ -2676,6 +2676,8 @@ def get_transcript_attachment_route(media_id):
     from utils.storage import verify_transcript_token, get_transcript_attachment
 
     ticket_filename = str(request.args.get("ticket") or "")
+    if not __import__("re").fullmatch(r"ticket-[0-9]{1,25}\\.html", ticket_filename):
+        abort(404)
     token = request.args.get("token")
     signed_info = verify_transcript_token(token) if token else None
     if (
