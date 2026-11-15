@@ -2105,7 +2105,8 @@ class TicketsCog(commands.Cog):
 
     @app_commands.command(name="ticket-logging", description="Choose the Discord channel for ticket activity logs")
     @app_commands.describe(channel="Channel where opened, closed and other enabled ticket events are posted")
-    @app_commands.default_permissions(administrator=True)
+    # Keep this command discoverable to bot-level administrators too.
+    # Authorization remains enforced in ticket_logging_command below.
     @app_commands.guild_only()
     async def ticket_logging_command(self, interaction: discord.Interaction, channel: discord.TextChannel):
         from utils.access import is_admin
