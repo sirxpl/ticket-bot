@@ -1276,6 +1276,64 @@ def save_transcript_html(filename,html):
     try:open(os.path.join(TRANSCRIPTS_DIR,filename),"w",encoding="utf-8").write(html);return True
     except Exception:return False
 
+# --- Archived transcript media ---
+def save_transcript_attachment(transcript_filename, filename, content_type, content):
+    """Store a downloaded transcript image outside the HTML document (GridFS)."""
+    from gridfs import GridFSBucket
+    from bson import ObjectId
+    import io
+
+    db = get_db()
+    if db is None:
+        # Local fallback keeps small deployments functional; this directory is
+        # intentionally separate from the HTML transcript archive.
+        safe_id = str(uuid.uuid4())
+        folder = os.path.join(TRANSCRIPTS_DIR, "attachments", transcript_filename)
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, safe_id)
+        with open(path, "wb") as file:
+            file.write(content)
+        return {"id": safe_id, "storage": "local"}
+    bucket = GridFSBucket(db, bucket_name="transcript_attachments")
+    media_id = ObjectId()
+    bucket.upload_from_stream_with_id(
+        media_id,
+        filename,
+        io.BytesIO(content),
+        metadata={
+            "transcript_filename": str(transcript_filename),
+            "content_type": str(content_type or "application/octet-stream"),
+        },
+    )
+    return {"id": str(media_id), "storage": "gridfs"}
+
+
+def get_transcript_attachment(media_id, transcript_filename):
+    """Read one archived image only when it belongs to the requested transcript."""
+    from gridfs import GridFSBucket
+    from bson import ObjectId
+    import io
+
+    db = get_db()
+    if db is None:
+        path = os.path.join(TRANSCRIPTS_DIR, "attachments", transcript_filename, media_id)
+        try:
+            with open(path, "rb") as file:
+                return file.read(), "application/octet-stream"
+        except OSError:
+            return None
+    try:
+        bucket = GridFSBucket(db, bucket_name="transcript_attachments")
+        stream = bucket.open_download_stream(ObjectId(media_id))
+        metadata = stream.metadata or {}
+        if metadata.get("transcript_filename") != transcript_filename:
+            return None
+        return stream.read(), metadata.get("content_type") or "application/octet-stream"
+    except Exception:
+        logger.exception("Transcript attachment lookup failed")
+        return None
+
+
 # --- Transcript links ---
 _detected_base_url=None
 
