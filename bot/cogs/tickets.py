@@ -2105,7 +2105,8 @@ class TicketsCog(commands.Cog):
 
     @app_commands.command(name="ticket-logging", description="Choose the Discord channel for ticket activity logs")
     @app_commands.describe(channel="Channel where opened, closed and other enabled ticket events are posted")
-    @app_commands.default_permissions(administrator=True)
+    # Keep this command discoverable to bot-level administrators too.
+    # Authorization remains enforced in ticket_logging_command below.
     @app_commands.guild_only()
     async def ticket_logging_command(self, interaction: discord.Interaction, channel: discord.TextChannel):
         from utils.access import is_admin
@@ -2611,10 +2612,37 @@ class TicketsCog(commands.Cog):
                     is_image = bool(
                         a.content_type and a.content_type.startswith("image/")
                     ) or a.filename.lower().endswith(
-                        (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                        (".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp")
                     )
+                    attachment_url = a.url
+                    # Download image attachments up to 50 MiB so archived
+                    # transcripts keep working after Discord's CDN URL expires.
+                    if is_image and 0 < int(getattr(a, "size", 0) or 0) <= 50 * 1024 * 1024:
+                        try:
+                            media_bytes = await a.read()
+                            if len(media_bytes) <= 50 * 1024 * 1024:
+                                from utils.storage import save_transcript_attachment, generate_transcript_token, get_dashboard_base_url
+                                transcript_filename = f"ticket-{channel.id}.html"
+                                stored = save_transcript_attachment(
+                                    transcript_filename, a.filename,
+                                    a.content_type or "application/octet-stream",
+                                    media_bytes,
+                                )
+                                if stored:
+                                    token = generate_transcript_token(transcript_filename, expires_seconds=10 * 365 * 24 * 3600)
+                                    base_url = get_dashboard_base_url().rstrip("/")
+                                    if base_url:
+                                        attachment_url = (
+                                            f"{base_url}/transcripts/attachment/{stored['id']}"
+                                            f"?ticket={transcript_filename}&token={token}"
+                                        )
+                        except Exception:
+                            logger.exception(
+                                "Could not archive image attachment %s for ticket=%s; retaining Discord URL",
+                                a.filename, channel.id,
+                            )
                     attachments_data.append({
-                        "url": a.url,
+                        "url": attachment_url,
                         "filename": a.filename,
                         "is_image": is_image,
                     })

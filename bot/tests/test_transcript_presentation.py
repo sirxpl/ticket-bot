@@ -122,6 +122,24 @@ class TranscriptRenderingTests(unittest.TestCase):
         self.assertIn('data-transcript-theme="liquid-glass"', document)
 
 
+class TranscriptAttachmentStorageTests(unittest.TestCase):
+    def test_local_archived_image_round_trip_preserves_content_type(self):
+        from utils import storage
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(storage, "TRANSCRIPTS_DIR", directory), patch.object(storage, "get_db", return_value=None):
+                saved = storage.save_transcript_attachment(
+                    "ticket-42.html", "sample.gif", "image/gif", b"GIF89a-test"
+                )
+                content, content_type = storage.get_transcript_attachment(
+                    saved["id"], "ticket-42.html"
+                )
+                self.assertEqual(content, b"GIF89a-test")
+                self.assertEqual(content_type, "image/gif")
+                self.assertIsNone(storage.get_transcript_attachment("../outside", "ticket-42.html"))
+
+
 class TranscriptViewerRouteTests(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)

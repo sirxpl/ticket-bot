@@ -2669,6 +2669,59 @@ def get_transcript(filename):
     return _serve()
 
 
+@app.route("/transcripts/attachment/<media_id>")
+def get_transcript_attachment_route(media_id):
+    """Serve a locally archived image after the same transcript ownership check."""
+    from flask import request, abort, Response
+    from utils.storage import verify_transcript_token, get_transcript_attachment
+
+    ticket_filename = str(request.args.get("ticket") or "")
+    if not __import__("re").fullmatch(r"ticket-[0-9]{1,25}\.html", ticket_filename):
+        abort(404)
+    token = request.args.get("token")
+    signed_info = verify_transcript_token(token) if token else None
+    if (
+        not signed_info
+        or signed_info.get("filename") != ticket_filename
+        or not ticket_filename.startswith("ticket-")
+        or not ticket_filename.endswith(".html")
+    ):
+        abort(403)
+
+    transcript_info = get_transcript_info(ticket_filename)
+    if not transcript_info:
+        abort(404)
+    ticket_id = ticket_filename.removeprefix("ticket-").removesuffix(".html")
+    created_logs = get_logs_for_ticket(ticket_id)
+    created = next((entry for entry in created_logs if entry.get("action") == "created"), None)
+    creator = (created or {}).get("creator") or {}
+    creator_id = str(creator.get("id") or "")
+    current_user = session.get("user") or {}
+    if not current_user:
+        session["transcript_return_to"] = request.full_path
+        flash("🔒 Authorize with Discord to verify your account before viewing this image.", "warning")
+        return redirect(url_for("login"))
+
+    current_user_id = str(current_user.get("id") or "")
+    staff_access = has_transcripts_access(
+        current_user_id, get_member_role_ids(current_user_id)
+    )
+    if not staff_access and current_user_id != creator_id:
+        return "This transcript belongs to a different Discord account.", 403
+
+    archived = get_transcript_attachment(media_id, ticket_filename)
+    if not archived:
+        abort(404)
+    content, content_type = archived
+    if not str(content_type).lower().startswith("image/"):
+        abort(404)
+    response = Response(content, mimetype=content_type)
+    response.headers["Content-Disposition"] = "inline"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    return response
+
+
 @app.route("/preview/transcript")
 def preview_transcript():
     return Response(render_preview_transcript(back_url=url_for("home", page="transcripts")), mimetype="text/html")

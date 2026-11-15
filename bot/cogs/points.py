@@ -177,7 +177,7 @@ class PointsCog(commands.Cog):
         )
         public_body = (
             f"{user.mention} now has {float(result.get('points', 0)):g} points.\n"
-            f"Action: {mode.title()} {amount:,}\n"
+            f"Action: {mode.title()} {float(amount):g}\n"
             f"Reason: {discord.utils.escape_mentions(reason)}\n"
             f"Changed by: {discord.utils.escape_markdown(_member_name(interaction.user))}"
         )
@@ -243,13 +243,13 @@ class PointsCog(commands.Cog):
     @app_commands.command(name="points-add", description="Add points to a Carry Team member")
     @app_commands.guild_only()
     @app_commands.describe(user="Member receiving points", amount="Number of points to add", reason="Why points are being added")
-    async def points_add(self, interaction: discord.Interaction, user: discord.Member, amount: app_commands.Range[int, 1, 1_000_000_000], reason: str):
+    async def points_add(self, interaction: discord.Interaction, user: discord.Member, amount: app_commands.Range[float, 0.01, 1_000_000_000.0], reason: str):
         await self._manual_adjust(interaction, user, "add", amount, reason)
 
     @app_commands.command(name="points-subtract", description="Subtract points from a Carry Team member")
     @app_commands.guild_only()
     @app_commands.describe(user="Member losing points", amount="Number of points to subtract", reason="Why points are being subtracted")
-    async def points_subtract(self, interaction: discord.Interaction, user: discord.Member, amount: app_commands.Range[int, 1, 1_000_000_000], reason: str):
+    async def points_subtract(self, interaction: discord.Interaction, user: discord.Member, amount: app_commands.Range[float, 0.01, 1_000_000_000.0], reason: str):
         await self._manual_adjust(interaction, user, "subtract", amount, reason)
 
     @app_commands.command(name="remove-user", description="Remove a member from the Points leaderboard")
