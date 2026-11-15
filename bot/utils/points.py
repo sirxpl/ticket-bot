@@ -548,11 +548,13 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
     if mode not in {"set", "add", "subtract"}:
         raise ValueError("Choose Set, Add, or Subtract.")
     try:
-        amount = int(amount)
+        amount = float(amount)
     except (TypeError, ValueError):
-        raise ValueError("Point amount must be a whole number.")
-    if amount < 0 or amount > MAX_POINTS or (mode != "set" and amount < 1):
-        raise ValueError(f"Point amount must be between 1 and {MAX_POINTS}; Set may use 0.")
+        raise ValueError("Point amount must be a number.")
+    if not math.isfinite(amount) or amount < 0 or amount > MAX_POINTS or (mode != "set" and amount <= 0):
+        raise ValueError(f"Point amount must be greater than 0 and no more than {MAX_POINTS}; Set may use 0.")
+    if amount.is_integer():
+        amount = int(amount)
     clean_reason = str(reason or "").strip()[:500]
     if not clean_reason:
         raise ValueError("A reason is required for manual point changes.")
