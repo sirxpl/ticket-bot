@@ -1293,6 +1293,8 @@ def save_transcript_attachment(transcript_filename, filename, content_type, cont
         path = os.path.join(folder, safe_id)
         with open(path, "wb") as file:
             file.write(content)
+        with open(path + ".json", "w", encoding="utf-8") as file:
+            json.dump({"content_type": str(content_type or "application/octet-stream")}, file)
         return {"id": safe_id, "storage": "local"}
     bucket = GridFSBucket(db, bucket_name="transcript_attachments")
     media_id = ObjectId()
@@ -1321,7 +1323,13 @@ def get_transcript_attachment(media_id, transcript_filename):
         path = os.path.join(TRANSCRIPTS_DIR, "attachments", transcript_filename, media_id)
         try:
             with open(path, "rb") as file:
-                return file.read(), "application/octet-stream"
+                content = file.read()
+            try:
+                with open(path + ".json", encoding="utf-8") as file:
+                    content_type = json.load(file).get("content_type")
+            except (OSError, ValueError, AttributeError):
+                content_type = "application/octet-stream"
+            return content, content_type
         except OSError:
             return None
     try:
