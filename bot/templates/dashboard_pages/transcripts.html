@@ -21,7 +21,7 @@
             {% else %}<div class="tr-empty"><h3>No transcripts yet</h3><p>Closed ticket transcripts will appear here.</p></div>{% endfor %}
             <div class="search-empty tr-empty" style="display:none"><h3>No matching transcripts</h3><p>Try another ticket number, name, or user ID.</p></div>
         </div>
-        <nav class="tr-index-pagination" aria-label="Transcript pages">
+        <nav class="tr-index-pagination" id="transcript-pagination" aria-label="Transcript pages">
             <span id="transcript-pagination-label">Page {{ transcripts_page }} of {{ transcripts_total_pages }}{% if not preview_mode %} · Up to 50 per page{% endif %}</span>
             {% if not preview_mode and transcripts_total_pages > 1 %}<div>
                 {% if transcripts_page > 1 %}<a class="tr-index-open" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page - 1) }}">← Previous</a>{% endif %}
@@ -31,4 +31,5 @@
     </div>
     {% else %}<div class="tr-index-panel"><h2>Transcript access required</h2><p class="tr-index-description">Ask an admin to grant your role access in Access Control.</p></div>{% endif %}
 </section>
+{% if not preview_mode and can_access_transcripts %}<script src="{{ url_for('static', filename='js/transcript-archive-search.js') }}" defer></script>{% endif %}
 
