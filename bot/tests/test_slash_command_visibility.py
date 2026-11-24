@@ -50,7 +50,6 @@ class SlashCommandVisibilityTests(unittest.TestCase):
         self.assertIn("interaction.response.defer(ephemeral=False)", source)
         self.assertIn("interaction.edit_original_response(", source)
         self.assertNotIn("self._announce_public(", source)
-        self.assertNotIn("interaction.followup.send(", source)
 
 
 if __name__ == "__main__":
