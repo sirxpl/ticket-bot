@@ -159,14 +159,20 @@ class PointsCog(commands.Cog):
                 interaction.user.id, _member_name(interaction.user),
             )
         except ValueError as error:
-            await interaction.delete_original_response()
+            try:
+                await interaction.delete_original_response()
+            except discord.HTTPException:
+                logger.warning("Could not remove deferred Points response after validation failure")
             await interaction.followup.send(
                 view=_v2_notice("Invalid Points Change", str(error), okay=False), ephemeral=True
             )
             return
         except Exception:
             logger.exception("Manual Points command failed")
-            await interaction.delete_original_response()
+            try:
+                await interaction.delete_original_response()
+            except discord.HTTPException:
+                logger.warning("Could not remove deferred Points response after save failure")
             await interaction.followup.send(
                 view=_v2_notice("Points Not Updated", "The point change could not be saved. No success was recorded.", okay=False),
                 ephemeral=True,
