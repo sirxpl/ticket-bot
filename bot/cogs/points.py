@@ -149,7 +149,9 @@ class PointsCog(commands.Cog):
             return
         if not await self._allowed(interaction):
             return
-        await interaction.response.defer(ephemeral=True)
+        # Defer publicly so the successful result can replace the interaction's
+        # original response instead of creating a second channel message.
+        await interaction.response.defer(ephemeral=False)
         try:
             result = await asyncio.to_thread(
                 points.adjust_points,
@@ -157,38 +159,41 @@ class PointsCog(commands.Cog):
                 interaction.user.id, _member_name(interaction.user),
             )
         except ValueError as error:
+            await interaction.delete_original_response()
             await interaction.followup.send(
                 view=_v2_notice("Invalid Points Change", str(error), okay=False), ephemeral=True
             )
             return
         except Exception:
             logger.exception("Manual Points command failed")
+            await interaction.delete_original_response()
             await interaction.followup.send(
                 view=_v2_notice("Points Not Updated", "The point change could not be saved. No success was recorded.", okay=False),
                 ephemeral=True,
             )
             return
-        action = {"add": "manual_add", "subtract": "manual_subtract", "set": "manual_set"}[mode]
+        action = {"add": "manual_add", "subtract": "manual_subtract"}[mode]
+        points_after = float(result.get("points", 0))
+        change = float(amount) if mode == "add" else -float(amount)
         await self._deliver_log(
             interaction.guild, action, user_id=user.id, username=_member_name(user),
-            amount=amount if mode != "subtract" else -amount,
-            points_after=float(result.get("points", 0)), reason=reason,
+            amount=change,
+            points_after=points_after, reason=reason,
             actor_id=interaction.user.id, actor_name=_member_name(interaction.user),
         )
         public_body = (
-            f"{user.mention} now has {float(result.get('points', 0)):g} points.\n"
-            f"Action: {mode.title()} {float(amount):g}\n"
-            f"Reason: {discord.utils.escape_mentions(reason)}\n"
-            f"Changed by: {discord.utils.escape_markdown(_member_name(interaction.user))}"
+            f"**Member:** {user.mention}\n"
+            f"**Change:** {change:+g} points\n"
+            f"**New balance:** {points_after:g} points\n"
+            f"**Reason:** {discord.utils.escape_mentions(reason)}\n"
+            f"**Changed by:** <@{interaction.user.id}>"
         )
-        await self._announce_public(interaction, "Points Updated", public_body)
-        await interaction.followup.send(
+        await interaction.edit_original_response(
             view=_v2_notice(
-                "Points Updated",
-                f"Your change was processed. {user.mention} now has "
-                f"{float(result.get('points', 0)):g} points.",
+                "➕ Points Added" if mode == "add" else "➖ Points Subtracted",
+                public_body,
+                okay=mode == "add",
             ),
-            ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
