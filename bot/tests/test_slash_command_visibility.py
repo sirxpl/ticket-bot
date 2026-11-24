@@ -42,5 +42,16 @@ class SlashCommandVisibilityTests(unittest.TestCase):
         )
 
 
+    def test_manual_points_adjustments_use_one_public_interaction_response(self):
+        method = _method("cogs/points.py", "PointsCog", "_manual_adjust")
+        source = ast.get_source_segment(
+            (ROOT / "cogs/points.py").read_text(encoding="utf-8"), method
+        )
+        self.assertIn("interaction.response.defer(ephemeral=False)", source)
+        self.assertIn("interaction.edit_original_response(", source)
+        self.assertNotIn("self._announce_public(", source)
+        self.assertNotIn("interaction.followup.send(", source)
+
+
 if __name__ == "__main__":
     unittest.main()
