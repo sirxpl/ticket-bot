@@ -1253,6 +1253,100 @@ def get_transcript_page(page=1, per_page=50):
         })
     return rows, total
 
+def search_transcripts(query, limit=50):
+    """Search the complete transcript archive by ticket number, member name, or Discord ID."""
+    query = str(query or "").strip()
+    limit = max(1, min(100, int(limit)))
+    if not query:
+        return [], 0
+
+    pattern = re.escape(query)
+    db = get_db()
+    if db is not None:
+        try:
+            clauses = [
+                {"ticket_number": {"$regex": pattern, "$options": "i"}},
+                {"ticket_id": {"$regex": pattern, "$options": "i"}},
+                {"creator.name": {"$regex": pattern, "$options": "i"}},
+                {"creator.id": {"$regex": pattern, "$options": "i"}},
+            ]
+            if query.isdigit():
+                numeric_query = int(query)
+                clauses.append({"ticket_id": numeric_query})
+                clauses.append({"ticket_number": numeric_query})
+            matching_logs = list(db.ticket_logs.find(
+                {"action": "created", "$or": clauses},
+                {"_id": 0, "ticket_id": 1, "creator": 1, "ticket_number": 1},
+            ))
+            by_id = {}
+            for entry in matching_logs:
+                ticket_id = str(entry.get("ticket_id") or "")
+                if ticket_id:
+                    by_id.setdefault(ticket_id, entry)
+
+            filenames = [
+                "ticket-" + ticket_id + ".html"
+                for ticket_id in by_id
+                if ticket_id
+            ]
+            transcript_filter = {"$or": [
+                {"_id": {"$regex": pattern, "$options": "i"}},
+                {"_id": {"$in": filenames}} if filenames else {"_id": {"$in": []}},
+            ]}
+            total = db.transcripts.count_documents(transcript_filter)
+            documents = list(
+                db.transcripts.find(transcript_filter, {"_id": 1})
+                .sort("_id", -1)
+                .limit(limit)
+            )
+            rows = []
+            for document in documents:
+                filename = document.get("_id", "")
+                ticket_id = filename.removeprefix("ticket-").removesuffix(".html")
+                created = by_id.get(ticket_id) or {}
+                creator = created.get("creator") or {}
+                rows.append({
+                    "filename": filename,
+                    "ticket_number": created.get("ticket_number"),
+                    "username": creator.get("name") or "Unknown User",
+                    "user_id": creator.get("id"),
+                })
+            return rows, total
+        except Exception:
+            logger.exception("Transcript search Mongo read failed")
+            return [], 0
+
+    all_names = sorted(list_transcript_filenames(), reverse=True)
+    created_logs = [entry for entry in get_ticket_logs() if entry.get("action") == "created"]
+    by_id = {}
+    for entry in created_logs:
+        ticket_id = str(entry.get("ticket_id") or "")
+        if ticket_id:
+            by_id.setdefault(ticket_id, entry)
+
+    lowered = query.casefold()
+    matches = []
+    for filename in all_names:
+        ticket_id = filename.removeprefix("ticket-").removesuffix(".html")
+        created = by_id.get(ticket_id) or {}
+        creator = created.get("creator") or {}
+        searchable = (
+            filename,
+            ticket_id,
+            str(created.get("ticket_number") or ""),
+            str(creator.get("name") or ""),
+            str(creator.get("id") or ""),
+        )
+        if any(lowered in value.casefold() for value in searchable):
+            matches.append({
+                "filename": filename,
+                "ticket_number": created.get("ticket_number"),
+                "username": creator.get("name") or "Unknown User",
+                "user_id": creator.get("id"),
+            })
+    return matches[:limit], len(matches)
+
+
 def get_transcript_info(filename):
     tid=filename.removeprefix("ticket-").removesuffix(".html");c=next((l for l in get_logs_for_ticket(tid) if l.get("action")=="created"),None);cr=(c or {}).get("creator") or {};return {"filename":filename,"username":cr.get("name") or "Unknown User","ticket_number":(c or {}).get("ticket_number")}
 def list_transcript_filenames():
