@@ -6,3 +6,4 @@ chat-exporter
 pymongo
 dnspython
 python-dotenv
+tzdata

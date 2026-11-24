@@ -11,6 +11,7 @@ from discord.ext import commands, tasks
 
 from utils.components import embed_layout
 from utils import blacklists, audit, pin_permissions
+from utils.timezones import timezone_choices, timezone_label
 
 from utils.storage import (
     add_cooldown,
@@ -877,42 +878,66 @@ class TicketView(discord.ui.View):
                 self.author = author
                 self.selection = selection
 
-                self.timezone = discord.ui.TextInput(
-                    label="⏰ Which country and timezone are you from? *",
-                    placeholder="e.g. UTC, PST, CET",
+                self.timezone = discord.ui.Select(
+                    placeholder="Select your timezone",
+                    min_values=1,
+                    max_values=1,
                     required=True,
-                    style=discord.TextStyle.short,
-                    max_length=100,
+                    options=[
+                        discord.SelectOption(label=label, value=zone_id)
+                        for zone_id, label in timezone_choices()
+                    ],
                 )
 
                 self.display_name = discord.ui.TextInput(
-                    label="🎮 What is your roblox display name? *",
                     placeholder="Provide your display name (not username)",
                     required=True,
                     style=discord.TextStyle.short,
                     max_length=100,
                 )
 
-                self.can_join = discord.ui.TextInput(
-                    label="🎲 Are you able to join a private server? *",
-                    placeholder="Yes or No",
+                self.can_join = discord.ui.Select(
+                    placeholder="Select Yes or No",
+                    min_values=1,
+                    max_values=1,
                     required=True,
-                    style=discord.TextStyle.short,
-                    max_length=10,
+                    options=[
+                        discord.SelectOption(label="Yes", value="Yes"),
+                        discord.SelectOption(label="No", value="No"),
+                    ],
                 )
 
                 self.tds_level = discord.ui.TextInput(
-                    label="🏆 What level are you in TDS? *",
                     placeholder="e.g. 50",
                     required=True,
                     style=discord.TextStyle.short,
                     max_length=10,
                 )
 
-                self.add_item(self.timezone)
-                self.add_item(self.display_name)
-                self.add_item(self.can_join)
-                self.add_item(self.tds_level)
+                # Select menus must sit inside a Label, so every question does.
+                # Discord draws the required marker itself, so no manual "*".
+                self.add_item(discord.ui.Label(text="⏰ What is your timezone?", component=self.timezone))
+                self.add_item(discord.ui.Label(text="🎮 What is your Roblox display name?", component=self.display_name))
+                self.add_item(discord.ui.Label(text="🎲 Are you able to join a private server?", component=self.can_join))
+                self.add_item(discord.ui.Label(text="🏆 What level are you in TDS?", component=self.tds_level))
+
+            @property
+            def timezone_id(self) -> str:
+                """IANA identifier chosen in the dropdown, e.g. America/New_York."""
+                return self.timezone.values[0] if self.timezone.values else ""
+
+            @property
+            def timezone_answer(self) -> str:
+                """Readable label such as 'GMT-5 / ET (New York, Toronto – standard time)'."""
+                zone_id = self.timezone_id
+                try:
+                    return timezone_label(zone_id) if zone_id else ""
+                except Exception:
+                    return zone_id
+
+            @property
+            def can_join_answer(self) -> str:
+                return self.can_join.values[0] if self.can_join.values else ""
 
             async def on_submit(
                 self, modal_interaction: discord.Interaction
@@ -1091,9 +1116,9 @@ class TicketView(discord.ui.View):
                         "channel_mention": ticket_channel.mention,
                         "channel_name": ticket_channel.name,
                         "category": self.selection,
-                        "timezone": self.timezone.value or "",
+                        "timezone": self.timezone_answer or "",
                         "display_name": self.display_name.value or "",
-                        "can_join": self.can_join.value or "",
+                        "can_join": self.can_join_answer or "",
                         "tds_level": self.tds_level.value or "",
                     }
 
@@ -1120,10 +1145,10 @@ class TicketView(discord.ui.View):
                             color=embed_color,
                         )
 
-                        if welcome_cfg.get("show_timezone", True) and self.timezone.value:
+                        if welcome_cfg.get("show_timezone", True) and self.timezone_answer:
                             embed.add_field(
                                 name="Timezone",
-                                value=self.timezone.value,
+                                value=self.timezone_answer,
                                 inline=False,
                             )
                         if welcome_cfg.get("show_display_name", True) and self.display_name.value:
@@ -1135,7 +1160,7 @@ class TicketView(discord.ui.View):
                         if welcome_cfg.get("show_can_join", True):
                             embed.add_field(
                                 name="Can join private server?",
-                                value=self.can_join.value,
+                                value=self.can_join_answer,
                                 inline=False,
                             )
                         if welcome_cfg.get("show_tds_level", True) and self.tds_level.value:
@@ -1170,12 +1195,12 @@ class TicketView(discord.ui.View):
                                 **template_vars,
                             )
                         ]
-                        if welcome_cfg.get("show_timezone", True) and self.timezone.value:
-                            plain_parts.append(f"**Timezone:** {self.timezone.value}")
+                        if welcome_cfg.get("show_timezone", True) and self.timezone_answer:
+                            plain_parts.append(f"**Timezone:** {self.timezone_answer}")
                         if welcome_cfg.get("show_display_name", True) and self.display_name.value:
                             plain_parts.append(f"**Display name:** {self.display_name.value}")
                         if welcome_cfg.get("show_can_join", True):
-                            plain_parts.append(f"**Can join private server?** {self.can_join.value}")
+                            plain_parts.append(f"**Can join private server?** {self.can_join_answer}")
                         if welcome_cfg.get("show_tds_level", True) and self.tds_level.value:
                             plain_parts.append(f"**TDS Level:** {self.tds_level.value}")
                         if category_cfg and category_cfg.get("open_note"):
@@ -1251,9 +1276,10 @@ class TicketView(discord.ui.View):
                                 "avatar_url": str(user.display_avatar.url) if getattr(user, "display_avatar", None) else None,
                             },
                             "fields": {
-                                "timezone": self.timezone.value,
+                                "timezone": self.timezone_answer,
+                                "timezone_id": self.timezone_id,
                                 "display_name": self.display_name.value,
-                                "can_join": self.can_join.value,
+                                "can_join": self.can_join_answer,
                                 "tds_level": self.tds_level.value,
                             },
                         })
