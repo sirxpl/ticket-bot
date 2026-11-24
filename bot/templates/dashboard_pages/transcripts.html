@@ -7,8 +7,8 @@
     {% if can_access_transcripts %}
     <div class="tr-index-panel">
         <div class="tr-index-toolbar">
-            <div><h2>Your archive</h2><p>{{ 'Explore a fictional ticket conversation.' if preview_mode else 'Find a ticket by number, member, or user ID on this page.' }}</p></div>
-            <div class="tr-index-search"><svg class="tr-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" data-filter-target="transcript-list" placeholder="Search this page…" aria-label="Search transcripts"></div>
+            <div><h2>Your archive</h2><p>{{ 'Explore a fictional ticket conversation.' if preview_mode else 'Search every saved ticket by number, member, or Discord ID.' }}</p></div>
+            <div class="tr-index-search"><svg class="tr-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" id="transcript-global-search" placeholder="Search all transcripts…" aria-label="Search all transcripts" autocomplete="off" {% if not preview_mode %}data-search-url="{{ url_for('transcript_search_api') }}"{% endif %}><span class="tr-index-search-status" id="transcript-search-status" role="status" aria-live="polite"></span></div>
         </div>
         {% if preview_mode %}<p class="tr-notice">Preview only. This ticket and its conversation are fictional.</p>{% endif %}
         <div class="tr-index-list" id="transcript-list">
@@ -22,7 +22,7 @@
             <div class="search-empty tr-empty" style="display:none"><h3>No matching transcripts</h3><p>Try another ticket number, name, or user ID.</p></div>
         </div>
         <nav class="tr-index-pagination" aria-label="Transcript pages">
-            <span>Page {{ transcripts_page }} of {{ transcripts_total_pages }}{% if not preview_mode %} · Up to 50 per page{% endif %}</span>
+            <span id="transcript-pagination-label">Page {{ transcripts_page }} of {{ transcripts_total_pages }}{% if not preview_mode %} · Up to 50 per page{% endif %}</span>
             {% if not preview_mode and transcripts_total_pages > 1 %}<div>
                 {% if transcripts_page > 1 %}<a class="tr-index-open" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page - 1) }}">← Previous</a>{% endif %}
                 {% if transcripts_page < transcripts_total_pages %}<a class="tr-index-open" href="{{ url_for('home', page='transcripts', transcripts_page=transcripts_page + 1) }}">Next →</a>{% endif %}
