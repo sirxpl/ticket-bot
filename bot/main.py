@@ -54,6 +54,7 @@ from utils.storage import (
     get_logs_for_ticket,
     get_transcript_info,
     get_transcript_page,
+    search_transcripts,
     get_transcript_html,
     list_transcript_filenames,
     get_ticket_categories,
@@ -2616,6 +2617,31 @@ def admin_save_april_fools():
     )
     flash(f"📺 Saved {len(ads)} April Fools ad(s).", "success")
     return redirect(url_for("home", page="carry-settings", _anchor="ad-gag-settings"))
+
+
+@app.route("/api/transcripts/search")
+def transcript_search_api():
+    """Search every saved transcript while enforcing the dashboard's normal access rules."""
+    current_user = session.get("user") or {}
+    if not current_user:
+        return jsonify({"error": "Authentication required."}), 401
+
+    user_id = str(current_user.get("id") or "")
+    if not user_id or is_globally_blocked(user_id):
+        return jsonify({"error": "Access denied."}), 403
+
+    role_ids = [] if is_admin(user_id) else get_member_role_ids(user_id)
+    if not has_dashboard_access(user_id, role_ids) or not has_transcripts_access(user_id, role_ids):
+        return jsonify({"error": "You do not have permission to search transcripts."}), 403
+
+    query = str(request.args.get("q") or "").strip()
+    if not query:
+        return jsonify({"results": [], "total": 0})
+
+    results, total = search_transcripts(query, limit=50)
+    for result in results:
+        result["url"] = url_for("get_transcript", filename=result["filename"])
+    return jsonify({"results": results, "total": total})
 
 
 @app.route("/transcripts/<path:filename>")
