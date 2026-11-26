@@ -124,7 +124,7 @@ class _PointsSetConfirmationView(discord.ui.LayoutView):
         await interaction.response.defer()
         try:
             still_allowed = await asyncio.to_thread(
-                points.has_points_manager_access, interaction.user
+                points.has_points_set_access, interaction.user
             )
             if not still_allowed:
                 await interaction.edit_original_response(
@@ -535,7 +535,22 @@ class PointsCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        if not await self._allowed(interaction, manager_only=True):
+        try:
+            manager_allowed = await asyncio.to_thread(
+                points.has_points_set_access, interaction.user
+            )
+        except Exception:
+            logger.exception("Could not check Carry Manager access for points-set")
+            manager_allowed = False
+        if not manager_allowed:
+            await interaction.response.send_message(
+                view=_v2_notice(
+                    "Points Access Required",
+                    "Only administrators or members with a configured Carry Manager role can set point balances.",
+                    okay=False,
+                ),
+                ephemeral=True,
+            )
             return
         clean_reason = str(reason or "").strip()
         if not clean_reason:
