@@ -1020,10 +1020,22 @@ def has_points_manager_access(member):
     )
 
 
+def has_points_set_access(member):
+    """Only admins or members with a configured Carry Manager role may set balances."""
+    from utils.access import get_carry_manager_role_ids, is_admin
+
+    user_id = getattr(member, "id", None)
+    if is_admin(user_id):
+        return True
+    configured_roles = {str(role_id) for role_id in get_carry_manager_role_ids()}
+    member_roles = {str(role.id) for role in getattr(member, "roles", [])}
+    return bool(configured_roles.intersection(member_roles))
+
+
 __all__ = [
     "LOG_EVENTS", "PAGE_SIZE", "default_points_config", "normalize_points_config",
     "get_points_config", "save_points_config", "find_gamemode_rule", "validate_format",
     "record_event", "adjust_points", "remove_points_user", "set_user_excluded",
     "award_auto_points", "get_points_profile", "get_points_leaderboard", "get_points_activity",
-    "has_points_command_access", "has_points_manager_access",
+    "has_points_command_access", "has_points_manager_access", "has_points_set_access",
 ]
