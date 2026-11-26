@@ -567,6 +567,10 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
             _ensure_indexes(db)
             with db.client.start_session() as session:
                 with session.start_transaction():
+                    existing = db.points_users.find_one(
+                        {"guild_id": guild_key, "user_id": uid}, {"points": 1}, session=session
+                    )
+                    previous_points = float((existing or {}).get("points", 0) or 0)
                     db.points_users.update_one(
                         {"guild_id": guild_key, "user_id": uid},
                         _points_pipeline(guild_key, uid, username, mode, amount, now),
@@ -576,16 +580,20 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
                     updated = db.points_users.find_one(
                         {"guild_id": guild_key, "user_id": uid}, {"_id": 0}, session=session
                     )
+                    new_points = float((updated or {}).get("points", 0) or 0)
                     activity = {
                         "guild_id": guild_key, "user_id": uid, "username": str(username or uid)[:100],
                         "action": action, "amount": amount if mode != "subtract" else -amount,
-                        "points_after": (updated or {}).get("points", 0), "reason": clean_reason,
+                        "points_before": previous_points,
+                        "points_after": new_points, "reason": clean_reason,
                         "actor_id": str(actor_id) if actor_id else None,
                         "actor_name": str(actor_name or actor_id or "Dashboard")[:100],
-                        "ticket_number": None, "thread_id": None, "details": "",
+                        "ticket_number": None, "thread_id": None,
+                        "details": f"Balance changed from {previous_points:g} to {new_points:g}." if mode == "set" else "",
                         "created_at": now,
                     }
                     _write_activity(db, activity, session=session)
+                    updated["points_before"] = previous_points
             return updated
         except Exception as error:
             logger.exception("Manual Points update failed")
@@ -607,13 +615,64 @@ def adjust_points(guild_id, user_id, username, mode, amount, reason, actor_id=No
         _record_local_event(data, {
             "guild_id": guild_key, "user_id": uid, "username": user["username"],
             "action": action, "amount": amount if mode != "subtract" else -amount,
-            "points_after": user["points"], "reason": clean_reason,
+            "points_before": current, "points_after": user["points"], "reason": clean_reason,
             "actor_id": str(actor_id) if actor_id else None,
             "actor_name": str(actor_name or actor_id or "Dashboard")[:100],
-            "ticket_number": None, "thread_id": None, "details": "", "created_at": now,
+            "ticket_number": None, "thread_id": None,
+            "details": f"Balance changed from {current:g} to {float(user['points']):g}." if mode == "set" else "",
+            "created_at": now,
         })
         _save_local(data)
-        return dict(user)
+        result = dict(user)
+        result["points_before"] = current
+        return result
+
+
+
+def get_points_profile(guild_id, user_id, limit=5):
+    """Return a member's current balance and most recent point-changing transactions."""
+    guild_key = _guild_key(guild_id)
+    uid = str(user_id)
+    try:
+        limit = max(1, min(5, int(limit)))
+    except (TypeError, ValueError):
+        limit = 5
+    transaction_actions = ["manual_add", "manual_subtract", "manual_set", "automatic_awarded"]
+    db = _database()
+    if db is not None:
+        try:
+            _ensure_indexes(db)
+            user = db.points_users.find_one(
+                {"guild_id": guild_key, "user_id": uid},
+                {"_id": 0, "points": 1, "username": 1},
+            )
+            history = list(db.points_activity.find(
+                {"guild_id": guild_key, "user_id": uid, "action": {"$in": transaction_actions}},
+                {"_id": 0, "guild_id": 0},
+            ).sort("created_at", DESCENDING).limit(limit))
+            balance = float((user or {}).get("points", 0) or 0)
+        except Exception as error:
+            logger.exception("Points profile Mongo read failed")
+            raise RuntimeError("This member's Points profile is temporarily unavailable.") from error
+    else:
+        with _LOCAL_LOCK:
+            data = _load_local()
+            user = next((
+                row for row in data["users"]
+                if row.get("guild_id") == guild_key and str(row.get("user_id")) == uid
+            ), None)
+            history = [
+                dict(row) for row in data["activity"]
+                if row.get("guild_id") == guild_key
+                and str(row.get("user_id")) == uid
+                and row.get("action") in transaction_actions
+            ]
+        history.sort(key=lambda row: str(row.get("created_at", "")), reverse=True)
+        history = history[:limit]
+        balance = float((user or {}).get("points", 0) or 0)
+    if balance.is_integer():
+        balance = int(balance)
+    return {"points": balance, "history": history}
 
 
 def remove_points_user(guild_id, user_id, username=None, reason=None, actor_id=None, actor_name=None):
