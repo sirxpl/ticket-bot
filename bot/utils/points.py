@@ -1024,6 +1024,6 @@ __all__ = [
     "LOG_EVENTS", "PAGE_SIZE", "default_points_config", "normalize_points_config",
     "get_points_config", "save_points_config", "find_gamemode_rule", "validate_format",
     "record_event", "adjust_points", "remove_points_user", "set_user_excluded",
-    "award_auto_points", "get_points_leaderboard", "get_points_activity",
+    "award_auto_points", "get_points_profile", "get_points_leaderboard", "get_points_activity",
     "has_points_command_access", "has_points_manager_access",
 ]
