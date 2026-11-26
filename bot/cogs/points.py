@@ -50,6 +50,168 @@ class _SafeThreadName(dict):
         return "{" + key + "}"
 
 
+class _PointsSetButton(discord.ui.Button):
+    def __init__(self, owner_view, *, confirm):
+        self.owner_view = owner_view
+        self.is_confirm = confirm
+        super().__init__(
+            label="Confirm" if confirm else "Cancel",
+            style=discord.ButtonStyle.success if confirm else discord.ButtonStyle.secondary,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.is_confirm:
+            await self.owner_view.confirm(interaction)
+        else:
+            await self.owner_view.cancel(interaction)
+
+
+class _PointsSetConfirmationView(discord.ui.LayoutView):
+    def __init__(self, cog, actor, target, amount, reason, current_points):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.actor_id = actor.id
+        self.target = target
+        self.amount = float(amount)
+        self.reason = str(reason).strip()[:500]
+        self.current_points = float(current_points or 0)
+        self._finished = False
+        self.message = None
+
+        container = discord.ui.Container(accent_color=discord.Color.orange())
+        container.add_item(discord.ui.TextDisplay("## Confirm Points Adjustment"))
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(
+            f"Are you sure you want to set **{discord.utils.escape_markdown(_member_name(target))}**'s points?"
+            f"\n\n**Current balance:** {self.current_points:g}"
+            f"\n**New balance:** {self.amount:g}"
+            f"\n**Difference:** {self.amount - self.current_points:+g}"
+            f"\n**Reason:** {discord.utils.escape_mentions(self.reason)}"
+        ))
+        self.confirm_button = _PointsSetButton(self, confirm=True)
+        self.cancel_button = _PointsSetButton(self, confirm=False)
+        container.add_item(discord.ui.ActionRow(self.confirm_button, self.cancel_button))
+        self.add_item(container)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.actor_id:
+            await interaction.response.send_message(
+                "Only the Carry Manager who started this adjustment can confirm or cancel it.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    def _disable_buttons(self):
+        self.confirm_button.disabled = True
+        self.cancel_button.disabled = True
+
+    async def cancel(self, interaction: discord.Interaction):
+        if self._finished:
+            return
+        self._finished = True
+        self._disable_buttons()
+        await interaction.response.edit_message(
+            view=_v2_notice("Adjustment Cancelled", "No points were changed.", okay=False)
+        )
+        self.stop()
+
+    async def confirm(self, interaction: discord.Interaction):
+        if self._finished:
+            return
+        self._finished = True
+        self._disable_buttons()
+        await interaction.response.defer()
+        try:
+            still_allowed = await asyncio.to_thread(
+                points.has_points_set_access, interaction.user
+            )
+            if not still_allowed:
+                await interaction.edit_original_response(
+                    view=_v2_notice(
+                        "Permission Changed",
+                        "Your Carry Manager access is no longer active. No points were changed.",
+                        okay=False,
+                    )
+                )
+                self.stop()
+                return
+
+            result = await asyncio.to_thread(
+                points.adjust_points,
+                interaction.guild.id,
+                self.target.id,
+                _member_name(self.target),
+                "set",
+                self.amount,
+                self.reason,
+                interaction.user.id,
+                _member_name(interaction.user),
+            )
+            previous = float(result.get("points_before", self.current_points))
+            updated = float(result.get("points", self.amount))
+            await self.cog._deliver_log(
+                interaction.guild,
+                "manual_set",
+                user_id=self.target.id,
+                username=_member_name(self.target),
+                amount=self.amount,
+                points_after=updated,
+                reason=self.reason,
+                actor_id=interaction.user.id,
+                actor_name=_member_name(interaction.user),
+            )
+            public_body = (
+                f"**Member:** {self.target.mention}\n"
+                f"**Previous balance:** {previous:g} points\n"
+                f"**New balance:** {updated:g} points\n"
+                f"**Difference:** {updated - previous:+g} points\n"
+                f"**Reason:** {discord.utils.escape_mentions(self.reason)}\n"
+                f"**Changed by:** <@{interaction.user.id}>"
+            )
+            try:
+                if interaction.channel is not None:
+                    await interaction.channel.send(
+                        view=_v2_notice("🎯 Points Balance Set", public_body),
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+            except Exception:
+                logger.exception("Points were saved but the public set announcement failed")
+            await interaction.edit_original_response(
+                view=_v2_notice(
+                    "Points Updated",
+                    f"{discord.utils.escape_markdown(_member_name(self.target))}'s balance is now **{updated:g} points**. "
+                    "The adjustment was recorded in Points history.",
+                )
+            )
+        except Exception:
+            logger.exception("Confirmed Points balance set failed")
+            await interaction.edit_original_response(
+                view=_v2_notice(
+                    "Points Not Updated",
+                    "The point change could not be saved. No success was recorded.",
+                    okay=False,
+                )
+            )
+        finally:
+            self.stop()
+
+    async def on_timeout(self):
+        if self._finished:
+            return
+        self._finished = True
+        self._disable_buttons()
+        if self.message is not None:
+            try:
+                await self.message.edit(
+                    view=_v2_notice("Confirmation Expired", "No points were changed.", okay=False)
+                )
+            except discord.HTTPException:
+                logger.debug("Could not update expired Points confirmation message")
+        self.stop()
+
+
+
 class PointsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -262,6 +424,162 @@ class PointsCog(commands.Cog):
     @app_commands.describe(user="Member losing points", amount="Number of points to subtract", reason="Why points are being subtracted")
     async def points_subtract(self, interaction: discord.Interaction, user: discord.Member, amount: app_commands.Range[float, 0.01, 1_000_000_000.0], reason: str):
         await self._manual_adjust(interaction, user, "subtract", amount, reason)
+
+
+    @app_commands.command(name="view-points", description="View a server member's Carry Team Points profile")
+    @app_commands.guild_only()
+    @app_commands.describe(user="Member to view; leave blank to view your own points")
+    async def view_points(self, interaction: discord.Interaction, user: discord.Member = None):
+        target = user or interaction.user
+        await interaction.response.defer()
+        try:
+            profile = await asyncio.to_thread(
+                points.get_points_profile, interaction.guild.id, target.id, 5
+            )
+        except Exception:
+            logger.exception("Could not load a member's Points profile")
+            await interaction.edit_original_response(
+                view=_v2_notice(
+                    "Points Profile Unavailable",
+                    "This member's Points profile could not be loaded right now. Please try again shortly.",
+                    okay=False,
+                )
+            )
+            return
+
+        balance = float(profile.get("points", 0) or 0)
+        history = profile.get("history") or []
+        display_name = discord.utils.escape_markdown(_member_name(target))
+        container = discord.ui.Container(accent_color=discord.Color.blurple())
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(
+                f"## {display_name}\n-# Carry Team Points Profile"
+            ),
+            accessory=discord.ui.Thumbnail(
+                target.display_avatar.url,
+                description=f"{_member_name(target)} profile picture",
+            ),
+        ))
+        container.add_item(discord.ui.Separator())
+        if balance > 0:
+            container.add_item(discord.ui.TextDisplay(f"### Total Points\n**{balance:g}**"))
+        else:
+            container.add_item(discord.ui.TextDisplay("**User does not have any points.**"))
+
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay("### Recent Points History"))
+        if not history:
+            container.add_item(discord.ui.TextDisplay("No points history yet."))
+        else:
+            history_lines = []
+            labels = {
+                "manual_add": "Points added",
+                "manual_subtract": "Points subtracted",
+                "manual_set": "Balance set",
+                "automatic_awarded": "Automatic points",
+            }
+            for entry in history[:5]:
+                action = str(entry.get("action") or "")
+                label = labels.get(action, "Points updated")
+                amount = float(entry.get("amount", 0) or 0)
+                if action == "manual_set":
+                    before = entry.get("points_before")
+                    after = entry.get("points_after")
+                    if before is not None and after is not None:
+                        change = f"Balance: {float(before):g} → {float(after):g}"
+                    else:
+                        change = f"Set balance to {float(after or 0):g}"
+                else:
+                    change = f"{amount:+g} points"
+                actor_id = str(entry.get("actor_id") or "")
+                actor = f"<@{actor_id}>" if actor_id.isdigit() else discord.utils.escape_mentions(
+                    str(entry.get("actor_name") or "Unknown")
+                )
+                reason_text = discord.utils.escape_mentions(
+                    str(entry.get("reason") or "No reason provided.")
+                )[:180]
+                timestamp = discord.utils.parse_time(str(entry.get("created_at") or ""))
+                when = f"<t:{int(timestamp.timestamp())}:R>" if timestamp else "Time unavailable"
+                history_lines.append(
+                    f"**{label}** · **{change}**\n"
+                    f"Reason: {reason_text}\n"
+                    f"By: {actor} · {when}"
+                )
+            container.add_item(discord.ui.TextDisplay("\n\n".join(history_lines)))
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay("-# Showing up to 5 most recent point transactions"))
+        view = discord.ui.LayoutView(timeout=None)
+        view.add_item(container)
+        await interaction.edit_original_response(
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @app_commands.command(name="points-set", description="Set a server member's total Carry Team Points")
+    @app_commands.guild_only()
+    @app_commands.describe(
+        user="Member whose points will be set",
+        amount="New total points balance",
+        reason="Why the balance is being changed",
+    )
+    async def points_set(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        amount: app_commands.Range[float, 0.0, 1_000_000_000.0],
+        reason: str,
+    ):
+        if user.bot:
+            await interaction.response.send_message(
+                view=_v2_notice("Invalid User", "Points cannot be assigned to bot accounts.", okay=False),
+                ephemeral=True,
+            )
+            return
+        try:
+            manager_allowed = await asyncio.to_thread(
+                points.has_points_set_access, interaction.user
+            )
+        except Exception:
+            logger.exception("Could not check Carry Manager access for points-set")
+            manager_allowed = False
+        if not manager_allowed:
+            await interaction.response.send_message(
+                view=_v2_notice(
+                    "Points Access Required",
+                    "Only administrators or members with a configured Carry Manager role can set point balances.",
+                    okay=False,
+                ),
+                ephemeral=True,
+            )
+            return
+        clean_reason = str(reason or "").strip()
+        if not clean_reason:
+            await interaction.response.send_message(
+                view=_v2_notice("Reason Required", "Enter a reason before setting a member's points.", okay=False),
+                ephemeral=True,
+            )
+            return
+        try:
+            profile = await asyncio.to_thread(
+                points.get_points_profile, interaction.guild.id, user.id, 1
+            )
+        except Exception:
+            logger.exception("Could not preview a Points balance adjustment")
+            await interaction.response.send_message(
+                view=_v2_notice(
+                    "Points Unavailable",
+                    "The current balance could not be loaded, so this adjustment cannot be confirmed.",
+                    okay=False,
+                ),
+                ephemeral=True,
+            )
+            return
+        confirmation = _PointsSetConfirmationView(
+            self, interaction.user, user, amount, clean_reason, profile.get("points", 0)
+        )
+        await interaction.response.send_message(view=confirmation, ephemeral=True)
+        confirmation.message = await interaction.original_response()
+
 
     @app_commands.command(name="remove-user", description="Remove a member from the Points leaderboard")
     @app_commands.guild_only()
